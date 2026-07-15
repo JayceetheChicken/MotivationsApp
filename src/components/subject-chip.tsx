@@ -12,16 +12,16 @@ interface SubjectChipProps {
 
 export function SubjectChip({ subject, selected, onPress, dark = false }: SubjectChipProps) {
   const theme = useAppTheme();
-  const selectedBackground = dark ? 'rgba(255,255,255,0.16)' : theme.colors.primaryMuted;
-  const idleBackground = dark ? 'rgba(255,255,255,0.07)' : theme.colors.surface;
+  const selectedBackground = dark ? theme.colors.focusSurfaceStrong : theme.colors.primaryMuted;
+  const idleBackground = dark ? theme.colors.focusSurface : theme.colors.surface;
   const borderColor = selected
     ? dark
-      ? 'rgba(255,255,255,0.8)'
+      ? theme.colors.focusText
       : theme.colors.primary
     : dark
-      ? 'rgba(255,255,255,0.14)'
+      ? theme.colors.focusBorder
       : theme.colors.border;
-  const textColor = dark ? '#FFFFFF' : selected ? theme.colors.onPrimaryMuted : theme.colors.text;
+  const textColor = dark ? theme.colors.focusText : selected ? theme.colors.onPrimaryMuted : theme.colors.text;
 
   return (
     <Pressable
@@ -71,4 +71,3 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
   },
 });
-

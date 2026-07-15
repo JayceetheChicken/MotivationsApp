@@ -49,34 +49,39 @@ export function AppButton({
     primary: {
       backgroundColor: theme.colors.primary,
       borderColor: theme.colors.primary,
+      pressedBackgroundColor: theme.colors.primaryPressed,
       textColor: theme.colors.onPrimary,
     },
     secondary: {
       backgroundColor: theme.colors.primaryMuted,
       borderColor: theme.colors.primaryMuted,
+      pressedBackgroundColor: theme.colors.surfacePressed,
       textColor: theme.colors.onPrimaryMuted,
     },
     outline: {
-      backgroundColor: 'transparent',
+      backgroundColor: theme.colors.surface,
       borderColor: theme.colors.borderStrong,
+      pressedBackgroundColor: theme.colors.surfacePressed,
       textColor: theme.colors.text,
     },
     ghost: {
       backgroundColor: 'transparent',
       borderColor: 'transparent',
+      pressedBackgroundColor: theme.colors.primaryMuted,
       textColor: theme.colors.primary,
     },
     danger: {
       backgroundColor: theme.colors.danger,
       borderColor: theme.colors.danger,
+      pressedBackgroundColor: theme.colors.dangerPressed,
       textColor: theme.colors.onDanger,
     },
   }[variant];
 
   const sizeValues = {
     compact: { minHeight: theme.layout.minTouchTarget, paddingHorizontal: theme.spacing.md },
-    default: { minHeight: 52, paddingHorizontal: theme.spacing.lg },
-    large: { minHeight: 58, paddingHorizontal: theme.spacing.xl },
+    default: { minHeight: 48, paddingHorizontal: theme.spacing.lg },
+    large: { minHeight: 54, paddingHorizontal: theme.spacing.xl },
   }[size];
 
   return (
@@ -95,6 +100,9 @@ export function AppButton({
           borderRadius: theme.radii.md,
         },
         fullWidth ? styles.fullWidth : undefined,
+        pressed && !isDisabled
+          ? { backgroundColor: variantValues.pressedBackgroundColor }
+          : undefined,
         pressed && !isDisabled ? styles.pressed : undefined,
         isDisabled ? styles.disabled : undefined,
         style,
@@ -137,8 +145,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   pressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.99 }],
+    transform: [{ scale: 0.995 }],
   },
   disabled: {
     opacity: 0.5,

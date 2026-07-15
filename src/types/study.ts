@@ -6,8 +6,10 @@ export interface StudyUser {
   id: string;
   username: string;
   displayName: string;
-  avatarInitials: string;
-  avatarColor: string;
+  /** Optional because a local profile can be created without an image. */
+  avatarUrl?: string;
+  avatarInitials?: string;
+  avatarColor?: string;
 }
 
 export interface Subject {
@@ -68,18 +70,34 @@ export interface ActiveTimer {
   updatedAt: ISODateTime;
 }
 
-export type GoalPeriod = 'week' | 'month';
+export type GoalPeriod = 'week' | 'month' | 'year';
 export type GoalSourcePolicy = 'all' | 'timer_only';
+export type GoalStatus = 'active' | 'paused' | 'completed' | 'archived';
+
+export interface GoalPauseInterval {
+  startedAt: ISODateTime;
+  endedAt: ISODateTime;
+}
 
 interface StudyGoalBase {
   id: string;
   userId: string;
-  title: string;
+  /** Missing or whitespace-only titles are replaced by a generated display title. */
+  title?: string;
   period: GoalPeriod;
   sourcePolicy: GoalSourcePolicy;
   subjectIds?: readonly string[];
-  status: 'active' | 'paused' | 'archived';
+  status: GoalStatus;
   createdAt: ISODateTime;
+  /**
+   * The earliest point at which sessions may count. Optional for backwards
+   * compatibility with persisted v1 goals; new and migrated goals always set it.
+   */
+  startsAt?: ISODateTime;
+  pausedAt?: ISODateTime;
+  pausedIntervals?: readonly GoalPauseInterval[];
+  completedAt?: ISODateTime;
+  archivedAt?: ISODateTime;
 }
 
 export interface DurationGoal extends StudyGoalBase {
@@ -149,8 +167,9 @@ export interface StudyChallenge {
   participants: readonly ChallengeParticipant[];
 }
 
-export interface DemoData {
-  currentUser: StudyUser;
+export interface StudyData {
+  /** `null` until onboarding, local profile creation or sign-in is complete. */
+  currentUser: StudyUser | null;
   subjects: readonly Subject[];
   sessions: readonly StudySession[];
   goals: readonly StudyGoal[];
@@ -158,3 +177,6 @@ export interface DemoData {
   challenges: readonly StudyChallenge[];
   activeTimer: ActiveTimer | null;
 }
+
+/** @deprecated Kept so the isolated development fixture remains type-safe. */
+export type DemoData = StudyData;

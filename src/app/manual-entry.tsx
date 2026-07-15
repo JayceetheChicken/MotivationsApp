@@ -15,8 +15,9 @@ const quickDurations = [15, 30, 45, 60];
 
 export default function ManualEntryScreen() {
   const theme = useAppTheme();
-  const { data, addManualEntry } = useStudyStore();
+  const { data, addManualEntry, addSubject } = useStudyStore();
   const [subjectId, setSubjectId] = useState(() => data.subjects[0]?.id ?? '');
+  const [newSubjectName, setNewSubjectName] = useState('');
   const [duration, setDuration] = useState('30');
   const [studiedOn, setStudiedOn] = useState(() => toLocalDateInput(new Date()));
   const [note, setNote] = useState('');
@@ -34,6 +35,14 @@ export default function ManualEntryScreen() {
     }),
     [],
   );
+  const availableSubjects = data.subjects.filter((subject) => !subject.archived);
+
+  const createSubject = () => {
+    if (!newSubjectName.trim()) return;
+    const subject = addSubject(newSubjectName);
+    setSubjectId(subject.id);
+    setNewSubjectName('');
+  };
 
   const save = () => {
     if (!isValid) return;
@@ -63,16 +72,78 @@ export default function ManualEntryScreen() {
 
       <View style={styles.fieldGroup}>
         <Text accessibilityRole="header" style={[theme.typography.subheading, { color: theme.colors.text }]}>Fach</Text>
-        <View accessibilityRole="radiogroup" style={styles.wrapRow}>
-          {data.subjects.filter((subject) => !subject.archived).map((subject) => (
-            <SubjectChip
-              key={subject.id}
-              onPress={() => setSubjectId(subject.id)}
-              selected={subjectId === subject.id}
-              subject={subject}
+        {availableSubjects.length === 0 ? (
+          <AppCard style={styles.subjectSetup} variant="subtle">
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Lege zuerst ein Fach an</Text>
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>So bleibt die nachgetragene Zeit in deiner Statistik eindeutig zugeordnet.</Text>
+            <TextInput
+              accessibilityLabel="Name des ersten Fachs"
+              onChangeText={setNewSubjectName}
+              onSubmitEditing={createSubject}
+              placeholder="z. B. Mathematik"
+              placeholderTextColor={theme.colors.textSubtle}
+              returnKeyType="done"
+              style={[
+                theme.typography.body,
+                styles.subjectNameInput,
+                {
+                  color: theme.colors.text,
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.borderStrong,
+                  borderRadius: theme.radii.md,
+                },
+              ]}
+              value={newSubjectName}
             />
-          ))}
-        </View>
+            <AppButton
+              disabled={!newSubjectName.trim()}
+              label="Fach hinzufügen"
+              onPress={createSubject}
+              variant="outline"
+            />
+          </AppCard>
+        ) : (
+          <View style={styles.subjectSelection}>
+            <View accessibilityRole="radiogroup" style={styles.wrapRow}>
+              {availableSubjects.map((subject) => (
+                <SubjectChip
+                  key={subject.id}
+                  onPress={() => setSubjectId(subject.id)}
+                  selected={subjectId === subject.id}
+                  subject={subject}
+                />
+              ))}
+            </View>
+            <View style={styles.addSubjectRow}>
+              <TextInput
+                accessibilityLabel="Weiteres Fach hinzufügen"
+                onChangeText={setNewSubjectName}
+                onSubmitEditing={createSubject}
+                placeholder="Weiteres Fach"
+                placeholderTextColor={theme.colors.textSubtle}
+                returnKeyType="done"
+                style={[
+                  theme.typography.body,
+                  styles.subjectNameInput,
+                  styles.additionalSubjectInput,
+                  {
+                    color: theme.colors.text,
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.borderStrong,
+                    borderRadius: theme.radii.md,
+                  },
+                ]}
+                value={newSubjectName}
+              />
+              <AppButton
+                disabled={!newSubjectName.trim()}
+                label="Hinzufügen"
+                onPress={createSubject}
+                variant="outline"
+              />
+            </View>
+          </View>
+        )}
       </View>
 
       <View style={styles.fieldGroup}>
@@ -202,6 +273,30 @@ const styles = StyleSheet.create({
   },
   fieldGroup: {
     gap: 13,
+  },
+  subjectSetup: {
+    gap: 12,
+  },
+  subjectSelection: {
+    gap: 14,
+  },
+  addSubjectRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  subjectNameInput: {
+    width: '100%',
+    minHeight: 52,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+  },
+  additionalSubjectInput: {
+    width: 'auto',
+    minWidth: 190,
+    flex: 1,
   },
   labelRow: {
     flexDirection: 'row',

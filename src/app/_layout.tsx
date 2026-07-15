@@ -1,30 +1,18 @@
-import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
-} from 'expo-router/react-navigation';
-import { router } from 'expo-router';
+import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
+import { router, useSegments } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { StatusBar } from 'expo-status-bar';
-import {
-  ActivityIndicator,
-  Pressable,
-  Text,
-  View,
-  useColorScheme,
-} from 'react-native';
+import { type PropsWithChildren, useEffect } from 'react';
+import { ActivityIndicator, Pressable, Text, View, useColorScheme } from 'react-native';
 import 'react-native-reanimated';
 
+import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 import { StudyStoreProvider, useStudyStore } from '@/state/study-store';
 import { darkTheme, lightTheme, type AppTheme } from '@/theme';
 
 export const unstable_settings = { anchor: '(tabs)' };
 
-function ModalBackButton({
-  color,
-}: {
-  color: string;
-}) {
+function ModalBackButton({ color }: { color: string }) {
   return (
     <Pressable
       accessibilityLabel="Zurück"
@@ -43,10 +31,79 @@ function ModalBackButton({
   );
 }
 
-function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
-  const { hydrated } = useStudyStore();
+function AccountStudyBridge() {
+  const { activeMode, localProfile, user } = useAuthStore();
+  const { data, hydrated, updateLocalProfile } = useStudyStore();
 
-  if (!hydrated) {
+  useEffect(() => {
+    if (!hydrated || activeMode === 'none') return;
+
+    const metadata = user?.user_metadata as Record<string, unknown> | undefined;
+    const emailFallback = user?.email?.split('@')[0] || 'lernprofil';
+    const displayName = activeMode === 'local'
+      ? localProfile?.displayName
+      : typeof metadata?.display_name === 'string'
+        ? metadata.display_name
+        : emailFallback;
+    const username = activeMode === 'local'
+      ? localProfile?.username
+      : typeof metadata?.username === 'string'
+        ? metadata.username
+        : emailFallback;
+    const avatarUrl = activeMode === 'local'
+      ? localProfile?.avatarUri
+      : typeof metadata?.avatar_url === 'string'
+        ? metadata.avatar_url
+        : undefined;
+
+    if (!displayName || !username) return;
+    const current = data.currentUser;
+    if (
+      current?.displayName === displayName &&
+      current.username === username &&
+      current.avatarUrl === avatarUrl
+    ) {
+      return;
+    }
+    updateLocalProfile({ displayName, username, avatarUrl });
+  }, [activeMode, data.currentUser, hydrated, localProfile, updateLocalProfile, user]);
+
+  return null;
+}
+
+function ScopedStudyStore({ children }: PropsWithChildren) {
+  const { activeMode, user } = useAuthStore();
+  const storageScope = activeMode === 'supabase' && user
+    ? `account-${user.id}`
+    : activeMode === 'local'
+      ? 'local'
+      : 'guest';
+
+  return (
+    <StudyStoreProvider key={storageScope} storageScope={storageScope}>
+      {children}
+    </StudyStoreProvider>
+  );
+}
+
+function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
+  const segments = useSegments();
+  const auth = useAuthStore();
+  const study = useStudyStore();
+  const ready = auth.hydrated && study.hydrated;
+  const inAuthGroup = segments[0] === '(auth)';
+  const onPasswordUpdateRoute = segments.some((segment) => segment === 'update-password');
+
+  useEffect(() => {
+    if (!ready) return;
+    if (auth.passwordRecoveryPending && !onPasswordUpdateRoute) {
+      router.replace('/update-password');
+    } else if (!auth.hasAccess && !inAuthGroup) {
+      router.replace('/login');
+    }
+  }, [auth.hasAccess, auth.passwordRecoveryPending, inAuthGroup, onPasswordUpdateRoute, ready]);
+
+  if (!ready) {
     return (
       <View
         accessibilityLabel="Lerndaten werden geladen"
@@ -62,47 +119,48 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   }
 
   return (
-    <Stack
-      screenOptions={{
-        contentStyle: { backgroundColor: appTheme.colors.background },
-        headerStyle: { backgroundColor: appTheme.colors.background },
-        headerShadowVisible: false,
-        headerTintColor: appTheme.colors.text,
-        headerBackButtonDisplayMode: 'minimal',
-      }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen
-        name="session"
-        options={{ presentation: 'fullScreenModal', headerShown: false }}
-      />
-      <Stack.Screen
-        name="manual-entry"
-        options={{
-          presentation: 'modal',
-          title: 'Lernzeit nachtragen',
-          headerBackVisible: false,
-          headerLeft: () => <ModalBackButton color={appTheme.colors.text} />,
-        }}
-      />
-      <Stack.Screen
-        name="create-goal"
-        options={{
-          presentation: 'modal',
-          title: 'Neues Lernziel',
-          headerBackVisible: false,
-          headerLeft: () => <ModalBackButton color={appTheme.colors.text} />,
-        }}
-      />
-      <Stack.Screen
-        name="profile"
-        options={{
-          presentation: 'modal',
-          title: 'Profil & Datenschutz',
-          headerBackVisible: false,
-          headerLeft: () => <ModalBackButton color={appTheme.colors.text} />,
-        }}
-      />
-    </Stack>
+    <>
+      <AccountStudyBridge />
+      <Stack
+        screenOptions={{
+          contentStyle: { backgroundColor: appTheme.colors.background },
+          headerStyle: { backgroundColor: appTheme.colors.background },
+          headerShadowVisible: false,
+          headerTintColor: appTheme.colors.text,
+          headerBackButtonDisplayMode: 'minimal',
+        }}>
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="session" options={{ presentation: 'fullScreenModal', headerShown: false }} />
+        <Stack.Screen
+          name="manual-entry"
+          options={{
+            presentation: 'modal',
+            title: 'Lernzeit nachtragen',
+            headerBackVisible: false,
+            headerLeft: () => <ModalBackButton color={appTheme.colors.text} />,
+          }}
+        />
+        <Stack.Screen
+          name="create-goal"
+          options={{
+            presentation: 'modal',
+            title: 'Lernziel',
+            headerBackVisible: false,
+            headerLeft: () => <ModalBackButton color={appTheme.colors.text} />,
+          }}
+        />
+        <Stack.Screen
+          name="profile"
+          options={{
+            presentation: 'modal',
+            title: 'Profil & Datenschutz',
+            headerBackVisible: false,
+            headerLeft: () => <ModalBackButton color={appTheme.colors.text} />,
+          }}
+        />
+      </Stack>
+    </>
   );
 }
 
@@ -110,10 +168,11 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const appTheme = isDark ? darkTheme : lightTheme;
+  const baseNavigationTheme = isDark ? DarkTheme : DefaultTheme;
   const navigationTheme = {
-    ...(isDark ? DarkTheme : DefaultTheme),
+    ...baseNavigationTheme,
     colors: {
-      ...(isDark ? DarkTheme.colors : DefaultTheme.colors),
+      ...baseNavigationTheme.colors,
       primary: appTheme.colors.primary,
       background: appTheme.colors.background,
       card: appTheme.colors.surface,
@@ -125,10 +184,12 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={navigationTheme}>
-      <StudyStoreProvider>
-        <StatusBar style={isDark ? 'light' : 'dark'} />
-        <HydratedNavigator appTheme={appTheme} />
-      </StudyStoreProvider>
+      <AuthStoreProvider>
+        <ScopedStudyStore>
+          <StatusBar style={isDark ? 'light' : 'dark'} />
+          <HydratedNavigator appTheme={appTheme} />
+        </ScopedStudyStore>
+      </AuthStoreProvider>
     </ThemeProvider>
   );
 }

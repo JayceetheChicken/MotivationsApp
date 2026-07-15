@@ -28,12 +28,14 @@ export function SourceBadge({ source, label, compact = false, style }: SourceBad
           minHeight: compact ? 24 : 28,
           paddingHorizontal: compact ? theme.spacing.xs : theme.spacing.sm,
           backgroundColor: background,
+          borderRadius: theme.radii.pill,
         },
         style,
       ]}>
       <View style={[styles.dot, { backgroundColor: foreground }]} />
       <Text
         numberOfLines={1}
+        selectable
         style={[theme.typography.caption, { color: foreground }]}>
         {displayLabel}
       </Text>
@@ -47,7 +49,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    borderRadius: 999,
   },
   dot: {
     width: 6,

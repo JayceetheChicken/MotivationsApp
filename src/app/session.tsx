@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -12,9 +13,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SubjectChip } from '@/components/subject-chip';
 import { AppButton } from '@/components/ui/app-button';
+import { useCurrentDate } from '@/hooks/use-current-date';
 import { useTimerElapsed } from '@/hooks/use-timer-elapsed';
 import { formatClock, formatMinutes } from '@/lib/format';
-import { getWeekStats } from '@/lib/stats';
+import { evaluateGoal, getGoalTitle } from '@/lib/goals';
+import { getTimerRecoveryDecision, MINIMUM_SESSION_SECONDS } from '@/lib/timer';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
 
@@ -22,62 +25,92 @@ export default function SessionScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { data, startTimer, pauseTimer, resumeTimer, finishTimer } = useStudyStore();
+  const {
+    data,
+    addSubject,
+    startTimer,
+    pauseTimer,
+    resumeTimer,
+    finishTimer,
+    discardTimer,
+  } = useStudyStore();
+  const now = useCurrentDate();
   const [selectedSubjectId, setSelectedSubjectId] = useState(
     () => data.activeTimer?.subjectId ?? data.subjects[0]?.id ?? '',
   );
+  const [newSubjectName, setNewSubjectName] = useState('');
   const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const [reviewingRecovery, setReviewingRecovery] = useState(
+    () => Boolean(data.activeTimer && getTimerRecoveryDecision(data.activeTimer) === 'review_unusually_long_session'),
+  );
   const elapsedSeconds = useTimerElapsed(data.activeTimer);
   const activeSubject = data.subjects.find(
     (subject) => subject.id === (data.activeTimer?.subjectId ?? selectedSubjectId),
   );
-  const weeklyStats = useMemo(() => getWeekStats(data.sessions), [data.sessions]);
-  const weeklyGoal = data.goals.find(
-    (goal) => goal.status === 'active' && goal.type === 'duration' && goal.period === 'week',
+  const availableSubjects = data.subjects.filter((subject) => !subject.archived);
+  const activeGoal = data.goals.find((goal) => goal.status === 'active');
+  const goalProgress = useMemo(
+    () => activeGoal ? evaluateGoal(activeGoal, data.sessions, now) : null,
+    [activeGoal, data.sessions, now],
   );
-  const remainingMinutes = weeklyGoal?.type === 'duration'
-    ? Math.max(0, weeklyGoal.targetMinutes - weeklyStats.totalMinutes)
-    : 0;
-  const brandBackground = theme.isDark ? '#0A2117' : '#163D2C';
-  const isTablet = width >= 760;
+  const background = theme.colors.focusBackground;
+  const foreground = theme.colors.focusText;
+  const foregroundMuted = theme.colors.focusTextMuted;
+  const isTablet = width >= theme.layout.tabletBreakpoint;
+  const isShort = elapsedSeconds < MINIMUM_SESSION_SECONDS;
 
   const close = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/');
   };
 
-  const completeSession = () => {
-    finishTimer();
+  const saveSession = (allowShortSession = false) => {
+    const saved = finishTimer(allowShortSession ? { allowShortSession: true } : undefined);
+    if (saved) close();
+  };
+
+  const discardAndClose = () => {
+    discardTimer();
     close();
+  };
+
+  const correctRecoveredSession = () => {
+    discardTimer();
+    router.replace('/manual-entry');
+  };
+
+  const createFirstSubject = () => {
+    if (!newSubjectName.trim()) return;
+    const subject = addSubject(newSubjectName);
+    setSelectedSubjectId(subject.id);
+    setNewSubjectName('');
   };
 
   return (
     <ScrollView
       contentContainerStyle={[
         styles.scrollContent,
-        {
-          paddingTop: insets.top + 8,
-          paddingBottom: insets.bottom + 24,
-          backgroundColor: brandBackground,
-        },
+        { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24, backgroundColor: background },
       ]}
       contentInsetAdjustmentBehavior="never"
+      keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
-      style={{ flex: 1, backgroundColor: brandBackground }}>
-      <View style={[styles.header, { maxWidth: isTablet ? 820 : undefined }]}>
+      style={{ flex: 1, backgroundColor: background }}>
+      <View style={[styles.header, { maxWidth: isTablet ? 840 : undefined }]}>
         <Pressable
           accessibilityLabel="Session-Ansicht schließen"
           accessibilityRole="button"
           onPress={close}
           style={({ pressed }) => [
             styles.closeButton,
+            { backgroundColor: theme.colors.focusSurfaceStrong },
             pressed ? styles.pressed : undefined,
           ]}>
-          <Text style={styles.closeText}>×</Text>
+          <Text style={[styles.closeText, { color: foreground }]}>×</Text>
         </Pressable>
-        <View style={styles.headerLabel}>
-          <View style={styles.liveDot} />
-          <Text style={styles.headerLabelText}>
+        <View style={[styles.headerLabel, { backgroundColor: theme.colors.focusSurface }]}>
+          <View style={[styles.liveDot, { backgroundColor: theme.colors.primary }]} />
+          <Text style={[styles.headerLabelText, { color: foregroundMuted }]}>
             {data.activeTimer ? 'FOKUSZEIT' : 'NEUE SESSION'}
           </Text>
         </View>
@@ -86,109 +119,187 @@ export default function SessionScreen() {
 
       {data.activeTimer ? (
         <View style={[styles.timerContent, { maxWidth: isTablet ? 720 : 520 }]}>
-          <View style={styles.subjectPill}>
-            <View style={[styles.subjectDot, { backgroundColor: activeSubject?.color ?? '#A8D5BA' }]} />
-            <Text style={styles.subjectPillText}>{activeSubject?.name ?? 'Lern-Session'}</Text>
+          <View style={[styles.subjectPill, { backgroundColor: theme.colors.focusSurfaceStrong }]}>
+            <View style={[styles.subjectDot, { backgroundColor: activeSubject?.color ?? theme.colors.primary }]} />
+            <Text style={[styles.subjectPillText, { color: foreground }]}>{activeSubject?.name ?? 'Lern-Session'}</Text>
           </View>
 
-          <View
-            accessible
-            accessibilityLabel={`Verstrichene Lernzeit ${formatMinutes(elapsedSeconds / 60)}`}
-            style={[
-              styles.timerRing,
-              { width: isTablet ? 330 : 274, height: isTablet ? 330 : 274 },
-            ]}>
-            <View style={styles.timerRingInner}>
-              <Text selectable style={[styles.timerText, isTablet ? styles.timerTextTablet : undefined]}>
-                {formatClock(elapsedSeconds)}
+          {reviewingRecovery ? (
+            <View accessibilityLiveRegion="assertive" style={[styles.noticeCard, { backgroundColor: theme.colors.focusSurfaceStrong, borderColor: theme.colors.warning }]}>
+              <Text accessibilityRole="header" style={[styles.noticeTitle, { color: foreground }]}>Ungewöhnlich lange Session erkannt</Text>
+              <Text style={[styles.noticeText, { color: foregroundMuted }]}>
+                Der Timer läuft seit {formatMinutes(elapsedSeconds / 60, true)}. Prüfe kurz, ob diese Zeit vollständig Lernzeit war.
               </Text>
-              <Text style={styles.timerState}>
-                {data.activeTimer.status === 'running' ? 'Du bist im Flow' : 'Session pausiert'}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.motivationCard}>
-            <Text style={styles.motivationEyebrow}>DEIN WOCHENZIEL</Text>
-            <Text style={styles.motivationText}>
-              {remainingMinutes > 0
-                ? `Noch ${formatMinutes(remainingMinutes, true)} – jede Minute bringt dich näher.`
-                : 'Wochenziel erreicht. Alles, was jetzt kommt, ist ein Bonus.'}
-            </Text>
-          </View>
-
-          {confirmingEnd ? (
-            <View accessibilityLiveRegion="polite" style={styles.confirmationCard}>
-              <View style={styles.confirmationCopy}>
-                <Text accessibilityRole="header" style={styles.confirmationTitle}>Session beenden?</Text>
-                <Text style={styles.confirmationText}>
-                  {formatMinutes(elapsedSeconds / 60, true)} werden als mit Timer gemessene Lernzeit gespeichert.
-                </Text>
-              </View>
               <AppButton
                 fullWidth
-                label="Beenden & speichern"
-                onPress={completeSession}
-                size="large"
-                style={styles.lightButton}
-                textStyle={{ color: '#163D2C' }}
+                label="Pausieren und prüfen"
+                onPress={() => { pauseTimer(); setReviewingRecovery(false); }}
+                style={[styles.lightButton, { backgroundColor: foreground, borderColor: foreground }]}
+                textStyle={{ color: background }}
               />
-              <AppButton
-                fullWidth
-                label="Weiterlernen"
-                onPress={() => setConfirmingEnd(false)}
-                variant="ghost"
-                textStyle={{ color: '#FFFFFF' }}
-              />
+              <AppButton fullWidth label="Weiterlaufen lassen" onPress={() => setReviewingRecovery(false)} variant="ghost" textStyle={{ color: foreground }} />
+              <AppButton fullWidth label="Jetzt beenden und speichern" onPress={() => saveSession()} variant="outline" style={[styles.endButton, { backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorderStrong }]} textStyle={{ color: foreground }} />
+              <AppButton fullWidth label="Zeit korrigieren" onPress={correctRecoveredSession} variant="outline" style={[styles.endButton, { backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorderStrong }]} textStyle={{ color: foreground }} />
+              <AppButton fullWidth label="Timer verwerfen" onPress={discardAndClose} variant="danger" />
             </View>
           ) : (
-            <View style={styles.timerActions}>
-              <AppButton
-                fullWidth
-                label={data.activeTimer.status === 'running' ? 'Pause' : 'Fortsetzen'}
-                onPress={data.activeTimer.status === 'running' ? pauseTimer : resumeTimer}
-                size="large"
-                style={styles.lightButton}
-                textStyle={{ color: '#163D2C' }}
-              />
-              <AppButton
-                fullWidth
-                label="Session beenden"
-                onPress={() => setConfirmingEnd(true)}
-                size="default"
-                variant="outline"
-                style={styles.endButton}
-                textStyle={{ color: '#FFFFFF' }}
-              />
-            </View>
-          )}
+            <>
+              <View
+                accessible
+                accessibilityLabel={`Verstrichene Lernzeit ${formatMinutes(elapsedSeconds / 60)}`}
+                style={[
+                  styles.timerRing,
+                  {
+                    width: isTablet ? 330 : 274,
+                    height: isTablet ? 330 : 274,
+                    borderColor: theme.colors.primary,
+                    backgroundColor: theme.colors.focusSurface,
+                    boxShadow: `0 20px 70px ${theme.colors.focusShadow}`,
+                  },
+                ]}>
+                <View style={[styles.timerRingInner, { borderColor: theme.colors.focusBorder }]}>
+                  <Text selectable style={[styles.timerText, isTablet ? styles.timerTextTablet : undefined, { color: foreground }]}>
+                    {formatClock(elapsedSeconds)}
+                  </Text>
+                  <Text style={[styles.timerState, { color: foregroundMuted }]}>
+                    {data.activeTimer.status === 'running' ? 'Du bist im Fokus' : 'Session pausiert'}
+                  </Text>
+                </View>
+              </View>
 
-          <Text style={styles.backgroundHint}>
-            Die Zeit wird aus sicheren Zeitstempeln berechnet und läuft auch im Hintergrund weiter.
-          </Text>
+              <View style={[styles.motivationCard, { backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorder }]}>
+                <Text style={[styles.motivationEyebrow, { color: theme.colors.primary }]}>
+                  {activeGoal ? getGoalTitle(activeGoal, data.subjects).toUpperCase() : 'DEIN EIGENER RHYTHMUS'}
+                </Text>
+                <Text style={[styles.motivationText, { color: foreground }]}>
+                  {activeGoal && goalProgress
+                    ? goalProgress.achieved
+                      ? 'Ziel erreicht. Alles Weitere ist ein Bonus.'
+                      : activeGoal.type === 'duration'
+                        ? `Noch ${formatMinutes(goalProgress.remaining, true)} bis zu deinem Ziel.`
+                        : `Noch ${goalProgress.remaining} ${goalProgress.remaining === 1 ? 'Session' : 'Sessions'} bis zu deinem Ziel.`
+                    : 'Diese Session zählt zu deinem persönlichen Fortschritt.'}
+                </Text>
+              </View>
+
+              {confirmingEnd ? (
+                <View accessibilityLiveRegion="polite" style={[styles.confirmationCard, { backgroundColor: theme.colors.focusSurfaceStrong, borderColor: theme.colors.focusBorderStrong }]}>
+                  <View style={styles.confirmationCopy}>
+                    <Text accessibilityRole="header" style={[styles.confirmationTitle, { color: foreground }]}>
+                      {isShort ? 'Kurze Session beenden?' : 'Session beenden?'}
+                    </Text>
+                    <Text style={[styles.confirmationText, { color: foregroundMuted }]}>
+                      {isShort
+                        ? 'Die Session ist kürzer als eine Minute. Du kannst sie bewusst speichern oder ohne Eintrag verwerfen.'
+                        : `${formatMinutes(elapsedSeconds / 60, true)} werden als automatisch gemessene Lernzeit gespeichert.`}
+                    </Text>
+                  </View>
+                  <AppButton
+                    fullWidth
+                    label={isShort ? 'Kurze Session speichern' : 'Beenden & speichern'}
+                    onPress={() => saveSession(isShort)}
+                    size="large"
+                    style={[styles.lightButton, { backgroundColor: foreground, borderColor: foreground }]}
+                    textStyle={{ color: background }}
+                  />
+                  {isShort ? <AppButton fullWidth label="Ohne Eintrag verwerfen" onPress={discardAndClose} variant="danger" /> : null}
+                  <AppButton fullWidth label="Weiterlernen" onPress={() => setConfirmingEnd(false)} variant="ghost" textStyle={{ color: foreground }} />
+                </View>
+              ) : (
+                <View style={styles.timerActions}>
+                  <AppButton
+                    fullWidth
+                    label={data.activeTimer.status === 'running' ? 'Pause' : 'Fortsetzen'}
+                    onPress={data.activeTimer.status === 'running' ? pauseTimer : resumeTimer}
+                    size="large"
+                    style={[styles.lightButton, { backgroundColor: foreground, borderColor: foreground }]}
+                    textStyle={{ color: background }}
+                  />
+                  <AppButton
+                    fullWidth
+                    label="Session beenden"
+                    onPress={() => setConfirmingEnd(true)}
+                    style={[styles.endButton, { backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorderStrong }]}
+                    textStyle={{ color: foreground }}
+                    variant="outline"
+                  />
+                </View>
+              )}
+
+              <Text style={[styles.backgroundHint, { color: foregroundMuted }]}>
+                Die Zeit wird aus Zeitstempeln berechnet und läuft im Hintergrund zuverlässig weiter.
+              </Text>
+            </>
+          )}
         </View>
       ) : (
         <View style={[styles.setupContent, { maxWidth: isTablet ? 760 : 560 }]}>
           <View style={styles.setupCopy}>
-            <Text accessibilityRole="header" style={[styles.setupTitle, isTablet ? styles.setupTitleTablet : undefined]}>
+            <Text accessibilityRole="header" style={[styles.setupTitle, isTablet ? styles.setupTitleTablet : undefined, { color: foreground }]}>
               Woran möchtest du jetzt arbeiten?
             </Text>
-            <Text style={styles.setupDescription}>
-              Wähle ein Fach und starte ohne Umwege. Pausen zählen selbstverständlich nicht zur Lernzeit.
+            <Text style={[styles.setupDescription, { color: foregroundMuted }]}>
+              Wähle ein Fach und starte ohne Umwege. Pausen zählen nicht zur Lernzeit.
             </Text>
           </View>
 
-          <View accessibilityRole="radiogroup" style={styles.subjectGrid}>
-            {data.subjects.filter((subject) => !subject.archived).map((subject) => (
-              <SubjectChip
-                dark
-                key={subject.id}
-                onPress={() => setSelectedSubjectId(subject.id)}
-                selected={selectedSubjectId === subject.id}
-                subject={subject}
+          {availableSubjects.length === 0 ? (
+            <View style={[styles.firstSubjectCard, { backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorder }]}>
+              <Text style={[theme.typography.subheading, { color: foreground }]}>Erstes Fach anlegen</Text>
+              <Text style={[theme.typography.body, { color: foregroundMuted }]}>Zum Beispiel Mathematik, Sprachen oder Prüfungsvorbereitung.</Text>
+              <TextInput
+                accessibilityLabel="Name des ersten Fachs"
+                onChangeText={setNewSubjectName}
+                onSubmitEditing={createFirstSubject}
+                placeholder="Name des Fachs"
+                placeholderTextColor={foregroundMuted}
+                returnKeyType="done"
+                style={[styles.subjectInput, theme.typography.body, { color: foreground, backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorderStrong }]}
+                value={newSubjectName}
               />
-            ))}
-          </View>
+              <AppButton
+                disabled={!newSubjectName.trim()}
+                fullWidth
+                label="Fach hinzufügen"
+                onPress={createFirstSubject}
+                style={[styles.lightButton, { backgroundColor: foreground, borderColor: foreground }]}
+                textStyle={{ color: background }}
+              />
+            </View>
+          ) : (
+            <View style={styles.subjectSelection}>
+              <View accessibilityRole="radiogroup" style={styles.subjectGrid}>
+                {availableSubjects.map((subject) => (
+                  <SubjectChip
+                    dark
+                    key={subject.id}
+                    onPress={() => setSelectedSubjectId(subject.id)}
+                    selected={selectedSubjectId === subject.id}
+                    subject={subject}
+                  />
+                ))}
+              </View>
+              <View style={styles.additionalSubjectRow}>
+                <TextInput
+                  accessibilityLabel="Weiteres Fach hinzufügen"
+                  onChangeText={setNewSubjectName}
+                  onSubmitEditing={createFirstSubject}
+                  placeholder="Weiteres Fach"
+                  placeholderTextColor={foregroundMuted}
+                  returnKeyType="done"
+                  style={[styles.subjectInput, styles.additionalSubjectInput, theme.typography.body, { color: foreground, backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorderStrong }]}
+                  value={newSubjectName}
+                />
+                <AppButton
+                  disabled={!newSubjectName.trim()}
+                  label="Hinzufügen"
+                  onPress={createFirstSubject}
+                  style={[styles.lightButton, { backgroundColor: foreground, borderColor: foreground }]}
+                  textStyle={{ color: background }}
+                />
+              </View>
+            </View>
+          )}
 
           <View style={styles.setupFooter}>
             <AppButton
@@ -197,10 +308,10 @@ export default function SessionScreen() {
               label="Session starten"
               onPress={() => startTimer(selectedSubjectId)}
               size="large"
-              style={styles.lightButton}
-              textStyle={{ color: '#163D2C' }}
+              style={[styles.lightButton, { backgroundColor: foreground, borderColor: foreground }]}
+              textStyle={{ color: background }}
             />
-            <Text style={styles.setupHint}>Du kannst jederzeit pausieren oder die App verlassen.</Text>
+            <Text style={[styles.setupHint, { color: foregroundMuted }]}>Du kannst jederzeit pausieren oder die App verlassen.</Text>
           </View>
         </View>
       )}
@@ -209,233 +320,49 @@ export default function SessionScreen() {
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    flexGrow: 1,
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    gap: 20,
-  },
-  header: {
-    width: '100%',
-    minHeight: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  closeButton: {
-    width: 48,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-  },
-  closeText: {
-    color: '#FFFFFF',
-    fontSize: 32,
-    lineHeight: 34,
-    fontWeight: '300',
-  },
-  headerLabel: {
-    minHeight: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  liveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#A8E6C1',
-  },
-  headerLabelText: {
-    color: 'rgba(255,255,255,0.76)',
-    fontSize: 11,
-    lineHeight: 16,
-    letterSpacing: 1.3,
-    fontWeight: '800',
-  },
-  headerSpacer: {
-    width: 48,
-  },
-  timerContent: {
-    width: '100%',
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
-    paddingVertical: 12,
-  },
-  subjectPill: {
-    minHeight: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    paddingHorizontal: 15,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-  },
-  subjectDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-  },
-  subjectPillText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '700',
-  },
-  timerRing: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: 'rgba(168,230,193,0.75)',
-    backgroundColor: 'rgba(255,255,255,0.025)',
-    boxShadow: '0 20px 70px rgba(0,0,0,0.20)',
-  },
-  timerRingInner: {
-    width: '88%',
-    height: '88%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-  },
-  timerText: {
-    color: '#FFFFFF',
-    fontSize: 49,
-    lineHeight: 58,
-    fontWeight: '600',
-    letterSpacing: -1.5,
-    fontVariant: ['tabular-nums'],
-  },
-  timerTextTablet: {
-    fontSize: 60,
-    lineHeight: 70,
-  },
-  timerState: {
-    color: 'rgba(255,255,255,0.68)',
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '600',
-  },
-  motivationCard: {
-    width: '100%',
-    gap: 5,
-    padding: 18,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-  },
-  motivationEyebrow: {
-    color: '#A8E6C1',
-    fontSize: 10,
-    lineHeight: 15,
-    fontWeight: '800',
-    letterSpacing: 1.1,
-  },
-  motivationText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    lineHeight: 23,
-    fontWeight: '600',
-  },
-  timerActions: {
-    width: '100%',
-    gap: 10,
-  },
-  confirmationCard: {
-    width: '100%',
-    gap: 10,
-    padding: 18,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-  },
-  confirmationCopy: {
-    gap: 4,
-    paddingBottom: 6,
-  },
-  confirmationTitle: {
-    color: '#FFFFFF',
-    fontSize: 19,
-    lineHeight: 25,
-    fontWeight: '700',
-  },
-  confirmationText: {
-    color: 'rgba(255,255,255,0.68)',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  lightButton: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FFFFFF',
-  },
-  endButton: {
-    borderColor: 'rgba(255,255,255,0.24)',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  backgroundHint: {
-    maxWidth: 440,
-    color: 'rgba(255,255,255,0.52)',
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-  setupContent: {
-    width: '100%',
-    flex: 1,
-    justifyContent: 'space-between',
-    gap: 38,
-    paddingTop: 32,
-    paddingBottom: 8,
-  },
-  setupCopy: {
-    gap: 14,
-  },
-  setupTitle: {
-    maxWidth: 520,
-    color: '#FFFFFF',
-    fontSize: 38,
-    lineHeight: 44,
-    fontWeight: '700',
-    letterSpacing: -0.8,
-  },
-  setupTitleTablet: {
-    fontSize: 50,
-    lineHeight: 56,
-  },
-  setupDescription: {
-    maxWidth: 520,
-    color: 'rgba(255,255,255,0.66)',
-    fontSize: 17,
-    lineHeight: 25,
-  },
-  subjectGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  setupFooter: {
-    gap: 12,
-  },
-  setupHint: {
-    color: 'rgba(255,255,255,0.52)',
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-  pressed: {
-    opacity: 0.72,
-    transform: [{ scale: 0.96 }],
-  },
+  scrollContent: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 20, gap: 20 },
+  header: { width: '100%', minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  closeButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 24 },
+  closeText: { fontSize: 32, lineHeight: 34, fontWeight: '300' },
+  headerLabel: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, borderRadius: 18 },
+  liveDot: { width: 7, height: 7, borderRadius: 4 },
+  headerLabelText: { fontSize: 11, lineHeight: 16, letterSpacing: 1.3, fontWeight: '800' },
+  headerSpacer: { width: 48 },
+  timerContent: { width: '100%', flex: 1, alignItems: 'center', justifyContent: 'center', gap: 24, paddingVertical: 12 },
+  subjectPill: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 15, borderRadius: 20 },
+  subjectDot: { width: 9, height: 9, borderRadius: 5 },
+  subjectPillText: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  timerRing: { alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 2 },
+  timerRingInner: { width: '88%', height: '88%', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 999, borderWidth: 1 },
+  timerText: { fontSize: 49, lineHeight: 58, fontWeight: '600', letterSpacing: -1.5, fontVariant: ['tabular-nums'] },
+  timerTextTablet: { fontSize: 60, lineHeight: 70 },
+  timerState: { fontSize: 14, lineHeight: 20, fontWeight: '600' },
+  motivationCard: { width: '100%', gap: 5, padding: 18, borderRadius: 14, borderWidth: 1 },
+  motivationEyebrow: { fontSize: 10, lineHeight: 15, fontWeight: '800', letterSpacing: 1.1 },
+  motivationText: { fontSize: 16, lineHeight: 23, fontWeight: '600' },
+  timerActions: { width: '100%', gap: 10 },
+  confirmationCard: { width: '100%', gap: 10, padding: 18, borderRadius: 14, borderWidth: 1 },
+  confirmationCopy: { gap: 4, paddingBottom: 6 },
+  confirmationTitle: { fontSize: 19, lineHeight: 25, fontWeight: '700' },
+  confirmationText: { fontSize: 14, lineHeight: 20 },
+  noticeCard: { width: '100%', gap: 12, padding: 20, borderRadius: 14, borderWidth: 1 },
+  noticeTitle: { fontSize: 20, lineHeight: 26, fontWeight: '700' },
+  noticeText: { fontSize: 15, lineHeight: 22 },
+  lightButton: {},
+  endButton: {},
+  backgroundHint: { maxWidth: 440, fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  setupContent: { width: '100%', flex: 1, justifyContent: 'space-between', gap: 38, paddingTop: 32, paddingBottom: 8 },
+  setupCopy: { gap: 14 },
+  setupTitle: { maxWidth: 520, fontSize: 38, lineHeight: 44, fontWeight: '700', letterSpacing: -0.8 },
+  setupTitleTablet: { fontSize: 50, lineHeight: 56 },
+  setupDescription: { maxWidth: 520, fontSize: 17, lineHeight: 25 },
+  subjectGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  subjectSelection: { gap: 16 },
+  additionalSubjectRow: { width: '100%', flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 },
+  additionalSubjectInput: { width: 'auto', minWidth: 180, flex: 1 },
+  firstSubjectCard: { width: '100%', gap: 12, padding: 20, borderRadius: 14, borderWidth: 1 },
+  subjectInput: { width: '100%', minHeight: 52, borderWidth: 1, borderRadius: 8, paddingHorizontal: 14 },
+  setupFooter: { gap: 12 },
+  setupHint: { fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  pressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
 });

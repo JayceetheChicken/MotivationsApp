@@ -66,7 +66,7 @@ export function MetricCard({
             style={[
               styles.icon,
               {
-                borderRadius: theme.radii.sm,
+                borderRadius: theme.radii.md,
                 backgroundColor: emphasized
                   ? theme.colors.surface
                   : theme.colors.primaryMuted,
@@ -100,7 +100,7 @@ export function MetricCard({
                 styles.trend,
                 { backgroundColor: trendBackground, borderRadius: theme.radii.pill },
               ]}>
-              <Text style={[theme.typography.caption, { color: trendForeground }]}>
+              <Text selectable style={[theme.typography.caption, { color: trendForeground }]}>
                 {trend.label}
               </Text>
             </View>
@@ -114,7 +114,7 @@ export function MetricCard({
 const styles = StyleSheet.create({
   card: {
     minWidth: 0,
-    gap: 8,
+    gap: 10,
   },
   topRow: {
     minHeight: 32,

@@ -1,161 +1,139 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  type StyleProp,
-  type ViewStyle,
-} from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { SegmentedControl } from '@/components/segmented-control';
 import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
-import { formatMinutes } from '@/lib/format';
+import { createAutomaticGoalTitle } from '@/lib/goals';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
-import type { GoalSourcePolicy } from '@/types/study';
+import type { GoalPeriod, GoalSourcePolicy, StudyGoal } from '@/types/study';
 
 type GoalType = 'duration' | 'sessions';
-type FormErrors = Partial<Record<'title' | 'target', string>>;
 
-function ChoiceButton({
+const TYPE_OPTIONS = [
+  { value: 'duration', label: 'Lernzeit' },
+  { value: 'sessions', label: 'Sessions' },
+] as const;
+
+const PERIOD_OPTIONS = [
+  { value: 'week', label: 'Woche' },
+  { value: 'month', label: 'Monat' },
+  { value: 'year', label: 'Jahr' },
+] as const;
+
+const SOURCE_OPTIONS = [
+  { value: 'all', label: 'Alle Zeiten' },
+  { value: 'timer_only', label: 'Nur Timer' },
+] as const;
+
+function SubjectChoice({
   label,
-  description,
-  selected,
-  disabled = false,
-  onPress,
-  style,
   color,
+  selected,
+  onPress,
 }: {
   label: string;
-  description?: string;
-  selected: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-  style?: StyleProp<ViewStyle>;
   color?: string;
+  selected: boolean;
+  onPress: () => void;
 }) {
   const theme = useAppTheme();
-
   return (
     <Pressable
-      accessibilityLabel={description ? `${label}. ${description}` : label}
       accessibilityRole="radio"
-      accessibilityState={{ checked: selected, disabled }}
-      disabled={disabled}
+      accessibilityState={{ selected }}
       onPress={onPress}
-      style={({ pressed }: { pressed: boolean }) => [
-        styles.choice,
+      style={({ pressed }) => [
+        styles.subjectChoice,
         {
-          minHeight: theme.layout.minTouchTarget,
-          borderRadius: theme.radii.md,
-          borderColor: selected ? theme.colors.primary : theme.colors.borderStrong,
           backgroundColor: selected ? theme.colors.primaryMuted : theme.colors.surface,
+          borderColor: selected ? theme.colors.primary : theme.colors.border,
+          borderRadius: theme.radii.md,
+          opacity: pressed ? 0.72 : 1,
         },
-        pressed && !disabled ? { backgroundColor: theme.colors.surfacePressed } : undefined,
-        disabled ? styles.disabled : undefined,
-        style,
       ]}>
-      {color ? <View style={[styles.colorDot, { backgroundColor: color }]} /> : null}
-      <View style={styles.choiceCopy}>
-        <Text
-          style={[
-            theme.typography.label,
-            { color: selected ? theme.colors.onPrimaryMuted : theme.colors.text },
-          ]}>
-          {label}
-        </Text>
-        {description ? (
-          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-            {description}
-          </Text>
-        ) : null}
-      </View>
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no"
-        style={[
-          styles.radio,
-          {
-            borderColor: selected ? theme.colors.primary : theme.colors.borderStrong,
-            backgroundColor: selected ? theme.colors.primary : 'transparent',
-          },
-        ]}>
-        {selected ? <View style={[styles.radioInner, { backgroundColor: theme.colors.onPrimary }]} /> : null}
-      </View>
+      {color ? <View style={[styles.subjectDot, { backgroundColor: color }]} /> : null}
+      <Text style={[theme.typography.label, { color: selected ? theme.colors.onPrimaryMuted : theme.colors.text }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
 
 export default function CreateGoalScreen() {
   const theme = useAppTheme();
-  const router = useRouter();
-  const { data, addGoal } = useStudyStore();
-  const [title, setTitle] = useState('');
-  const [goalType, setGoalType] = useState<GoalType>('duration');
-  const [target, setTarget] = useState('300');
-  const [sourcePolicy, setSourcePolicy] = useState<GoalSourcePolicy>('all');
-  const [subjectId, setSubjectId] = useState<string | undefined>();
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [isSaving, setIsSaving] = useState(false);
+  const { goalId } = useLocalSearchParams<{ goalId?: string }>();
+  const { data, createGoal, updateGoal } = useStudyStore();
+  const existing = data.goals.find((goal) => goal.id === goalId);
+  const [title, setTitle] = useState(existing?.title ?? '');
+  const [type, setType] = useState<GoalType>(existing?.type ?? 'duration');
+  const [period, setPeriod] = useState<GoalPeriod>(existing?.period ?? 'week');
+  const [target, setTarget] = useState(() => existing
+    ? String(existing.type === 'duration' ? existing.targetMinutes : existing.targetSessions)
+    : '');
+  const [minimumMinutes, setMinimumMinutes] = useState(() =>
+    existing?.type === 'sessions' ? String(existing.minimumSessionMinutes) : '10',
+  );
+  const [sourcePolicy, setSourcePolicy] = useState<GoalSourcePolicy>(existing?.sourcePolicy ?? 'all');
+  const [subjectId, setSubjectId] = useState<string | undefined>(existing?.subjectIds?.[0]);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const numericTarget = Number(target.replace(',', '.'));
 
-  const numericTarget = Number(target.trim().replace(',', '.'));
-  const targetPreview =
-    goalType === 'duration' && Number.isFinite(numericTarget) && numericTarget > 0
-      ? formatMinutes(numericTarget)
-      : null;
+  const previewGoal = useMemo<StudyGoal>(() => {
+    const common = {
+      id: existing?.id ?? 'preview',
+      userId: data.currentUser?.id ?? 'local-user',
+      period,
+      sourcePolicy: type === 'sessions' ? ('timer_only' as const) : sourcePolicy,
+      subjectIds: subjectId ? [subjectId] : undefined,
+      status: 'active' as const,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      startsAt: existing?.startsAt ?? new Date().toISOString(),
+    };
+    return type === 'duration'
+      ? { ...common, type, targetMinutes: Number.isFinite(numericTarget) ? Math.max(0, numericTarget) : 0 }
+      : {
+          ...common,
+          type,
+          targetSessions: Number.isFinite(numericTarget) ? Math.max(0, Math.round(numericTarget)) : 0,
+          minimumSessionMinutes: Math.max(0, Number(minimumMinutes) || 0),
+        };
+  }, [data.currentUser?.id, existing, minimumMinutes, numericTarget, period, sourcePolicy, subjectId, type]);
+  const generatedTitle = createAutomaticGoalTitle(previewGoal, data.subjects);
 
-  const selectGoalType = (nextType: GoalType) => {
-    setGoalType(nextType);
-    setTarget(nextType === 'duration' ? '300' : '4');
-    setErrors((current) => ({ ...current, target: undefined }));
-
-    if (nextType === 'sessions') {
-      setSourcePolicy('timer_only');
+  const save = () => {
+    if (!Number.isFinite(numericTarget) || numericTarget <= 0) {
+      setError('Bitte gib einen Zielwert größer als 0 ein.');
+      return;
     }
-  };
-
-  const validate = (): FormErrors => {
-    const nextErrors: FormErrors = {};
-    const normalizedTitle = title.trim();
-    const normalizedTarget = target.trim();
-
-    if (normalizedTitle.length < 3) {
-      nextErrors.title = 'Bitte gib einen Titel mit mindestens 3 Zeichen ein.';
-    }
-
-    if (!/^\d+$/.test(normalizedTarget) || !Number.isFinite(numericTarget)) {
-      nextErrors.target = 'Bitte gib eine ganze Zahl ein.';
-    } else if (goalType === 'duration' && (numericTarget < 15 || numericTarget > 10_080)) {
-      nextErrors.target = 'Wähle zwischen 15 und 10.080 Minuten.';
-    } else if (goalType === 'sessions' && (numericTarget < 1 || numericTarget > 100)) {
-      nextErrors.target = 'Wähle zwischen 1 und 100 Sessions.';
-    }
-
-    return nextErrors;
-  };
-
-  const saveGoal = () => {
-    if (isSaving) return;
-    const nextErrors = validate();
-    setErrors(nextErrors);
-
-    if (Object.keys(nextErrors).length > 0) {
+    const minimum = Number(minimumMinutes);
+    if (type === 'sessions' && (!Number.isFinite(minimum) || minimum < 1)) {
+      setError('Die Mindestdauer muss mindestens 1 Minute betragen.');
       return;
     }
 
-    setIsSaving(true);
-    addGoal({
-      title: title.trim(),
-      type: goalType,
+    setSaving(true);
+    const input = {
+      title: title.trim() || undefined,
+      type,
       target: numericTarget,
-      sourcePolicy: goalType === 'sessions' ? 'timer_only' : sourcePolicy,
       subjectId,
-    });
-    router.back();
+      sourcePolicy: type === 'sessions' ? ('timer_only' as const) : sourcePolicy,
+      period,
+      minimumSessionMinutes: type === 'sessions' ? Math.round(minimum) : undefined,
+    };
+    if (existing) {
+      updateGoal(existing.id, { ...input, title: title.trim() || null, subjectId: subjectId ?? null });
+    } else {
+      createGoal(input);
+    }
+    setSaving(false);
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
   };
 
   return (
@@ -165,176 +143,144 @@ export default function CreateGoalScreen() {
       keyboardShouldPersistTaps="handled"
       maxWidth={720}>
       <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>
-        Lege ein persönliches Wochenziel fest. Fortschritt wird ab sofort automatisch angerechnet.
+        {existing
+          ? 'Passe dein Ziel an. Bereits erfasste Lernzeit wird danach mit den neuen Regeln ausgewertet.'
+          : 'Lege ein realistisches Ziel fest. Es zählt erst ab dem Zeitpunkt seiner Erstellung.'}
       </Text>
 
       <AppCard style={styles.section}>
         <View style={styles.field}>
-          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Zieltitel</Text>
+          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Titel (optional)</Text>
           <TextInput
-            accessibilityLabel="Zieltitel"
-            autoCapitalize="sentences"
-            autoCorrect
+            accessibilityLabel="Eigener Zieltitel"
             maxLength={60}
-            onChangeText={(value: string) => {
-              setTitle(value);
-              if (errors.title) setErrors((current) => ({ ...current, title: undefined }));
-            }}
-            placeholder="z. B. Fünf Stunden pro Woche"
+            onChangeText={setTitle}
+            placeholder={generatedTitle}
             placeholderTextColor={theme.colors.textSubtle}
-            returnKeyType="next"
             style={[
               styles.input,
               theme.typography.body,
               {
-                minHeight: 52,
-                borderRadius: theme.radii.md,
-                borderColor: errors.title ? theme.colors.danger : theme.colors.borderStrong,
-                backgroundColor: theme.colors.surface,
                 color: theme.colors.text,
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.borderStrong,
+                borderRadius: theme.radii.md,
               },
             ]}
             value={title}
           />
-          {errors.title ? (
-            <Text
-              accessibilityRole="alert"
-              selectable
-              style={[theme.typography.caption, { color: theme.colors.danger }]}>
-              {errors.title}
-            </Text>
-          ) : null}
+          <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+            Ohne eigenen Titel: „{generatedTitle}“
+          </Text>
         </View>
 
         <View style={styles.field}>
           <Text style={[theme.typography.label, { color: theme.colors.text }]}>Zieltyp</Text>
-          <View accessibilityRole="radiogroup" style={styles.twoColumnChoices}>
-            <ChoiceButton
-              description="Gesamte Lernzeit erreichen"
-              label="Dauer"
-              onPress={() => selectGoalType('duration')}
-              selected={goalType === 'duration'}
-              style={styles.flexChoice}
-            />
-            <ChoiceButton
-              description="Konzentrierte Sessions schaffen"
-              label="Sessions"
-              onPress={() => selectGoalType('sessions')}
-              selected={goalType === 'sessions'}
-              style={styles.flexChoice}
-            />
-          </View>
+          <SegmentedControl
+            accessibilityLabel="Zieltyp"
+            onChange={(nextType) => {
+              setType(nextType);
+              if (nextType === 'sessions') setSourcePolicy('timer_only');
+              setError(null);
+            }}
+            options={TYPE_OPTIONS}
+            value={type}
+          />
         </View>
 
         <View style={styles.field}>
-          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Zielwert</Text>
-          <View
+          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Zeitraum</Text>
+          <SegmentedControl accessibilityLabel="Zielzeitraum" onChange={setPeriod} options={PERIOD_OPTIONS} value={period} />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={[theme.typography.label, { color: theme.colors.text }]}>
+            {type === 'duration' ? 'Zielwert in Minuten' : 'Anzahl Sessions'}
+          </Text>
+          <TextInput
+            accessibilityLabel={type === 'duration' ? 'Zielwert in Minuten' : 'Anzahl Sessions'}
+            keyboardType="number-pad"
+            onChangeText={(value) => { setTarget(value); setError(null); }}
+            placeholder={type === 'duration' ? '120' : '3'}
+            placeholderTextColor={theme.colors.textSubtle}
             style={[
-              styles.targetInputRow,
+              styles.input,
+              theme.typography.heading,
+              styles.numeric,
               {
-                minHeight: 52,
-                borderRadius: theme.radii.md,
-                borderColor: errors.target ? theme.colors.danger : theme.colors.borderStrong,
+                color: theme.colors.text,
                 backgroundColor: theme.colors.surface,
+                borderColor: error ? theme.colors.danger : theme.colors.borderStrong,
+                borderRadius: theme.radii.md,
               },
-            ]}>
-            <TextInput
-              accessibilityLabel={goalType === 'duration' ? 'Zielwert in Minuten' : 'Anzahl Sessions'}
-              keyboardType="number-pad"
-              maxLength={5}
-              onChangeText={(value: string) => {
-                setTarget(value);
-                if (errors.target) setErrors((current) => ({ ...current, target: undefined }));
-              }}
-              placeholder={goalType === 'duration' ? '300' : '4'}
-              placeholderTextColor={theme.colors.textSubtle}
-              returnKeyType="done"
-              style={[
-                styles.targetInput,
-                theme.typography.heading,
-                { color: theme.colors.text },
-              ]}
-              value={target}
-            />
-            <Text selectable style={[theme.typography.label, { color: theme.colors.textMuted }]}>
-              {goalType === 'duration' ? 'Minuten' : 'Sessions'}
-            </Text>
-          </View>
-          {errors.target ? (
-            <Text
-              accessibilityRole="alert"
-              selectable
-              style={[theme.typography.caption, { color: theme.colors.danger }]}>
-              {errors.target}
-            </Text>
-          ) : targetPreview ? (
-            <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-              Entspricht {targetPreview}
-            </Text>
-          ) : null}
+            ]}
+            value={target}
+          />
         </View>
+
+        {type === 'sessions' ? (
+          <View style={styles.field}>
+            <Text style={[theme.typography.label, { color: theme.colors.text }]}>Mindestdauer je Session</Text>
+            <TextInput
+              accessibilityLabel="Mindestdauer je Session in Minuten"
+              keyboardType="number-pad"
+              onChangeText={(value) => { setMinimumMinutes(value); setError(null); }}
+              style={[
+                styles.input,
+                theme.typography.body,
+                { color: theme.colors.text, backgroundColor: theme.colors.surface, borderColor: theme.colors.borderStrong, borderRadius: theme.radii.md },
+              ]}
+              value={minimumMinutes}
+            />
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Sessionziele zählen ausschließlich automatisch gemessene Timer-Sessions.</Text>
+          </View>
+        ) : null}
       </AppCard>
 
-      <AppCard style={styles.section}>
-        <View style={styles.field}>
-          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Welche Zeit zählt?</Text>
-          <View accessibilityRole="radiogroup" style={styles.choiceStack}>
-            <ChoiceButton
-              description="Timer und manuell eingetragene Lernzeit"
-              disabled={goalType === 'sessions'}
-              label="Alle Lernzeiten"
-              onPress={() => setSourcePolicy('all')}
-              selected={sourcePolicy === 'all' && goalType === 'duration'}
+      {type === 'duration' ? (
+        <AppCard style={styles.section}>
+          <View style={styles.field}>
+            <Text style={[theme.typography.label, { color: theme.colors.text }]}>Welche Lernzeit zählt?</Text>
+            <SegmentedControl
+              accessibilityLabel="Zeitquelle für das Ziel"
+              onChange={setSourcePolicy}
+              options={SOURCE_OPTIONS}
+              value={sourcePolicy}
             />
-            <ChoiceButton
-              description="Nur automatisch gemessene Zeit"
-              label="Nur Timer"
-              onPress={() => setSourcePolicy('timer_only')}
-              selected={sourcePolicy === 'timer_only' || goalType === 'sessions'}
-            />
-          </View>
-          {goalType === 'sessions' ? (
-            <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-              Sessionziele zählen nur automatisch gemessene Timer-Sessions.
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+              „Nur Timer“ eignet sich besonders für nachvollziehbare soziale Vergleiche.
             </Text>
-          ) : null}
-        </View>
-      </AppCard>
+          </View>
+        </AppCard>
+      ) : null}
 
       <AppCard style={styles.section}>
         <View style={styles.field}>
           <Text style={[theme.typography.label, { color: theme.colors.text }]}>Fach (optional)</Text>
-          <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-            Ohne Auswahl zählen Lernzeiten aus allen Fächern.
-          </Text>
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Ohne Auswahl zählen alle Fächer.</Text>
           <View accessibilityRole="radiogroup" style={styles.subjectChoices}>
-            <ChoiceButton
-              label="Alle Fächer"
-              onPress={() => setSubjectId(undefined)}
-              selected={subjectId === undefined}
-              style={styles.subjectChoice}
-            />
-            {data.subjects
-              .filter((subject) => !subject.archived)
-              .map((subject) => (
-                <ChoiceButton
-                  color={subject.color}
-                  key={subject.id}
-                  label={subject.name}
-                  onPress={() => setSubjectId(subject.id)}
-                  selected={subjectId === subject.id}
-                  style={styles.subjectChoice}
-                />
-              ))}
+            <SubjectChoice label="Alle Fächer" onPress={() => setSubjectId(undefined)} selected={!subjectId} />
+            {data.subjects.filter((subject) => !subject.archived).map((subject) => (
+              <SubjectChoice
+                color={subject.color}
+                key={subject.id}
+                label={subject.name}
+                onPress={() => setSubjectId(subject.id)}
+                selected={subjectId === subject.id}
+              />
+            ))}
           </View>
         </View>
       </AppCard>
 
+      {error ? (
+        <Text accessibilityRole="alert" style={[theme.typography.bodyMedium, { color: theme.colors.danger }]}>{error}</Text>
+      ) : null}
       <AppButton
         fullWidth
-        label="Ziel speichern"
-        loading={isSaving}
-        onPress={saveGoal}
+        label={existing ? 'Änderungen speichern' : 'Ziel erstellen'}
+        loading={saving}
+        onPress={save}
         size="large"
       />
     </Screen>
@@ -342,93 +288,12 @@ export default function CreateGoalScreen() {
 }
 
 const styles = StyleSheet.create({
-  form: {
-    gap: 20,
-  },
-  section: {
-    width: '100%',
-    gap: 24,
-  },
-  field: {
-    width: '100%',
-    gap: 10,
-  },
-  input: {
-    width: '100%',
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  targetInputRow: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-  },
-  targetInput: {
-    minHeight: 50,
-    flex: 1,
-    paddingVertical: 8,
-    fontVariant: ['tabular-nums'],
-  },
-  twoColumnChoices: {
-    width: '100%',
-    flexDirection: 'row',
-    gap: 10,
-  },
-  flexChoice: {
-    flex: 1,
-  },
-  choiceStack: {
-    width: '100%',
-    gap: 10,
-  },
-  choice: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  choiceCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  disabled: {
-    opacity: 0.45,
-  },
-  radio: {
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderRadius: 10,
-  },
-  radioInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  colorDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  subjectChoices: {
-    width: '100%',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  subjectChoice: {
-    minWidth: 160,
-    flexGrow: 1,
-    flexBasis: '45%',
-  },
+  form: { gap: 20 },
+  section: { width: '100%', gap: 24 },
+  field: { width: '100%', gap: 10 },
+  input: { width: '100%', minHeight: 52, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12 },
+  subjectChoices: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  subjectChoice: { minHeight: 48, minWidth: 145, flexGrow: 1, flexBasis: '40%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, paddingHorizontal: 14 },
+  subjectDot: { width: 10, height: 10, borderRadius: 5 },
+  numeric: { fontVariant: ['tabular-nums'] },
 });

@@ -1,50 +1,68 @@
 # Lernzeit
 
-Lernzeit ist ein lokaler, interaktiver MVP einer motivierenden Lern-App für Android-Smartphones und -Tablets. Im Mittelpunkt stehen persönliche Ziele, zuverlässig gemessene Fokus-Sessions und der freiwillige Vergleich mit bestätigten Freunden.
+Lernzeit ist eine responsive Expo-/Android-App für persönliche Lernziele, zuverlässig gemessene Fokus-Sessions und freiwillige Vergleiche im privaten Freundeskreis. Der Erststart ist vollständig leer: Es gibt keine Beispielkonten, Fächer, Sessions, Ziele, Freunde oder Challenges.
 
-## Enthalten
+## Funktionen
 
-- Session-Timer mit Fachauswahl, Pause, Fortsetzen und Wiederherstellung nach einem Neustart
-- manuelle Lernzeiteinträge mit dauerhaft sichtbarer Herkunftskennzeichnung
-- Wochen- und Monatsziele für Lernzeit oder Anzahl konzentrierter Sessions
-- Statistiken für Zeiträume, Fächer, Streak, Durchschnitt und Vorperiodenvergleich
-- privater Freundesvergleich ausschließlich mit automatisch gemessenen Minuten
-- gemeinsame Challenge ohne öffentliche Rangliste
-- Datenschutzschalter pro freigegebener Kennzahl
-- responsive Smartphone- und Tablet-Layouts sowie Light/Dark Mode
-- lokale Persistenz über Expo SQLite; im Browser über `localStorage`
+- Timer-Sessions mit Fachauswahl, Pause, Fortsetzen und Wiederherstellung
+- Schutzdialog für Sessions unter einer Minute und Prüfung ungewöhnlich langer Timer
+- manuelle Lernzeiteinträge mit dauerhaft sichtbarer Herkunft
+- Wochen-, Monats- und Jahresziele für Lernzeit oder Sessionanzahl
+- Zielbearbeitung, Pause/Fortsetzung, Abschluss, Archiv und Löschung
+- interaktive Wochen-, Monats- und Jahresdiagramme
+- Statistiken für Lernzeit, Sessions, Durchschnitt, Fächer, Ziele, Streaks und Vorperioden
+- freiwilliger privater Freundesvergleich und vorbereitete Challenges ohne öffentliche Rangliste
+- zentrale Datenschutzfreigaben pro Kennzahl
+- Smartphone-/Tablet-Layouts sowie Light und Dark Mode
+- kontogetrennte lokale Persistenz
 
 ## Starten
-
-Voraussetzung ist eine aktuelle Node.js-Version.
 
 ```bash
 npm install
 npm start
 ```
 
-Danach kann die App mit Expo Go auf einem Android-Gerät geöffnet werden. Für die Browser-Vorschau:
+Die App lässt sich danach mit Expo Go auf Android oder im Browser mit `npm run web` öffnen.
 
-```bash
-npm run web
+Beim ersten Start stehen zwei Wege zur Verfügung:
+
+1. **Lokales Profil:** funktioniert sofort und speichert Profil und Lernfortschritt nur auf diesem Gerät.
+2. **Supabase-Konto:** aktiviert echte Anmeldung, Registrierung, Passwort-Reset und Session-Wiederherstellung.
+
+## Supabase konfigurieren
+
+Kopiere `.env.example` nach `.env` und trage die öffentlichen Projektwerte ein:
+
+```dotenv
+EXPO_PUBLIC_SUPABASE_URL=https://dein-projekt.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=dein-oeffentlicher-anon-key
 ```
+
+Anschließend Expo neu starten. Ohne beide Werte bleiben Online-Kontoaktionen deaktiviert; die App meldet das klar und simuliert keine Anmeldung. Ein Service-Role-Key gehört niemals in die App.
+
+Die Oberfläche für eine Kontolöschung ist vorbereitet, bleibt aber deaktiviert, bis eine geschützte serverseitige Löschfunktion eingerichtet wurde.
 
 ## Qualität prüfen
 
 ```bash
+npm test
 npm run typecheck
 npm run lint
+npx expo-doctor
 ```
 
 ## Projektstruktur
 
-- `src/app` – Routen, Tabs und Formulare
-- `src/state` – lokaler App-State, Timeraktionen und Persistenz
-- `src/lib` – Statistik- und Formatierungslogik
-- `src/data` – datum-relative Demodaten
+- `src/app` – Auth-Flows, Tabs, Modale und Formulare
+- `src/auth` – Supabase-Konfiguration, sichere Sessionablage und Validierung
+- `src/state` – kontogetrennter App-State, Timeraktionen und Persistenz
+- `src/lib` – Ziel-, Timer-, Diagramm- und Statistiklogik
+- `src/data` – ausschließlich leerer Initialzustand und Farbpalette
 - `src/components` – wiederverwendbare, barrierearme UI-Bausteine
-- `src/theme` – responsives Light/Dark-Designsystem
+- `src/theme` – zentrales blau-graues Light-/Dark-Designsystem
+- `__tests__` – Domain-, Store-, Statistik-, Chart- und Responsive-Tests
 
-## MVP-Grenzen
+## Spätere Erweiterung
 
-Konten, echte Freundesanfragen und geräteübergreifende Synchronisation benötigen als nächsten Schritt ein Backend. Der spätere Android-Fokusmodus mit Benachrichtigungsreduktion oder App-Einschränkungen ist bewusst noch nicht Teil dieses MVPs.
+Der Android-Fokusmodus mit Benachrichtigungsreduktion, App-Wechsel-Erfassung oder Einschränkung ausgewählter Apps ist bewusst nicht Teil des aktuellen Kerns.

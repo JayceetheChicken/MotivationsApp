@@ -14,6 +14,7 @@ export type AppThemeColors = Readonly<{
   textMuted: string;
   textSubtle: string;
   primary: string;
+  primaryPressed: string;
   onPrimary: string;
   primaryMuted: string;
   onPrimaryMuted: string;
@@ -26,9 +27,18 @@ export type AppThemeColors = Readonly<{
   warning: string;
   warningMuted: string;
   danger: string;
+  dangerPressed: string;
   dangerMuted: string;
   onDanger: string;
   focus: string;
+  focusBackground: string;
+  focusText: string;
+  focusTextMuted: string;
+  focusSurface: string;
+  focusSurfaceStrong: string;
+  focusBorder: string;
+  focusBorderStrong: string;
+  focusShadow: string;
   shadow: string;
   overlay: string;
 }>;
@@ -47,11 +57,11 @@ export const spacing = {
 } as const;
 
 export const radii = {
-  sm: 10,
-  md: 14,
-  lg: 18,
-  xl: 24,
-  xxl: 30,
+  sm: 6,
+  md: 8,
+  lg: 12,
+  xl: 16,
+  xxl: 20,
   pill: 999,
 } as const;
 
@@ -131,61 +141,81 @@ export type AppTheme = Readonly<{
 }>;
 
 const lightColors: AppThemeColors = {
-  background: '#F4F7F3',
+  background: '#F5F6F8',
   surface: '#FFFFFF',
-  surfaceMuted: '#EAF0EA',
+  surfaceMuted: '#EEF0F4',
   surfaceElevated: '#FFFFFF',
-  surfacePressed: '#E2EBE3',
-  text: '#173126',
-  textMuted: '#5E7066',
-  textSubtle: '#7D8B82',
-  primary: '#286646',
+  surfacePressed: '#E4E7EC',
+  text: '#242424',
+  textMuted: '#616161',
+  textSubtle: '#8A8886',
+  primary: '#4F6BED',
+  primaryPressed: '#3D54C7',
   onPrimary: '#FFFFFF',
-  primaryMuted: '#DCECDF',
-  onPrimaryMuted: '#1E5138',
-  border: '#DCE5DE',
-  borderStrong: '#BACABD',
-  divider: '#E5EBE6',
-  track: '#DCE5DE',
-  success: '#287349',
-  successMuted: '#DCEFE2',
-  warning: '#8B5A17',
-  warningMuted: '#F7E9CE',
-  danger: '#A63F42',
-  dangerMuted: '#F7DEDE',
+  primaryMuted: '#E8ECFF',
+  onPrimaryMuted: '#3347A3',
+  border: '#DADCE0',
+  borderStrong: '#C4C7CC',
+  divider: '#E7E9ED',
+  track: '#E1E4E9',
+  success: '#237B4B',
+  successMuted: '#E8F3ED',
+  warning: '#A15C00',
+  warningMuted: '#FFF2D6',
+  danger: '#C4314B',
+  dangerPressed: '#A4263C',
+  dangerMuted: '#FDE7E9',
   onDanger: '#FFFFFF',
-  focus: '#2D7550',
-  shadow: 'rgba(23, 49, 38, 0.10)',
-  overlay: 'rgba(11, 25, 17, 0.48)',
+  focus: '#4F6BED',
+  focusBackground: '#3347A3',
+  focusText: '#FFFFFF',
+  focusTextMuted: 'rgba(255, 255, 255, 0.70)',
+  focusSurface: 'rgba(255, 255, 255, 0.08)',
+  focusSurfaceStrong: 'rgba(255, 255, 255, 0.12)',
+  focusBorder: 'rgba(255, 255, 255, 0.14)',
+  focusBorderStrong: 'rgba(255, 255, 255, 0.28)',
+  focusShadow: 'rgba(10, 18, 44, 0.24)',
+  shadow: 'rgba(36, 36, 36, 0.08)',
+  overlay: 'rgba(21, 28, 41, 0.48)',
 };
 
 const darkColors: AppThemeColors = {
-  background: '#0D1510',
-  surface: '#151F18',
-  surfaceMuted: '#1B2920',
-  surfaceElevated: '#1B2720',
-  surfacePressed: '#24352A',
-  text: '#ECF5EE',
-  textMuted: '#AAB9AF',
-  textSubtle: '#7F9185',
-  primary: '#77C799',
-  onPrimary: '#0B2A19',
-  primaryMuted: '#203C2B',
-  onPrimaryMuted: '#B3E3C3',
-  border: '#2A3A30',
-  borderStrong: '#43574A',
-  divider: '#223128',
-  track: '#2A3A30',
-  success: '#78CF9B',
-  successMuted: '#1E3A29',
-  warning: '#E4B862',
-  warningMuted: '#3D301B',
-  danger: '#F08C8E',
-  dangerMuted: '#432426',
-  onDanger: '#351012',
-  focus: '#8ED7AA',
-  shadow: 'rgba(0, 0, 0, 0.28)',
-  overlay: 'rgba(0, 0, 0, 0.64)',
+  background: '#111827',
+  surface: '#182233',
+  surfaceMuted: '#202C3D',
+  surfaceElevated: '#1C2738',
+  surfacePressed: '#2A384C',
+  text: '#F5F7FA',
+  textMuted: '#BBC3CF',
+  textSubtle: '#8D99AA',
+  primary: '#8EA6FF',
+  primaryPressed: '#A9BAFF',
+  onPrimary: '#111A35',
+  primaryMuted: '#2B3A6C',
+  onPrimaryMuted: '#D9E0FF',
+  border: '#303D50',
+  borderStrong: '#46566D',
+  divider: '#29364A',
+  track: '#344257',
+  success: '#79C49A',
+  successMuted: '#1D3A2C',
+  warning: '#F0BA6A',
+  warningMuted: '#44331E',
+  danger: '#FF9AA8',
+  dangerPressed: '#FFB2BC',
+  dangerMuted: '#48262D',
+  onDanger: '#3A0D15',
+  focus: '#A9BAFF',
+  focusBackground: '#111827',
+  focusText: '#F5F7FA',
+  focusTextMuted: 'rgba(245, 247, 250, 0.70)',
+  focusSurface: 'rgba(245, 247, 250, 0.08)',
+  focusSurfaceStrong: 'rgba(245, 247, 250, 0.12)',
+  focusBorder: 'rgba(245, 247, 250, 0.14)',
+  focusBorderStrong: 'rgba(245, 247, 250, 0.28)',
+  focusShadow: 'rgba(0, 0, 0, 0.28)',
+  shadow: 'rgba(0, 0, 0, 0.24)',
+  overlay: 'rgba(5, 10, 20, 0.68)',
 };
 
 export const lightTheme: AppTheme = {

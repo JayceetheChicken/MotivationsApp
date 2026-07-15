@@ -1,3 +1,4 @@
+import { fallbackSubjectColor } from '@/data/initial-data';
 import type { SessionSource, StudySession, Subject } from '../types/study';
 
 const MINUTE_MS = 60_000;
@@ -354,7 +355,7 @@ export function getSubjectBreakdown(
         ...breakdown,
         subjectId,
         subjectName: subject?.name ?? 'Unbekanntes Fach',
-        subjectColor: subject?.color ?? '#8C8C95',
+        subjectColor: subject?.color ?? fallbackSubjectColor,
         timerSessionCount: subjectSessions.filter((session) => session.source === 'timer').length,
         percentage:
           totalMinutes === 0 ? 0 : roundForOutput((breakdown.totalMinutes / totalMinutes) * 100),

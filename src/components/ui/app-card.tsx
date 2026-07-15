@@ -48,7 +48,7 @@ export function AppCard({
     default: {
       backgroundColor: theme.colors.surfaceElevated,
       borderColor: theme.colors.border,
-      boxShadow: `0 10px 30px ${theme.colors.shadow}`,
+      boxShadow: `0 1px 3px ${theme.colors.shadow}`,
     },
     subtle: {
       backgroundColor: theme.colors.surfaceMuted,
@@ -60,14 +60,14 @@ export function AppCard({
     },
     highlight: {
       backgroundColor: theme.colors.primaryMuted,
-      borderColor: theme.colors.primaryMuted,
+      borderColor: theme.colors.border,
     },
   }[variant];
 
   const cardStyle: StyleProp<ViewStyle> = [
     styles.card,
     variantStyle,
-    { padding: paddingValue },
+    { borderRadius: theme.radii.lg, padding: paddingValue },
     onPress ? styles.interactive : undefined,
     disabled ? styles.disabled : undefined,
     style,
@@ -106,15 +106,14 @@ export function AppCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 18,
     borderCurve: 'continuous',
   },
   interactive: {
     minHeight: 48,
   },
   pressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.995 }],
+    opacity: 0.94,
+    transform: [{ scale: 0.998 }],
   },
   disabled: {
     opacity: 0.5,

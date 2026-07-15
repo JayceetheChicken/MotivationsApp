@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   copy: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
+    gap: 6,
   },
   eyebrow: {
     textTransform: 'uppercase',
