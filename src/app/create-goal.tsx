@@ -6,12 +6,14 @@ import { SegmentedControl } from '@/components/segmented-control';
 import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
-import { createAutomaticGoalTitle } from '@/lib/goals';
+import { toLocalDateInput } from '@/lib/format';
+import { getGoalSubjectId } from '@/lib/goals';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
-import type { GoalPeriod, GoalSourcePolicy, StudyGoal } from '@/types/study';
+import type { GoalPeriod, GoalSourcePolicy } from '@/types/study';
 
 type GoalType = 'duration' | 'sessions';
+type DurationUnit = 'minutes' | 'hours';
 
 const TYPE_OPTIONS = [
   { value: 'duration', label: 'Lernzeit' },
@@ -19,14 +21,22 @@ const TYPE_OPTIONS = [
 ] as const;
 
 const PERIOD_OPTIONS = [
-  { value: 'week', label: 'Woche' },
-  { value: 'month', label: 'Monat' },
-  { value: 'year', label: 'Jahr' },
+  { value: 'day', label: 'Täglich' },
+  { value: 'week', label: 'Wöchentlich' },
+  { value: 'month', label: 'Monatlich' },
+  { value: 'custom', label: 'Eigener Zeitraum' },
 ] as const;
+
+const LEGACY_YEAR_OPTION = { value: 'year', label: 'Jährlich' } as const;
 
 const SOURCE_OPTIONS = [
   { value: 'all', label: 'Alle Zeiten' },
   { value: 'timer_only', label: 'Nur Timer' },
+] as const;
+
+const DURATION_UNIT_OPTIONS = [
+  { value: 'minutes', label: 'Minuten' },
+  { value: 'hours', label: 'Stunden' },
 ] as const;
 
 function SubjectChoice({
@@ -49,9 +59,9 @@ function SubjectChoice({
       style={({ pressed }) => [
         styles.subjectChoice,
         {
-          backgroundColor: selected ? theme.colors.primaryMuted : theme.colors.surface,
+          backgroundColor: selected ? theme.colors.accentPeachMuted : theme.colors.surfaceMuted,
           borderColor: selected ? theme.colors.primary : theme.colors.border,
-          borderRadius: theme.radii.md,
+          borderRadius: theme.radii.lg,
           opacity: pressed ? 0.72 : 1,
         },
       ]}>
@@ -63,50 +73,71 @@ function SubjectChoice({
   );
 }
 
+function isValidDateInput(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function dateInputToIso(value: string, endOfDay = false): string | undefined {
+  if (!value) return undefined;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = endOfDay
+    ? new Date(year, month - 1, day, 23, 59, 59, 999)
+    : new Date(year, month - 1, day, 0, 0, 0, 0);
+  return date.toISOString();
+}
+
 export default function CreateGoalScreen() {
   const theme = useAppTheme();
   const { goalId } = useLocalSearchParams<{ goalId?: string }>();
   const { data, createGoal, updateGoal } = useStudyStore();
   const existing = data.goals.find((goal) => goal.id === goalId);
+  const existingDurationUsesHours = existing?.type === 'duration'
+    && existing.targetMinutes >= 60
+    && existing.targetMinutes % 60 === 0;
   const [title, setTitle] = useState(existing?.title ?? '');
   const [type, setType] = useState<GoalType>(existing?.type ?? 'duration');
   const [period, setPeriod] = useState<GoalPeriod>(existing?.period ?? 'week');
-  const [target, setTarget] = useState(() => existing
-    ? String(existing.type === 'duration' ? existing.targetMinutes : existing.targetSessions)
-    : '');
+  const [durationUnit, setDurationUnit] = useState<DurationUnit>(existingDurationUsesHours ? 'hours' : 'minutes');
+  const [target, setTarget] = useState(() => {
+    if (!existing) return '';
+    if (existing.type === 'sessions') return String(existing.targetSessions);
+    return String(existingDurationUsesHours ? existing.targetMinutes / 60 : existing.targetMinutes);
+  });
   const [minimumMinutes, setMinimumMinutes] = useState(() =>
     existing?.type === 'sessions' ? String(existing.minimumSessionMinutes) : '10',
   );
   const [sourcePolicy, setSourcePolicy] = useState<GoalSourcePolicy>(existing?.sourcePolicy ?? 'all');
-  const [subjectId, setSubjectId] = useState<string | undefined>(existing?.subjectIds?.[0]);
+  const [subjectId, setSubjectId] = useState<string | undefined>(
+    existing ? getGoalSubjectId(existing) ?? undefined : undefined,
+  );
+  const [startDate, setStartDate] = useState(() => existing?.startsAt ? toLocalDateInput(new Date(existing.startsAt)) : '');
+  const [endDate, setEndDate] = useState(() => existing?.endsAt ? toLocalDateInput(new Date(existing.endsAt)) : '');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const numericTarget = Number(target.replace(',', '.'));
+  const targetValue = type === 'duration' && durationUnit === 'hours'
+    ? numericTarget * 60
+    : numericTarget;
+  const periodOptions = useMemo(
+    () => period === 'year' ? [...PERIOD_OPTIONS, LEGACY_YEAR_OPTION] : PERIOD_OPTIONS,
+    [period],
+  );
 
-  const previewGoal = useMemo<StudyGoal>(() => {
-    const common = {
-      id: existing?.id ?? 'preview',
-      userId: data.currentUser?.id ?? 'local-user',
-      period,
-      sourcePolicy: type === 'sessions' ? ('timer_only' as const) : sourcePolicy,
-      subjectIds: subjectId ? [subjectId] : undefined,
-      status: 'active' as const,
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
-      startsAt: existing?.startsAt ?? new Date().toISOString(),
-    };
-    return type === 'duration'
-      ? { ...common, type, targetMinutes: Number.isFinite(numericTarget) ? Math.max(0, numericTarget) : 0 }
-      : {
-          ...common,
-          type,
-          targetSessions: Number.isFinite(numericTarget) ? Math.max(0, Math.round(numericTarget)) : 0,
-          minimumSessionMinutes: Math.max(0, Number(minimumMinutes) || 0),
-        };
-  }, [data.currentUser?.id, existing, minimumMinutes, numericTarget, period, sourcePolicy, subjectId, type]);
-  const generatedTitle = createAutomaticGoalTitle(previewGoal, data.subjects);
+  const clearError = () => setError(null);
 
   const save = () => {
-    if (!Number.isFinite(numericTarget) || numericTarget <= 0) {
+    if (!title.trim()) {
+      setError('Bitte gib deinem Ziel einen Titel.');
+      return;
+    }
+    if (!subjectId) {
+      setError('Bitte wähle ein Fach für das Ziel aus.');
+      return;
+    }
+    if (!Number.isFinite(targetValue) || targetValue <= 0) {
       setError('Bitte gib einen Zielwert größer als 0 ein.');
       return;
     }
@@ -115,19 +146,43 @@ export default function CreateGoalScreen() {
       setError('Die Mindestdauer muss mindestens 1 Minute betragen.');
       return;
     }
+    if (startDate && !isValidDateInput(startDate)) {
+      setError('Bitte gib das Startdatum als JJJJ-MM-TT ein.');
+      return;
+    }
+    if (endDate && !isValidDateInput(endDate)) {
+      setError('Bitte gib das Enddatum als JJJJ-MM-TT ein.');
+      return;
+    }
+    if (period === 'custom' && (!startDate || !endDate)) {
+      setError('Für einen eigenen Zeitraum werden Start- und Enddatum benötigt.');
+      return;
+    }
+    const startsAt = dateInputToIso(startDate);
+    const endsAt = dateInputToIso(endDate, true);
+    if (startsAt && endsAt && new Date(endsAt).getTime() < new Date(startsAt).getTime()) {
+      setError('Das Enddatum muss am oder nach dem Startdatum liegen.');
+      return;
+    }
 
     setSaving(true);
     const input = {
-      title: title.trim() || undefined,
+      title: title.trim(),
       type,
-      target: numericTarget,
+      target: type === 'duration' ? Math.round(targetValue) : Math.round(numericTarget),
       subjectId,
-      sourcePolicy: type === 'sessions' ? ('timer_only' as const) : sourcePolicy,
+      sourcePolicy,
       period,
+      startsAt,
+      endsAt,
       minimumSessionMinutes: type === 'sessions' ? Math.round(minimum) : undefined,
     };
     if (existing) {
-      updateGoal(existing.id, { ...input, title: title.trim() || null, subjectId: subjectId ?? null });
+      updateGoal(existing.id, {
+        ...input,
+        startsAt: startsAt ?? null,
+        endsAt: endsAt ?? null,
+      });
     } else {
       createGoal(input);
     }
@@ -144,34 +199,31 @@ export default function CreateGoalScreen() {
       maxWidth={720}>
       <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>
         {existing
-          ? 'Passe dein Ziel an. Bereits erfasste Lernzeit wird danach mit den neuen Regeln ausgewertet.'
-          : 'Lege ein realistisches Ziel fest. Es zählt erst ab dem Zeitpunkt seiner Erstellung.'}
+          ? 'Passe dein Ziel an. Bereits zugeordnete Sessions bleiben mit diesem Ziel verbunden.'
+          : 'Lege ein realistisches Ziel fest. Sessions zählen nur, wenn sie ausdrücklich für dieses Ziel gestartet oder eingetragen werden.'}
       </Text>
 
-      <AppCard style={styles.section}>
+      <AppCard style={[styles.section, { borderTopColor: theme.colors.primary, borderTopWidth: 4 }]}>
         <View style={styles.field}>
-          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Titel (optional)</Text>
+          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Titel</Text>
           <TextInput
-            accessibilityLabel="Eigener Zieltitel"
+            accessibilityLabel="Zieltitel"
             maxLength={60}
-            onChangeText={setTitle}
-            placeholder={generatedTitle}
+            onChangeText={(value) => { setTitle(value); clearError(); }}
+            placeholder="z. B. Matheprüfung vorbereiten"
             placeholderTextColor={theme.colors.textSubtle}
             style={[
               styles.input,
               theme.typography.body,
               {
                 color: theme.colors.text,
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.borderStrong,
-                borderRadius: theme.radii.md,
+                backgroundColor: theme.colors.surfaceMuted,
+                borderColor: theme.colors.accentBrownMuted,
+                borderRadius: theme.radii.lg,
               },
             ]}
             value={title}
           />
-          <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-            Ohne eigenen Titel: „{generatedTitle}“
-          </Text>
         </View>
 
         <View style={styles.field}>
@@ -180,8 +232,7 @@ export default function CreateGoalScreen() {
             accessibilityLabel="Zieltyp"
             onChange={(nextType) => {
               setType(nextType);
-              if (nextType === 'sessions') setSourcePolicy('timer_only');
-              setError(null);
+              clearError();
             }}
             options={TYPE_OPTIONS}
             value={type}
@@ -190,18 +241,91 @@ export default function CreateGoalScreen() {
 
         <View style={styles.field}>
           <Text style={[theme.typography.label, { color: theme.colors.text }]}>Zeitraum</Text>
-          <SegmentedControl accessibilityLabel="Zielzeitraum" onChange={setPeriod} options={PERIOD_OPTIONS} value={period} />
+          <View accessibilityRole="radiogroup" style={styles.periodChoices}>
+            {periodOptions.map((option) => (
+              <SubjectChoice
+                key={option.value}
+                label={option.label}
+                onPress={() => { setPeriod(option.value); clearError(); }}
+                selected={period === option.value}
+              />
+            ))}
+          </View>
         </View>
 
         <View style={styles.field}>
-          <Text style={[theme.typography.label, { color: theme.colors.text }]}>
-            {type === 'duration' ? 'Zielwert in Minuten' : 'Anzahl Sessions'}
+          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Fach</Text>
+          {data.subjects.some((subject) => !subject.archived) ? (
+            <View accessibilityRole="radiogroup" style={styles.subjectChoices}>
+              {data.subjects.filter((subject) => !subject.archived).map((subject) => (
+                <SubjectChoice
+                  color={subject.color}
+                  key={subject.id}
+                  label={subject.name}
+                  onPress={() => { setSubjectId(subject.id); clearError(); }}
+                  selected={subjectId === subject.id}
+                />
+              ))}
+            </View>
+          ) : (
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
+              Lege zuerst in einer Lern-Session ein Fach an.
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.field}>
+          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Optionaler Start und Abschluss</Text>
+          <View style={styles.dateRow}>
+            <View style={styles.dateField}>
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Startdatum</Text>
+              <TextInput
+                accessibilityLabel="Startdatum im Format Jahr Monat Tag"
+                autoCapitalize="none"
+                keyboardType="numbers-and-punctuation"
+                maxLength={10}
+                onChangeText={(value) => { setStartDate(value); clearError(); }}
+                placeholder="JJJJ-MM-TT"
+                placeholderTextColor={theme.colors.textSubtle}
+                style={[styles.input, theme.typography.body, { color: theme.colors.text, backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.accentBrownMuted, borderRadius: theme.radii.lg }]}
+                value={startDate}
+              />
+            </View>
+            <View style={styles.dateField}>
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Enddatum</Text>
+              <TextInput
+                accessibilityLabel="Enddatum im Format Jahr Monat Tag"
+                autoCapitalize="none"
+                keyboardType="numbers-and-punctuation"
+                maxLength={10}
+                onChangeText={(value) => { setEndDate(value); clearError(); }}
+                placeholder="JJJJ-MM-TT"
+                placeholderTextColor={theme.colors.textSubtle}
+                style={[styles.input, theme.typography.body, { color: theme.colors.text, backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.accentBrownMuted, borderRadius: theme.radii.lg }]}
+                value={endDate}
+              />
+            </View>
+          </View>
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+            Bei „Eigener Zeitraum“ sind beide Daten erforderlich. Sonst begrenzen sie das wiederkehrende Ziel optional.
           </Text>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Zielwert</Text>
+          {type === 'duration' ? (
+            <SegmentedControl
+              accessibilityLabel="Einheit des Lernzeitziels"
+              onChange={setDurationUnit}
+              options={DURATION_UNIT_OPTIONS}
+              value={durationUnit}
+            />
+          ) : null}
           <TextInput
-            accessibilityLabel={type === 'duration' ? 'Zielwert in Minuten' : 'Anzahl Sessions'}
-            keyboardType="number-pad"
-            onChangeText={(value) => { setTarget(value); setError(null); }}
-            placeholder={type === 'duration' ? '120' : '3'}
+            accessibilityLabel={type === 'duration' ? `Zielwert in ${durationUnit === 'hours' ? 'Stunden' : 'Minuten'}` : 'Anzahl Sessions'}
+            keyboardType="decimal-pad"
+            onChangeText={(value) => { setTarget(value); clearError(); }}
+            placeholder={type === 'duration' ? (durationUnit === 'hours' ? '2' : '120') : '3'}
             placeholderTextColor={theme.colors.textSubtle}
             style={[
               styles.input,
@@ -209,9 +333,9 @@ export default function CreateGoalScreen() {
               styles.numeric,
               {
                 color: theme.colors.text,
-                backgroundColor: theme.colors.surface,
+                backgroundColor: theme.colors.accentPeachMuted,
                 borderColor: error ? theme.colors.danger : theme.colors.borderStrong,
-                borderRadius: theme.radii.md,
+                borderRadius: theme.radii.lg,
               },
             ]}
             value={target}
@@ -224,52 +348,27 @@ export default function CreateGoalScreen() {
             <TextInput
               accessibilityLabel="Mindestdauer je Session in Minuten"
               keyboardType="number-pad"
-              onChangeText={(value) => { setMinimumMinutes(value); setError(null); }}
-              style={[
-                styles.input,
-                theme.typography.body,
-                { color: theme.colors.text, backgroundColor: theme.colors.surface, borderColor: theme.colors.borderStrong, borderRadius: theme.radii.md },
-              ]}
+              onChangeText={(value) => { setMinimumMinutes(value); clearError(); }}
+              style={[styles.input, theme.typography.body, { color: theme.colors.text, backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.accentBrownMuted, borderRadius: theme.radii.lg }]}
               value={minimumMinutes}
             />
-            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Sessionziele zählen ausschließlich automatisch gemessene Timer-Sessions.</Text>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Nur Einträge ab dieser Dauer zählen als vollständige Session. Die erlaubte Quelle legst du darunter fest.</Text>
           </View>
         ) : null}
       </AppCard>
 
-      {type === 'duration' ? (
-        <AppCard style={styles.section}>
-          <View style={styles.field}>
-            <Text style={[theme.typography.label, { color: theme.colors.text }]}>Welche Lernzeit zählt?</Text>
-            <SegmentedControl
-              accessibilityLabel="Zeitquelle für das Ziel"
-              onChange={setSourcePolicy}
-              options={SOURCE_OPTIONS}
-              value={sourcePolicy}
-            />
-            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-              „Nur Timer“ eignet sich besonders für nachvollziehbare soziale Vergleiche.
-            </Text>
-          </View>
-        </AppCard>
-      ) : null}
-
-      <AppCard style={styles.section}>
+      <AppCard style={[styles.section, { borderLeftColor: theme.colors.accentMustard, borderLeftWidth: 4 }]}>
         <View style={styles.field}>
-          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Fach (optional)</Text>
-          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Ohne Auswahl zählen alle Fächer.</Text>
-          <View accessibilityRole="radiogroup" style={styles.subjectChoices}>
-            <SubjectChoice label="Alle Fächer" onPress={() => setSubjectId(undefined)} selected={!subjectId} />
-            {data.subjects.filter((subject) => !subject.archived).map((subject) => (
-              <SubjectChoice
-                color={subject.color}
-                key={subject.id}
-                label={subject.name}
-                onPress={() => setSubjectId(subject.id)}
-                selected={subjectId === subject.id}
-              />
-            ))}
-          </View>
+          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Welche Lernzeit zählt?</Text>
+          <SegmentedControl
+            accessibilityLabel="Zeitquelle für das Ziel"
+            onChange={setSourcePolicy}
+            options={SOURCE_OPTIONS}
+            value={sourcePolicy}
+          />
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+            „Alle Zeiten“ lässt auch bewusst zugeordnete manuelle Einträge zählen. „Nur Timer“ eignet sich besonders für soziale Vergleiche.
+          </Text>
         </View>
       </AppCard>
 
@@ -277,6 +376,7 @@ export default function CreateGoalScreen() {
         <Text accessibilityRole="alert" style={[theme.typography.bodyMedium, { color: theme.colors.danger }]}>{error}</Text>
       ) : null}
       <AppButton
+        disabled={!data.subjects.some((subject) => !subject.archived)}
         fullWidth
         label={existing ? 'Änderungen speichern' : 'Ziel erstellen'}
         loading={saving}
@@ -293,7 +393,10 @@ const styles = StyleSheet.create({
   field: { width: '100%', gap: 10 },
   input: { width: '100%', minHeight: 52, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12 },
   subjectChoices: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  periodChoices: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   subjectChoice: { minHeight: 48, minWidth: 145, flexGrow: 1, flexBasis: '40%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, paddingHorizontal: 14 },
   subjectDot: { width: 10, height: 10, borderRadius: 5 },
+  dateRow: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  dateField: { minWidth: 210, flex: 1, gap: 6 },
   numeric: { fontVariant: ['tabular-nums'] },
 });

@@ -48,7 +48,7 @@ export function AppCard({
     default: {
       backgroundColor: theme.colors.surfaceElevated,
       borderColor: theme.colors.border,
-      boxShadow: `0 1px 3px ${theme.colors.shadow}`,
+      boxShadow: `0 4px 12px ${theme.colors.shadow}`,
     },
     subtle: {
       backgroundColor: theme.colors.surfaceMuted,
@@ -59,8 +59,8 @@ export function AppCard({
       borderColor: theme.colors.borderStrong,
     },
     highlight: {
-      backgroundColor: theme.colors.primaryMuted,
-      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.accentPeachMuted,
+      borderColor: theme.colors.accentPeach,
     },
   }[variant];
 
@@ -112,8 +112,8 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   pressed: {
-    opacity: 0.94,
-    transform: [{ scale: 0.998 }],
+    opacity: 0.92,
+    transform: [{ scale: 0.996 }],
   },
   disabled: {
     opacity: 0.5,

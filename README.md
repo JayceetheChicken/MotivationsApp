@@ -60,7 +60,7 @@ npx expo-doctor
 - `src/lib` – Ziel-, Timer-, Diagramm- und Statistiklogik
 - `src/data` – ausschließlich leerer Initialzustand und Farbpalette
 - `src/components` – wiederverwendbare, barrierearme UI-Bausteine
-- `src/theme` – zentrales blau-graues Light-/Dark-Designsystem
+- `src/theme` – zentrales warmes Retro-/70er-Light-/Dark-Designsystem
 - `__tests__` – Domain-, Store-, Statistik-, Chart- und Responsive-Tests
 
 ## Spätere Erweiterung

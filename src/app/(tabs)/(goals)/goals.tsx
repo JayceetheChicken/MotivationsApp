@@ -26,9 +26,11 @@ const FILTERS = [
 ] as const;
 
 const PERIOD_LABEL: Record<StudyGoal['period'], string> = {
+  day: 'Täglich',
   week: 'Wöchentlich',
   month: 'Monatlich',
   year: 'Jährlich',
+  custom: 'Eigener Zeitraum',
 };
 
 function GoalCard({
@@ -71,7 +73,17 @@ function GoalCard({
   }[goal.status];
 
   return (
-    <AppCard style={styles.goalCard} variant={progress.achieved ? 'highlight' : 'default'}>
+    <AppCard
+      style={[
+        styles.goalCard,
+        progress.achieved
+          ? {
+              backgroundColor: theme.colors.accentOliveMuted,
+              borderColor: theme.colors.accentOlive,
+            }
+          : undefined,
+      ]}
+      variant={progress.achieved ? 'highlight' : 'default'}>
       <View style={styles.goalHeader}>
         <View style={styles.goalHeading}>
           <Text accessibilityRole="header" selectable style={[theme.typography.subheading, { color: theme.colors.text }]}>
@@ -94,8 +106,8 @@ function GoalCard({
       </View>
 
       <View style={styles.badges}>
-        <View style={[styles.statusBadge, { backgroundColor: theme.colors.primaryMuted }]}>
-          <Text style={[theme.typography.caption, { color: theme.colors.onPrimaryMuted }]}>
+        <View style={[styles.statusBadge, { backgroundColor: theme.colors.accentOliveMuted }]}>
+          <Text style={[theme.typography.caption, { color: theme.colors.accentOlive }]}>
             {goal.type === 'duration' ? 'ZEITZIEL' : 'SESSIONZIEL'}
           </Text>
         </View>
@@ -129,7 +141,7 @@ function GoalCard({
         value={progress.current}
       />
 
-      <Text selectable style={[theme.typography.label, { color: progress.achieved ? theme.colors.success : theme.colors.textMuted }]}>
+      <Text selectable style={[theme.typography.label, { color: progress.achieved ? theme.colors.accentOlive : theme.colors.textMuted }]}>
         {progress.achieved
           ? 'Ziel erreicht – alles Weitere ist Bonus.'
           : goal.type === 'duration'

@@ -191,7 +191,7 @@ export default function StatsScreen() {
               <View style={styles.sourceItem}>
                 <View style={styles.sourceHeader}>
                   <SourceBadge source="timer" />
-                  <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
+                  <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.accentTurquoise }]}>
                     {formatMinutes(stats.timerMinutes, true)}
                   </Text>
                 </View>
@@ -200,7 +200,7 @@ export default function StatsScreen() {
               <View style={styles.sourceItem}>
                 <View style={styles.sourceHeader}>
                   <SourceBadge source="manual" />
-                  <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
+                  <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.accentMustard }]}>
                     {formatMinutes(stats.manualMinutes, true)}
                   </Text>
                 </View>
@@ -221,7 +221,7 @@ export default function StatsScreen() {
               style={[
                 theme.typography.heading,
                 styles.numeric,
-                { color: comparison.positive ? theme.colors.success : theme.colors.text },
+                { color: comparison.positive ? theme.colors.accentTurquoise : theme.colors.text },
               ]}>
               {comparison.value}
             </Text>

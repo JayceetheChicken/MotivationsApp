@@ -10,9 +10,13 @@ export default function TabsLayout() {
   return (
     <NativeTabs
       backgroundColor={theme.colors.surface}
+      iconColor={{ default: theme.colors.accentBrown, selected: theme.colors.primary }}
       indicatorColor={theme.colors.primaryMuted}
       tintColor={theme.colors.primary}
-      labelStyle={{ selected: { color: theme.colors.primary } }}>
+      labelStyle={{
+        default: { color: theme.colors.accentBrown },
+        selected: { color: theme.colors.primary },
+      }}>
       <NativeTabs.Trigger name="(home)">
         <NativeTabs.Trigger.Icon sf="house.fill" md="home" />
         <NativeTabs.Trigger.Label>Übersicht</NativeTabs.Trigger.Label>

@@ -16,7 +16,7 @@ export function SourceBadge({ source, label, compact = false, style }: SourceBad
   const isTimer = source === 'timer';
   const displayLabel = label ?? (isTimer ? 'Mit Timer gemessen' : 'Manuell eingetragen');
   const foreground = isTimer ? theme.colors.onPrimaryMuted : theme.colors.warning;
-  const background = isTimer ? theme.colors.primaryMuted : theme.colors.warningMuted;
+  const background = isTimer ? theme.colors.accentPeachMuted : theme.colors.accentMustardMuted;
 
   return (
     <View

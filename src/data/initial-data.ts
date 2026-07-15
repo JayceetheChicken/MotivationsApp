@@ -1,12 +1,12 @@
 import type { StudyData } from '@/types/study';
 
-/** Central, restrained colour rotation for user-created subjects. */
+/** Warm retro colour rotation for user-created subjects. */
 export const subjectColorPalette = [
-  '#4F6BED',
-  '#3B82C4',
-  '#5B5FC7',
-  '#3976B8',
-  '#68769C',
+  '#B44D2B',
+  '#C3922E',
+  '#747644',
+  '#4F8B83',
+  '#87593C',
 ] as const;
 
 export const fallbackSubjectColor = subjectColorPalette[subjectColorPalette.length - 1];

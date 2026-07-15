@@ -28,12 +28,23 @@ export interface TimerSegment {
 interface StudySessionBase {
   id: string;
   userId: string;
+  /**
+   * Explicit goal binding. Older persisted sessions may omit this property;
+   * `null` represents an intentionally goal-free session.
+   */
+  goalId?: string | null;
   subjectId: string;
+  /** Historical labels keep deleted or renamed goals/subjects understandable. */
+  goalTitleSnapshot?: string;
+  subjectNameSnapshot?: string;
   startedAt: ISODateTime;
   endedAt: ISODateTime;
   durationMinutes: number;
+  plannedDurationMinutes?: number;
   note?: string;
   createdAt: ISODateTime;
+  /** Optional so existing in-memory fixtures remain backwards-compatible. */
+  status?: 'completed';
 }
 
 export interface TimerStudySession extends StudySessionBase {
@@ -62,15 +73,20 @@ export interface ActiveTimer {
   schemaVersion: 1;
   id: string;
   userId: string;
+  /** Missing only on timers persisted before goal-bound sessions existed. */
+  goalId?: string | null;
   subjectId: string;
+  goalTitleSnapshot?: string;
+  subjectNameSnapshot?: string;
   status: 'running' | 'paused';
   startedAt: ISODateTime;
   segments: readonly ActiveTimerSegment[];
+  plannedDurationMinutes?: number;
   note?: string;
   updatedAt: ISODateTime;
 }
 
-export type GoalPeriod = 'week' | 'month' | 'year';
+export type GoalPeriod = 'day' | 'week' | 'month' | 'year' | 'custom';
 export type GoalSourcePolicy = 'all' | 'timer_only';
 export type GoalStatus = 'active' | 'paused' | 'completed' | 'archived';
 
@@ -86,6 +102,9 @@ interface StudyGoalBase {
   title?: string;
   period: GoalPeriod;
   sourcePolicy: GoalSourcePolicy;
+  /** Canonical single subject for all newly created and explicitly repaired goals. */
+  subjectId?: string;
+  /** Legacy representation retained so old multi-/unassigned goals can migrate safely. */
   subjectIds?: readonly string[];
   status: GoalStatus;
   createdAt: ISODateTime;
@@ -94,6 +113,8 @@ interface StudyGoalBase {
    * compatibility with persisted v1 goals; new and migrated goals always set it.
    */
   startsAt?: ISODateTime;
+  /** Inclusive end boundary for custom or explicitly bounded goals. */
+  endsAt?: ISODateTime;
   pausedAt?: ISODateTime;
   pausedIntervals?: readonly GoalPauseInterval[];
   completedAt?: ISODateTime;

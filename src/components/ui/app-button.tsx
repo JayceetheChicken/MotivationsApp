@@ -53,10 +53,10 @@ export function AppButton({
       textColor: theme.colors.onPrimary,
     },
     secondary: {
-      backgroundColor: theme.colors.primaryMuted,
-      borderColor: theme.colors.primaryMuted,
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.accentBrown,
       pressedBackgroundColor: theme.colors.surfacePressed,
-      textColor: theme.colors.onPrimaryMuted,
+      textColor: theme.colors.accentBrown,
     },
     outline: {
       backgroundColor: theme.colors.surface,
@@ -68,7 +68,7 @@ export function AppButton({
       backgroundColor: 'transparent',
       borderColor: 'transparent',
       pressedBackgroundColor: theme.colors.primaryMuted,
-      textColor: theme.colors.primary,
+      textColor: theme.colors.primaryText,
     },
     danger: {
       backgroundColor: theme.colors.danger,
@@ -97,7 +97,7 @@ export function AppButton({
         {
           backgroundColor: variantValues.backgroundColor,
           borderColor: variantValues.borderColor,
-          borderRadius: theme.radii.md,
+          borderRadius: theme.radii.lg,
         },
         fullWidth ? styles.fullWidth : undefined,
         pressed && !isDisabled
@@ -148,6 +148,6 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.995 }],
   },
   disabled: {
-    opacity: 0.5,
+    opacity: 0.56,
   },
 });

@@ -314,17 +314,17 @@ export function StudyLineChart({
           style={[
             styles.emptyMark,
             {
-              backgroundColor: theme.colors.primaryMuted,
+              backgroundColor: theme.colors.accentTurquoiseMuted,
               borderRadius: theme.radii.pill,
             },
           ]}>
-          <View style={[styles.emptyMarkLine, { backgroundColor: theme.colors.primary }]} />
+          <View style={[styles.emptyMarkLine, { backgroundColor: theme.colors.accentTurquoise }]} />
           <View
             style={[
               styles.emptyMarkDot,
               {
                 backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.primary,
+                borderColor: theme.colors.accentTurquoise,
               },
             ]}
           />
@@ -356,7 +356,11 @@ export function StudyLineChart({
         </Text>
         <Text
           selectable
-          style={[theme.typography.bodyMedium, styles.selectedValue, { color: theme.colors.text }]}>
+          style={[
+            theme.typography.bodyMedium,
+            styles.selectedValue,
+            { color: theme.colors.primaryText },
+          ]}>
           {selectedValue === null ? formatValue(total) : formatValue(selectedValue)}
         </Text>
       </View>
@@ -376,7 +380,7 @@ export function StudyLineChart({
         onStartShouldSetResponder={() => true}
         style={{ height: chartHeight }}>
         {measuredWidth > 0 ? (
-          <Svg accessible={false} height={chartHeight} width={measuredWidth}>
+          <Svg height={chartHeight} width={measuredWidth}>
             <SvgText
               fill={theme.colors.textSubtle}
               fontSize={11}
@@ -441,8 +445,8 @@ export function StudyLineChart({
                   return (
                     <Path
                       d={areaPath}
-                      fill={theme.colors.primary}
-                      fillOpacity={theme.isDark ? 0.12 : 0.08}
+                      fill={theme.colors.accentTurquoise}
+                      fillOpacity={theme.isDark ? 0.18 : 0.12}
                       key={`area-${firstPoint.index}`}
                     />
                   );
@@ -471,7 +475,7 @@ export function StudyLineChart({
                   d={linePath}
                   fill="none"
                   key={`line-${segment[0]?.index ?? 0}`}
-                  stroke={theme.colors.primary}
+                  stroke={theme.colors.accentTurquoise}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2.5}
@@ -489,7 +493,9 @@ export function StudyLineChart({
                   fill={isSelected ? theme.colors.primary : theme.colors.surface}
                   key={`point-${point.index}`}
                   r={isSelected ? 5 : 3.5}
-                  stroke={isSelected ? theme.colors.surface : theme.colors.primary}
+                  stroke={
+                    isSelected ? theme.colors.surface : theme.colors.accentTurquoise
+                  }
                   strokeWidth={isSelected ? 2.5 : 2}
                 />
               );

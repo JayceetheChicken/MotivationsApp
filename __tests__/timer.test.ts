@@ -94,6 +94,33 @@ describe('study timer state transitions', () => {
     expect(completed.segments).toHaveLength(2);
     expect(completed.segments[1].endedAt).toBe('2026-07-10T08:15:00.000Z');
   });
+
+  it('keeps the explicit goal binding and historical labels on completion', () => {
+    const timer: ActiveTimer = {
+      ...runningTimer(),
+      goalId: 'goal-deutsch',
+      goalTitleSnapshot: 'Deutsch-Abitur',
+      subjectNameSnapshot: 'Deutsch',
+      plannedDurationMinutes: 45,
+      note: 'Gedichtanalyse',
+    };
+
+    const completed = buildTimerSession(
+      timer,
+      new Date('2026-07-10T08:45:00.000Z'),
+    );
+
+    expect(completed).toMatchObject({
+      id: timer.id,
+      goalId: 'goal-deutsch',
+      subjectId: 'math',
+      goalTitleSnapshot: 'Deutsch-Abitur',
+      subjectNameSnapshot: 'Deutsch',
+      plannedDurationMinutes: 45,
+      note: 'Gedichtanalyse',
+      status: 'completed',
+    });
+  });
 });
 
 describe('timer safeguards', () => {

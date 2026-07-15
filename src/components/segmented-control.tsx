@@ -48,8 +48,8 @@ export function SegmentedControl<T extends string>({
             style={({ pressed }) => [
               styles.segment,
               {
-                backgroundColor: selected ? theme.colors.surface : 'transparent',
-                borderColor: selected ? theme.colors.borderStrong : 'transparent',
+                backgroundColor: selected ? theme.colors.primary : 'transparent',
+                borderColor: selected ? theme.colors.primaryPressed : 'transparent',
                 borderRadius: theme.radii.sm,
               },
               pressed ? styles.pressed : undefined,
@@ -57,7 +57,7 @@ export function SegmentedControl<T extends string>({
             <Text
               style={[
                 theme.typography.label,
-                { color: selected ? theme.colors.primary : theme.colors.textMuted },
+                { color: selected ? theme.colors.onPrimary : theme.colors.textMuted },
               ]}>
               {option.label}
             </Text>
@@ -89,4 +89,3 @@ const styles = StyleSheet.create({
     opacity: 0.74,
   },
 });
-

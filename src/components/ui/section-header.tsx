@@ -40,7 +40,7 @@ export function SectionHeader({
             style={[
               theme.typography.caption,
               styles.eyebrow,
-              { color: theme.colors.primary },
+              { color: theme.colors.primaryText },
             ]}>
             {eyebrow}
           </Text>
@@ -68,7 +68,7 @@ export function SectionHeader({
             { borderRadius: theme.radii.sm },
             pressed ? { backgroundColor: theme.colors.surfacePressed } : undefined,
           ]}>
-          <Text style={[theme.typography.label, { color: theme.colors.primary }]}>
+          <Text style={[theme.typography.label, { color: theme.colors.primaryText }]}>
             {actionLabel}
           </Text>
         </Pressable>

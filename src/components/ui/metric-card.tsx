@@ -69,7 +69,7 @@ export function MetricCard({
                 borderRadius: theme.radii.md,
                 backgroundColor: emphasized
                   ? theme.colors.surface
-                  : theme.colors.primaryMuted,
+                  : theme.colors.accentPeachMuted,
               },
             ]}>
             {icon}

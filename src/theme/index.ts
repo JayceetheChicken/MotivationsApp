@@ -15,6 +15,7 @@ export type AppThemeColors = Readonly<{
   textSubtle: string;
   primary: string;
   primaryPressed: string;
+  primaryText: string;
   onPrimary: string;
   primaryMuted: string;
   onPrimaryMuted: string;
@@ -31,6 +32,7 @@ export type AppThemeColors = Readonly<{
   dangerMuted: string;
   onDanger: string;
   focus: string;
+  focusAccent: string;
   focusBackground: string;
   focusText: string;
   focusTextMuted: string;
@@ -39,6 +41,16 @@ export type AppThemeColors = Readonly<{
   focusBorder: string;
   focusBorderStrong: string;
   focusShadow: string;
+  accentPeach: string;
+  accentPeachMuted: string;
+  accentMustard: string;
+  accentMustardMuted: string;
+  accentOlive: string;
+  accentOliveMuted: string;
+  accentTurquoise: string;
+  accentTurquoiseMuted: string;
+  accentBrown: string;
+  accentBrownMuted: string;
   shadow: string;
   overlay: string;
 }>;
@@ -57,11 +69,11 @@ export const spacing = {
 } as const;
 
 export const radii = {
-  sm: 6,
-  md: 8,
-  lg: 12,
-  xl: 16,
-  xxl: 20,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
   pill: 999,
 } as const;
 
@@ -141,81 +153,105 @@ export type AppTheme = Readonly<{
 }>;
 
 const lightColors: AppThemeColors = {
-  background: '#F5F6F8',
-  surface: '#FFFFFF',
-  surfaceMuted: '#EEF0F4',
-  surfaceElevated: '#FFFFFF',
-  surfacePressed: '#E4E7EC',
-  text: '#242424',
-  textMuted: '#616161',
-  textSubtle: '#8A8886',
-  primary: '#4F6BED',
-  primaryPressed: '#3D54C7',
-  onPrimary: '#FFFFFF',
-  primaryMuted: '#E8ECFF',
-  onPrimaryMuted: '#3347A3',
-  border: '#DADCE0',
-  borderStrong: '#C4C7CC',
-  divider: '#E7E9ED',
-  track: '#E1E4E9',
-  success: '#237B4B',
-  successMuted: '#E8F3ED',
-  warning: '#A15C00',
-  warningMuted: '#FFF2D6',
-  danger: '#C4314B',
-  dangerPressed: '#A4263C',
-  dangerMuted: '#FDE7E9',
-  onDanger: '#FFFFFF',
-  focus: '#4F6BED',
-  focusBackground: '#3347A3',
-  focusText: '#FFFFFF',
-  focusTextMuted: 'rgba(255, 255, 255, 0.70)',
-  focusSurface: 'rgba(255, 255, 255, 0.08)',
-  focusSurfaceStrong: 'rgba(255, 255, 255, 0.12)',
-  focusBorder: 'rgba(255, 255, 255, 0.14)',
-  focusBorderStrong: 'rgba(255, 255, 255, 0.28)',
-  focusShadow: 'rgba(10, 18, 44, 0.24)',
-  shadow: 'rgba(36, 36, 36, 0.08)',
-  overlay: 'rgba(21, 28, 41, 0.48)',
+  background: '#F4E8D0',
+  surface: '#FFF3DC',
+  surfaceMuted: '#EAD6B5',
+  surfaceElevated: '#FBEBD1',
+  surfacePressed: '#DEC39B',
+  text: '#3B281D',
+  textMuted: '#70513D',
+  textSubtle: '#80604C',
+  primary: '#B44D2B',
+  primaryPressed: '#963B21',
+  primaryText: '#8F351B',
+  onPrimary: '#FFF0D6',
+  primaryMuted: '#F1C4A8',
+  onPrimaryMuted: '#73331F',
+  border: '#D2B28A',
+  borderStrong: '#AF8865',
+  divider: '#E5CEAA',
+  track: '#DBC6A5',
+  success: '#59602F',
+  successMuted: '#DDE0B9',
+  warning: '#7C5207',
+  warningMuted: '#F0D59A',
+  danger: '#8F351F',
+  dangerPressed: '#82321F',
+  dangerMuted: '#EBC2AF',
+  onDanger: '#FFF0D6',
+  focus: '#C45D35',
+  focusAccent: '#D8AD4B',
+  focusBackground: '#4A2D24',
+  focusText: '#FFF0D6',
+  focusTextMuted: 'rgba(255, 240, 214, 0.72)',
+  focusSurface: 'rgba(255, 240, 214, 0.08)',
+  focusSurfaceStrong: 'rgba(255, 240, 214, 0.14)',
+  focusBorder: 'rgba(255, 240, 214, 0.18)',
+  focusBorderStrong: 'rgba(255, 240, 214, 0.34)',
+  focusShadow: 'rgba(42, 22, 15, 0.30)',
+  accentPeach: '#E9A273',
+  accentPeachMuted: '#F4D0B8',
+  accentMustard: '#7A5109',
+  accentMustardMuted: '#F0D59A',
+  accentOlive: '#59602F',
+  accentOliveMuted: '#DDE0B9',
+  accentTurquoise: '#27635D',
+  accentTurquoiseMuted: '#C7DDD5',
+  accentBrown: '#87593C',
+  accentBrownMuted: '#E1C4A6',
+  shadow: 'rgba(75, 45, 29, 0.12)',
+  overlay: 'rgba(57, 34, 24, 0.58)',
 };
 
 const darkColors: AppThemeColors = {
-  background: '#111827',
-  surface: '#182233',
-  surfaceMuted: '#202C3D',
-  surfaceElevated: '#1C2738',
-  surfacePressed: '#2A384C',
-  text: '#F5F7FA',
-  textMuted: '#BBC3CF',
-  textSubtle: '#8D99AA',
-  primary: '#8EA6FF',
-  primaryPressed: '#A9BAFF',
-  onPrimary: '#111A35',
-  primaryMuted: '#2B3A6C',
-  onPrimaryMuted: '#D9E0FF',
-  border: '#303D50',
-  borderStrong: '#46566D',
-  divider: '#29364A',
-  track: '#344257',
-  success: '#79C49A',
-  successMuted: '#1D3A2C',
-  warning: '#F0BA6A',
-  warningMuted: '#44331E',
-  danger: '#FF9AA8',
-  dangerPressed: '#FFB2BC',
-  dangerMuted: '#48262D',
-  onDanger: '#3A0D15',
-  focus: '#A9BAFF',
-  focusBackground: '#111827',
-  focusText: '#F5F7FA',
-  focusTextMuted: 'rgba(245, 247, 250, 0.70)',
-  focusSurface: 'rgba(245, 247, 250, 0.08)',
-  focusSurfaceStrong: 'rgba(245, 247, 250, 0.12)',
-  focusBorder: 'rgba(245, 247, 250, 0.14)',
-  focusBorderStrong: 'rgba(245, 247, 250, 0.28)',
-  focusShadow: 'rgba(0, 0, 0, 0.28)',
-  shadow: 'rgba(0, 0, 0, 0.24)',
-  overlay: 'rgba(5, 10, 20, 0.68)',
+  background: '#2B1D18',
+  surface: '#3A2922',
+  surfaceMuted: '#463229',
+  surfaceElevated: '#402D25',
+  surfacePressed: '#573C30',
+  text: '#F4E5C6',
+  textMuted: '#CBB697',
+  textSubtle: '#A99177',
+  primary: '#E07A4E',
+  primaryPressed: '#EF9065',
+  primaryText: '#F09A72',
+  onPrimary: '#2B1D18',
+  primaryMuted: '#603426',
+  onPrimaryMuted: '#F5C3A4',
+  border: '#65483A',
+  borderStrong: '#84604C',
+  divider: '#523A2F',
+  track: '#594034',
+  success: '#B1B873',
+  successMuted: '#3C4028',
+  warning: '#D8AD4B',
+  warningMuted: '#4E3D1D',
+  danger: '#EA8E70',
+  dangerPressed: '#F09A7D',
+  dangerMuted: '#5A3027',
+  onDanger: '#2B1712',
+  focus: '#E78960',
+  focusAccent: '#D6AD4A',
+  focusBackground: '#241713',
+  focusText: '#F4E5C6',
+  focusTextMuted: 'rgba(244, 229, 198, 0.72)',
+  focusSurface: 'rgba(244, 229, 198, 0.08)',
+  focusSurfaceStrong: 'rgba(244, 229, 198, 0.14)',
+  focusBorder: 'rgba(244, 229, 198, 0.18)',
+  focusBorderStrong: 'rgba(244, 229, 198, 0.34)',
+  focusShadow: 'rgba(20, 10, 7, 0.40)',
+  accentPeach: '#E9A273',
+  accentPeachMuted: '#56372C',
+  accentMustard: '#D6AD4A',
+  accentMustardMuted: '#4E3D1D',
+  accentOlive: '#B1B873',
+  accentOliveMuted: '#3D4028',
+  accentTurquoise: '#70A69E',
+  accentTurquoiseMuted: '#293E39',
+  accentBrown: '#C18E70',
+  accentBrownMuted: '#4E382F',
+  shadow: 'rgba(20, 10, 7, 0.34)',
+  overlay: 'rgba(20, 11, 8, 0.72)',
 };
 
 export const lightTheme: AppTheme = {

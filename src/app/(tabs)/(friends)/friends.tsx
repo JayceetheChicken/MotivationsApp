@@ -97,12 +97,12 @@ export default function FriendsScreen() {
                 <Avatar name={data.currentUser?.displayName ?? 'Du'} size="md" />
                 <View style={styles.personCopy}>
                   <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Du</Text>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                  <Text style={[theme.typography.caption, { color: theme.colors.accentMustard }]}>
                     {streak} {streak === 1 ? 'Tag' : 'Tage'} Serie
                   </Text>
                 </View>
                 <View style={styles.metricCopy}>
-                  <Text style={[theme.typography.bodyMedium, styles.numeric, { color: theme.colors.text }]}>
+                  <Text style={[theme.typography.bodyMedium, styles.numeric, { color: theme.colors.accentTurquoise }]}>
                     {formatMinutes(week.timerMinutes, true)}
                   </Text>
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>automatisch</Text>
@@ -113,7 +113,7 @@ export default function FriendsScreen() {
                   <Avatar name={friend.user.displayName} size="md" />
                   <View style={styles.personCopy}>
                     <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>{friend.user.displayName}</Text>
-                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                    <Text style={[theme.typography.caption, { color: theme.colors.accentMustard }]}>
                       {friend.canSeeTheirStats && friend.stats
                         ? `${friend.stats.streakDays} ${friend.stats.streakDays === 1 ? 'Tag' : 'Tage'} Serie`
                         : 'Statistik nicht freigegeben'}
@@ -121,7 +121,7 @@ export default function FriendsScreen() {
                   </View>
                   {friend.canSeeTheirStats && friend.stats ? (
                     <View style={styles.metricCopy}>
-                      <Text style={[theme.typography.bodyMedium, styles.numeric, { color: theme.colors.text }]}>
+                      <Text style={[theme.typography.bodyMedium, styles.numeric, { color: theme.colors.accentTurquoise }]}>
                         {formatMinutes(friend.stats.automaticMinutes, true)}
                       </Text>
                       <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>automatisch</Text>
@@ -153,7 +153,7 @@ export default function FriendsScreen() {
                 const progress = challengeProgress(challenge);
                 return (
                   <View key={challenge.id} style={styles.challengeItem}>
-                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>{challenge.title}</Text>
+                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.accentOlive }]}>{challenge.title}</Text>
                     <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{challenge.description}</Text>
                     <ProgressBar
                       formatValue={() => progress.label}

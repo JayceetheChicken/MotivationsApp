@@ -38,12 +38,12 @@ export function EmptyState({
         style={[
           styles.symbol,
           {
-            backgroundColor: theme.colors.primaryMuted,
-            borderColor: theme.colors.border,
+            backgroundColor: theme.colors.accentPeachMuted,
+            borderColor: theme.colors.accentPeach,
             borderRadius: theme.radii.lg,
           },
         ]}>
-        <Text style={{ color: theme.colors.primary, fontSize: 24, fontWeight: '600' }}>
+        <Text style={{ color: theme.colors.primaryText, fontSize: 24, fontWeight: '600' }}>
           {symbol}
         </Text>
       </View>
@@ -86,4 +86,3 @@ const styles = StyleSheet.create({
     gap: 5,
   },
 });
-

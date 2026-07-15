@@ -12,7 +12,7 @@ import { darkTheme, lightTheme, type AppTheme } from '@/theme';
 
 export const unstable_settings = { anchor: '(tabs)' };
 
-function ModalBackButton({ color }: { color: string }) {
+function ModalBackButton({ color, surface, border }: { color: string; surface: string; border: string }) {
   return (
     <Pressable
       accessibilityLabel="Zurück"
@@ -20,10 +20,14 @@ function ModalBackButton({ color }: { color: string }) {
       hitSlop={6}
       onPress={() => router.dismiss()}
       style={({ pressed }) => ({
-        width: 48,
-        height: 48,
+        width: 42,
+        height: 42,
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundColor: surface,
+        borderColor: border,
+        borderWidth: 1,
+        borderRadius: 21,
         opacity: pressed ? 0.55 : 1,
       })}>
       <Text style={{ color, fontSize: 30, lineHeight: 34, fontWeight: '400' }}>‹</Text>
@@ -124,9 +128,10 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
       <Stack
         screenOptions={{
           contentStyle: { backgroundColor: appTheme.colors.background },
-          headerStyle: { backgroundColor: appTheme.colors.background },
+          headerStyle: { backgroundColor: appTheme.colors.surface },
           headerShadowVisible: false,
           headerTintColor: appTheme.colors.text,
+          headerTitleStyle: { color: appTheme.colors.text, fontWeight: '700' },
           headerBackButtonDisplayMode: 'minimal',
         }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
@@ -138,7 +143,13 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
             presentation: 'modal',
             title: 'Lernzeit nachtragen',
             headerBackVisible: false,
-            headerLeft: () => <ModalBackButton color={appTheme.colors.text} />,
+            headerLeft: () => (
+              <ModalBackButton
+                border={appTheme.colors.accentBrownMuted}
+                color={appTheme.colors.primary}
+                surface={appTheme.colors.accentPeachMuted}
+              />
+            ),
           }}
         />
         <Stack.Screen
@@ -147,7 +158,13 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
             presentation: 'modal',
             title: 'Lernziel',
             headerBackVisible: false,
-            headerLeft: () => <ModalBackButton color={appTheme.colors.text} />,
+            headerLeft: () => (
+              <ModalBackButton
+                border={appTheme.colors.accentBrownMuted}
+                color={appTheme.colors.primary}
+                surface={appTheme.colors.accentPeachMuted}
+              />
+            ),
           }}
         />
         <Stack.Screen
@@ -156,7 +173,13 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
             presentation: 'modal',
             title: 'Profil & Datenschutz',
             headerBackVisible: false,
-            headerLeft: () => <ModalBackButton color={appTheme.colors.text} />,
+            headerLeft: () => (
+              <ModalBackButton
+                border={appTheme.colors.accentBrownMuted}
+                color={appTheme.colors.primary}
+                surface={appTheme.colors.accentPeachMuted}
+              />
+            ),
           }}
         />
       </Stack>

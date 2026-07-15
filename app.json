@@ -13,7 +13,7 @@
       "package": "de.lernzeit.app",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "backgroundColor": "#4F6BED",
+        "backgroundColor": "#B44D2B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -29,10 +29,14 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#4F6BED"
+          "backgroundColor": "#B44D2B"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-image",
+      "expo-sqlite",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

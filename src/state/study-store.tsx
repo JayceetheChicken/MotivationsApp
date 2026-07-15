@@ -10,6 +10,7 @@ import {
 
 import { createInitialData, subjectColorPalette } from '@/data/initial-data';
 import '@/lib/local-storage';
+import { getGoalSubjectId, getGoalTitle } from '@/lib/goals';
 import {
   buildTimerSession,
   getTimerFinishDecision,
@@ -76,22 +77,37 @@ interface PersistedStudyState extends StudyState {
 }
 
 export interface NewManualEntry {
-  subjectId: string;
+  /** Optional when `goalId` resolves to exactly one subject. */
+  subjectId?: string;
+  goalId?: string | null;
   durationMinutes: number;
   studiedOn: string;
   note?: string;
 }
 
+export interface StartTimerOptions {
+  /** Optional when `goalId` resolves to exactly one subject. */
+  subjectId?: string;
+  goalId?: string | null;
+  plannedDurationMinutes?: number;
+  note?: string;
+}
+
+export interface StartTimer {
+  (subjectId: string, options?: Omit<StartTimerOptions, 'subjectId'>): ActiveTimer | null;
+  (options: StartTimerOptions): ActiveTimer | null;
+}
+
 export interface NewGoal {
-  title?: string;
+  title: string;
   type: 'duration' | 'sessions';
   /** Minutes for duration goals, session count for session goals. */
   target: number;
-  subjectId?: string;
-  subjectIds?: readonly string[];
+  subjectId: string;
   sourcePolicy: GoalSourcePolicy;
   period?: GoalPeriod;
   startsAt?: string;
+  endsAt?: string;
   minimumSessionMinutes?: number;
 }
 
@@ -100,10 +116,10 @@ export interface GoalUpdate {
   type?: 'duration' | 'sessions';
   target?: number;
   subjectId?: string | null;
-  subjectIds?: readonly string[] | null;
   sourcePolicy?: GoalSourcePolicy;
   period?: GoalPeriod;
-  startsAt?: string;
+  startsAt?: string | null;
+  endsAt?: string | null;
   minimumSessionMinutes?: number;
 }
 
@@ -124,12 +140,13 @@ export interface StudyStoreValue extends StudyState {
   addSubject: (name: string) => Subject;
   updateLocalProfile: (profile: LocalProfileUpdate) => StudyUser | null;
   clearLocalProfile: () => void;
-  startTimer: (subjectId: string) => ActiveTimer | null;
+  startTimer: StartTimer;
   pauseTimer: () => ActiveTimer | null;
   resumeTimer: () => ActiveTimer | null;
   finishTimer: (options?: FinishTimerOptions) => TimerStudySession | null;
   discardTimer: () => void;
-  addManualEntry: (entry: NewManualEntry) => ManualStudySession;
+  addManualEntry: (entry: NewManualEntry) => ManualStudySession | null;
+  deleteSession: (sessionId: string) => boolean;
   createGoal: (goal: NewGoal) => StudyGoal;
   /** Backwards-compatible alias for createGoal. */
   addGoal: (goal: NewGoal) => StudyGoal;
@@ -154,6 +171,7 @@ type Action =
   | { type: 'set-active-timer'; payload: ActiveTimer | null }
   | { type: 'finish-timer'; payload: TimerStudySession }
   | { type: 'add-manual-entry'; payload: ManualStudySession }
+  | { type: 'delete-session'; payload: string }
   | { type: 'add-goal'; payload: StudyGoal }
   | { type: 'replace-goal'; payload: StudyGoal }
   | { type: 'delete-goal'; payload: string }
@@ -198,6 +216,12 @@ function reducer(state: StudyState, action: Action): StudyState {
       return { ...state, data: { ...state.data, activeTimer: action.payload } };
     case 'finish-timer':
       if (state.data.activeTimer?.id !== action.payload.id) return state;
+      if (state.data.sessions.some((session) => session.id === action.payload.id)) {
+        return {
+          ...state,
+          data: { ...state.data, activeTimer: null },
+        };
+      }
       return {
         ...state,
         data: {
@@ -210,6 +234,14 @@ function reducer(state: StudyState, action: Action): StudyState {
       return {
         ...state,
         data: { ...state.data, sessions: [action.payload, ...state.data.sessions] },
+      };
+    case 'delete-session':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          sessions: state.data.sessions.filter((session) => session.id !== action.payload),
+        },
       };
     case 'add-goal':
       return {
@@ -282,6 +314,52 @@ function actorId(data: StudyData): string {
   return data.currentUser?.id ?? LOCAL_USER_ID;
 }
 
+interface ResolvedSessionBinding {
+  goalId: string | null;
+  subjectId: string;
+  goalTitleSnapshot?: string;
+  subjectNameSnapshot: string;
+}
+
+/**
+ * Resolves a goal/subject pair without guessing. A legacy goal without a
+ * subject stays valid data, but cannot receive new sessions until assigned.
+ */
+function resolveSessionBinding(
+  data: StudyData,
+  requestedSubjectId: string | undefined,
+  requestedGoalId: string | null | undefined,
+): ResolvedSessionBinding | null {
+  const goalId = cleanOptionalText(requestedGoalId);
+  const explicitSubjectId = cleanOptionalText(requestedSubjectId);
+  const goal = goalId
+    ? data.goals.find((entry) => entry.id === goalId)
+    : undefined;
+
+  if (goalId && (!goal || goal.status !== 'active' || goal.userId !== actorId(data))) {
+    return null;
+  }
+
+  const boundGoalSubjectId = goal ? getGoalSubjectId(goal) ?? undefined : undefined;
+  if (goal && !boundGoalSubjectId) return null;
+  if (goal && explicitSubjectId && explicitSubjectId !== boundGoalSubjectId) return null;
+
+  const subjectId = goal ? boundGoalSubjectId : explicitSubjectId;
+  if (!subjectId) return null;
+
+  const subject = data.subjects.find(
+    (entry) => entry.id === subjectId && !entry.archived,
+  );
+  if (!subject) return null;
+
+  return {
+    goalId: goal?.id ?? null,
+    subjectId: subject.id,
+    goalTitleSnapshot: goal ? getGoalTitle(goal, data.subjects) : undefined,
+    subjectNameSnapshot: subject.name,
+  };
+}
+
 function parseStartDate(value: string | undefined, fallback: Date): string {
   if (!value) return fallback.toISOString();
   const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -290,23 +368,32 @@ function parseStartDate(value: string | undefined, fallback: Date): string {
   return Number.isFinite(dateOnly.getTime()) ? dateOnly.toISOString() : fallback.toISOString();
 }
 
+function parseEndDate(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T23:59:59.999`)
+    : new Date(value);
+  return Number.isFinite(dateOnly.getTime()) ? dateOnly.toISOString() : undefined;
+}
+
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function createStudyGoal(input: NewGoal, userId: string, now: Date): StudyGoal {
-  const subjectIds = input.subjectIds?.filter(Boolean) ??
-    (input.subjectId ? [input.subjectId] : undefined);
+  const subjectId = input.subjectId.trim();
   const common = {
     id: makeId('goal'),
     userId,
     title: cleanOptionalText(input.title),
     period: input.period ?? ('week' as const),
     sourcePolicy: input.sourcePolicy,
-    subjectIds: subjectIds?.length ? [...new Set(subjectIds)] : undefined,
+    subjectId,
+    subjectIds: [subjectId],
     status: 'active' as const,
     createdAt: now.toISOString(),
     startsAt: parseStartDate(input.startsAt, now),
+    endsAt: parseEndDate(input.endsAt),
   };
 
   return input.type === 'duration'
@@ -332,12 +419,13 @@ function applyGoalUpdate(goal: StudyGoal, update: GoalUpdate): StudyGoal {
   const nextTitle = hasOwn(update, 'title')
     ? cleanOptionalText(update.title)
     : goal.title;
+  let subjectId = goal.subjectId ??
+    (goal.subjectIds?.length === 1 ? goal.subjectIds[0] : undefined);
   let subjectIds = goal.subjectIds;
 
-  if (hasOwn(update, 'subjectIds')) {
-    subjectIds = update.subjectIds?.filter(Boolean) ?? undefined;
-  } else if (hasOwn(update, 'subjectId')) {
-    subjectIds = update.subjectId ? [update.subjectId] : undefined;
+  if (hasOwn(update, 'subjectId')) {
+    subjectId = cleanOptionalText(update.subjectId);
+    subjectIds = subjectId ? [subjectId] : undefined;
   }
 
   const common = {
@@ -346,12 +434,18 @@ function applyGoalUpdate(goal: StudyGoal, update: GoalUpdate): StudyGoal {
     title: nextTitle,
     period: update.period ?? goal.period,
     sourcePolicy: update.sourcePolicy ?? goal.sourcePolicy,
+    subjectId,
     subjectIds: subjectIds?.length ? [...new Set(subjectIds)] : undefined,
     status: goal.status,
     createdAt: goal.createdAt,
-    startsAt: update.startsAt
-      ? parseStartDate(update.startsAt, new Date(goal.startsAt ?? goal.createdAt))
+    startsAt: hasOwn(update, 'startsAt')
+      ? update.startsAt
+        ? parseStartDate(update.startsAt, new Date(goal.startsAt ?? goal.createdAt))
+        : undefined
       : goal.startsAt,
+    endsAt: hasOwn(update, 'endsAt')
+      ? parseEndDate(update.endsAt ?? undefined)
+      : goal.endsAt,
     pausedAt: goal.pausedAt,
     pausedIntervals: goal.pausedIntervals,
     completedAt: goal.completedAt,
@@ -440,6 +534,14 @@ function optionalString(value: unknown): string | undefined {
   return isString(value) && value.trim() ? value.trim() : undefined;
 }
 
+function parsedGoalId(record: Record<string, unknown>): { goalId?: string | null } {
+  if (!hasOwn(record, 'goalId')) return {};
+  const value = record.goalId;
+  if (value === null) return { goalId: null };
+  const id = optionalString(value);
+  return id ? { goalId: id } : {};
+}
+
 function parseUser(value: unknown): StudyUser | null {
   if (!isRecord(value)) return null;
   if (!isString(value.id) || !isString(value.username) || !isString(value.displayName)) {
@@ -484,19 +586,28 @@ function parseSession(value: unknown): StudySession | null {
     !isIsoDate(value.endedAt) ||
     !isIsoDate(value.createdAt) ||
     !isFiniteNumber(value.durationMinutes) ||
-    value.durationMinutes < 0
+    value.durationMinutes < 0 ||
+    (value.status !== undefined && value.status !== 'completed')
   ) {
     return null;
   }
   const base = {
     id: value.id,
     userId: value.userId,
+    ...parsedGoalId(value),
     subjectId: value.subjectId,
+    goalTitleSnapshot: optionalString(value.goalTitleSnapshot),
+    subjectNameSnapshot: optionalString(value.subjectNameSnapshot),
     startedAt: value.startedAt,
     endedAt: value.endedAt,
     createdAt: value.createdAt,
     durationMinutes: value.durationMinutes,
+    plannedDurationMinutes:
+      isFiniteNumber(value.plannedDurationMinutes) && value.plannedDurationMinutes > 0
+        ? Math.max(1, Math.round(value.plannedDurationMinutes))
+        : undefined,
     note: optionalString(value.note),
+    status: 'completed' as const,
   };
 
   if (value.source === 'manual' && isIsoDate(value.enteredAt)) {
@@ -539,10 +650,17 @@ function parseActiveTimer(value: unknown): ActiveTimer | null {
     schemaVersion: 1,
     id: value.id,
     userId: value.userId,
+    ...parsedGoalId(value),
     subjectId: value.subjectId,
+    goalTitleSnapshot: optionalString(value.goalTitleSnapshot),
+    subjectNameSnapshot: optionalString(value.subjectNameSnapshot),
     status: value.status,
     startedAt: value.startedAt,
     updatedAt: value.updatedAt,
+    plannedDurationMinutes:
+      isFiniteNumber(value.plannedDurationMinutes) && value.plannedDurationMinutes > 0
+        ? Math.max(1, Math.round(value.plannedDurationMinutes))
+        : undefined,
     note: optionalString(value.note),
     segments,
   };
@@ -556,7 +674,11 @@ function parseGoal(value: unknown): StudyGoal | null {
     !isString(value.id) ||
     !isString(value.userId) ||
     !isIsoDate(value.createdAt) ||
-    (period !== 'week' && period !== 'month' && period !== 'year') ||
+    (period !== 'day' &&
+      period !== 'week' &&
+      period !== 'month' &&
+      period !== 'year' &&
+      period !== 'custom') ||
     (value.sourcePolicy !== 'all' && value.sourcePolicy !== 'timer_only') ||
     (status !== 'active' &&
       status !== 'paused' &&
@@ -568,6 +690,11 @@ function parseGoal(value: unknown): StudyGoal | null {
   const subjectIds = Array.isArray(value.subjectIds)
     ? value.subjectIds.filter(isString)
     : undefined;
+  const subjectId = isString(value.subjectId) && value.subjectId.trim()
+    ? value.subjectId.trim()
+    : subjectIds?.length === 1
+      ? subjectIds[0]
+      : undefined;
   const pausedIntervals = Array.isArray(value.pausedIntervals)
     ? value.pausedIntervals.flatMap((interval) => {
         if (
@@ -589,10 +716,12 @@ function parseGoal(value: unknown): StudyGoal | null {
     title: optionalString(value.title),
     period: normalizedPeriod,
     sourcePolicy: normalizedSourcePolicy,
-    subjectIds: subjectIds?.length ? subjectIds : undefined,
+    subjectId,
+    subjectIds: subjectId ? [subjectId] : subjectIds?.length ? subjectIds : undefined,
     status: normalizedStatus,
     createdAt: value.createdAt,
     startsAt: isIsoDate(value.startsAt) ? value.startsAt : value.createdAt,
+    endsAt: isIsoDate(value.endsAt) ? value.endsAt : undefined,
     pausedAt: isIsoDate(value.pausedAt) ? value.pausedAt : undefined,
     pausedIntervals: pausedIntervals?.length ? pausedIntervals : undefined,
     completedAt: isIsoDate(value.completedAt) ? value.completedAt : undefined,
@@ -771,9 +900,15 @@ function parseData(value: unknown): StudyData | null {
   const subjects = Array.isArray(value.subjects)
     ? value.subjects.map(parseSubject).filter((entry): entry is Subject => entry !== null)
     : [];
-  const sessions = Array.isArray(value.sessions)
+  const parsedSessions = Array.isArray(value.sessions)
     ? value.sessions.map(parseSession).filter((entry): entry is StudySession => entry !== null)
     : [];
+  const seenSessionIds = new Set<string>();
+  const sessions = parsedSessions.filter((session) => {
+    if (seenSessionIds.has(session.id)) return false;
+    seenSessionIds.add(session.id);
+    return true;
+  });
   const goals = Array.isArray(value.goals)
     ? value.goals.map(parseGoal).filter((entry): entry is StudyGoal => entry !== null)
     : [];
@@ -786,6 +921,14 @@ function parseData(value: unknown): StudyData | null {
         .filter((entry): entry is StudyChallenge => entry !== null)
     : [];
 
+  const parsedActiveTimer = value.activeTimer === null
+    ? null
+    : parseActiveTimer(value.activeTimer);
+  const activeTimer = parsedActiveTimer &&
+    sessions.some((session) => session.id === parsedActiveTimer.id)
+    ? null
+    : parsedActiveTimer;
+
   return {
     currentUser: value.currentUser === null ? null : parseUser(value.currentUser),
     subjects,
@@ -793,7 +936,7 @@ function parseData(value: unknown): StudyData | null {
     goals,
     friends,
     challenges,
-    activeTimer: value.activeTimer === null ? null : parseActiveTimer(value.activeTimer),
+    activeTimer,
   };
 }
 
@@ -801,17 +944,7 @@ function removeLegacyDemoContent(data: StudyData): StudyData {
   const sessions = data.sessions.filter((session) => !LEGACY_SEEDED_SESSION_IDS.has(session.id));
   const goals = data.goals.filter((goal) => !LEGACY_SEEDED_GOAL_IDS.has(goal.id));
   const activeTimer = data.activeTimer;
-  const referencedSubjects = new Set([
-    ...sessions.map((session) => session.subjectId),
-    ...goals.flatMap((goal) => goal.subjectIds ?? []),
-    ...(activeTimer ? [activeTimer.subjectId] : []),
-  ]);
-  const subjects = data.subjects
-    .filter((subject) => referencedSubjects.has(subject.id))
-    .map((subject, index) => ({
-      ...subject,
-      color: subjectColorPalette[index % subjectColorPalette.length],
-    }));
+  const subjects = data.subjects;
 
   return {
     currentUser: data.currentUser?.id === 'user-lea' ? null : data.currentUser,
@@ -924,17 +1057,43 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       return user;
     };
 
-    const startTimer = (subjectId: string): ActiveTimer | null => {
-      if (state.data.activeTimer || !subjectId.trim()) return null;
+    const startTimer: StartTimer = (
+      input: string | StartTimerOptions,
+      legacyOptions: Omit<StartTimerOptions, 'subjectId'> = {},
+    ): ActiveTimer | null => {
+      if (state.data.activeTimer) return null;
+      const options = typeof input === 'string'
+        ? { ...legacyOptions, subjectId: input }
+        : input;
+      const binding = resolveSessionBinding(
+        state.data,
+        options.subjectId,
+        options.goalId,
+      );
+      if (!binding) return null;
+      if (
+        options.plannedDurationMinutes !== undefined &&
+        (!Number.isFinite(options.plannedDurationMinutes) ||
+          options.plannedDurationMinutes <= 0)
+      ) {
+        return null;
+      }
       const now = new Date().toISOString();
       const timer: ActiveTimer = {
         schemaVersion: 1,
         id: makeId('timer'),
         userId: actorId(state.data),
-        subjectId,
+        goalId: binding.goalId,
+        subjectId: binding.subjectId,
+        goalTitleSnapshot: binding.goalTitleSnapshot,
+        subjectNameSnapshot: binding.subjectNameSnapshot,
         status: 'running',
         startedAt: now,
         segments: [{ startedAt: now, endedAt: null }],
+        plannedDurationMinutes: options.plannedDurationMinutes === undefined
+          ? undefined
+          : Math.max(1, Math.round(options.plannedDurationMinutes)),
+        note: cleanOptionalText(options.note),
         updatedAt: now,
       };
       dispatch({ type: 'set-active-timer', payload: timer });
@@ -974,7 +1133,13 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       return session;
     };
 
-    const addManualEntry = (entry: NewManualEntry): ManualStudySession => {
+    const addManualEntry = (entry: NewManualEntry): ManualStudySession | null => {
+      const binding = resolveSessionBinding(
+        state.data,
+        entry.subjectId,
+        entry.goalId,
+      );
+      if (!binding) return null;
       const requestedStart = new Date(`${entry.studiedOn}T12:00:00`);
       const start = Number.isFinite(requestedStart.getTime()) ? requestedStart : new Date();
       const safeMinutes = safeWholeNumber(entry.durationMinutes, 1, 1);
@@ -983,8 +1148,12 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       const session: ManualStudySession = {
         id: makeId('manual'),
         userId: actorId(state.data),
-        subjectId: entry.subjectId,
+        goalId: binding.goalId,
+        subjectId: binding.subjectId,
+        goalTitleSnapshot: binding.goalTitleSnapshot,
+        subjectNameSnapshot: binding.subjectNameSnapshot,
         source: 'manual',
+        status: 'completed',
         startedAt: start.toISOString(),
         endedAt: end.toISOString(),
         enteredAt: now,
@@ -1046,6 +1215,12 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       finishTimer,
       discardTimer: () => dispatch({ type: 'set-active-timer', payload: null }),
       addManualEntry,
+      deleteSession: (sessionId) => {
+        const session = state.data.sessions.find((entry) => entry.id === sessionId);
+        if (!session || session.userId !== actorId(state.data)) return false;
+        dispatch({ type: 'delete-session', payload: sessionId });
+        return true;
+      },
       createGoal,
       addGoal: createGoal,
       updateGoal,

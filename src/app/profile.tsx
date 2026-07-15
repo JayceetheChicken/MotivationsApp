@@ -95,14 +95,22 @@ export default function ProfileScreen() {
 
   return (
     <Screen contentContainerStyle={styles.content} maxWidth={760}>
-      <AppCard style={styles.profileCard}>
+      <AppCard
+        style={[
+          styles.profileCard,
+          {
+            backgroundColor: theme.colors.accentPeachMuted,
+            borderColor: theme.colors.accentBrownMuted,
+            boxShadow: `0 10px 24px ${theme.colors.shadow}`,
+          },
+        ]}>
         <Avatar name={displayName} size="xl" source={avatarUrl ? { uri: avatarUrl } : undefined} />
         <View style={styles.profileCopy}>
           <Text accessibilityRole="header" style={[theme.typography.heading, { color: theme.colors.text }]}>{displayName}</Text>
           <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>@{username}</Text>
-          <View style={[styles.modePill, { backgroundColor: theme.colors.primaryMuted }]}>
-            <View style={[styles.modeDot, { backgroundColor: theme.colors.primary }]} />
-            <Text style={[theme.typography.caption, { color: theme.colors.onPrimaryMuted }]}>
+          <View style={[styles.modePill, { backgroundColor: theme.colors.accentMustardMuted }]}>
+            <View style={[styles.modeDot, { backgroundColor: theme.colors.accentMustard }]} />
+            <Text style={[theme.typography.caption, { color: theme.colors.text }]}>
               {auth.activeMode === 'supabase' ? 'Supabase-Konto' : 'Lokales Profil'}
             </Text>
           </View>
@@ -141,7 +149,16 @@ export default function ProfileScreen() {
 
       <View style={styles.section}>
         <SectionHeader description="Für persönliche Statistiken zählen beide Quellen; im sozialen Vergleich bleiben sie getrennt." title="Nachvollziehbare Lernzeit" />
-        <AppCard style={styles.sourcesCard} variant="subtle">
+        <AppCard
+          style={[
+            styles.sourcesCard,
+            {
+              backgroundColor: theme.colors.accentTurquoiseMuted,
+              borderLeftColor: theme.colors.accentTurquoise,
+              borderLeftWidth: 4,
+            },
+          ]}
+          variant="subtle">
           <View style={styles.sourceRow}>
             <SourceBadge source="timer" />
             <Text style={[theme.typography.body, styles.sourceText, { color: theme.colors.textMuted }]}>Automatisch gemessen und für faire Vergleiche eindeutig ausgewiesen.</Text>

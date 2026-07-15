@@ -35,8 +35,28 @@ export function AuthScaffold({
       keyboardShouldPersistTaps="handled"
       maxWidth={1_040}>
       <View style={[styles.shell, isWide ? styles.shellWide : undefined]}>
-        <View style={[styles.brand, isWide ? styles.brandWide : undefined]}>
-          <View style={[styles.logo, { backgroundColor: theme.colors.primary }]}>
+        <View
+          style={[
+            styles.brand,
+            isWide ? styles.brandWide : undefined,
+            isWide
+              ? {
+                  backgroundColor: theme.colors.accentPeachMuted,
+                  borderColor: theme.colors.border,
+                  borderRadius: theme.radii.xxl,
+                  boxShadow: `0 14px 34px ${theme.colors.shadow}`,
+                }
+              : undefined,
+          ]}>
+          <View
+            style={[
+              styles.logo,
+              {
+                backgroundColor: theme.colors.primary,
+                borderColor: theme.colors.accentBrownMuted,
+                boxShadow: `4px 4px 0 ${theme.colors.accentMustardMuted}`,
+              },
+            ]}>
             <Text style={[styles.logoText, { color: theme.colors.onPrimary }]}>L</Text>
           </View>
           <View style={styles.brandCopy}>
@@ -45,13 +65,27 @@ export function AuthScaffold({
           </View>
           {isWide ? (
             <View style={styles.widePitch}>
+              <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.retroBars}>
+                <View style={[styles.retroBar, styles.retroBarLong, { backgroundColor: theme.colors.primary }]} />
+                <View style={[styles.retroBar, { backgroundColor: theme.colors.accentMustard }]} />
+                <View style={[styles.retroBar, styles.retroBarShort, { backgroundColor: theme.colors.accentTurquoise }]} />
+              </View>
               <Text style={[theme.typography.title, { color: theme.colors.text }]}>Lernen, das sichtbar wird.</Text>
               <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Setze klare Ziele, erfasse deine echte Lernzeit und bleibe in deinem eigenen Rhythmus.</Text>
             </View>
           ) : null}
         </View>
 
-        <AppCard padding="lg" style={[styles.card, isWide ? styles.cardWide : undefined]}>
+        <AppCard
+          padding="lg"
+          style={[
+            styles.card,
+            {
+              borderTopColor: theme.colors.primary,
+              boxShadow: `0 12px 28px ${theme.colors.shadow}`,
+            },
+            isWide ? styles.cardWide : undefined,
+          ]}>
           <View style={styles.heading}>
             <Text accessibilityRole="header" style={[theme.typography.heading, { color: theme.colors.text }]}>{title}</Text>
             <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>{subtitle}</Text>
@@ -88,8 +122,8 @@ export function AuthField({
         style={[
           styles.inputFrame,
           {
-            backgroundColor: theme.colors.surface,
-            borderColor: error ? theme.colors.danger : theme.colors.borderStrong,
+            backgroundColor: theme.colors.surfaceMuted,
+            borderColor: error ? theme.colors.danger : theme.colors.accentBrownMuted,
             borderRadius: theme.radii.md,
           },
         ]}>
@@ -108,7 +142,7 @@ export function AuthField({
             hitSlop={8}
             onPress={() => setPasswordVisible((current) => !current)}
             style={({ pressed }) => [styles.revealButton, pressed ? styles.pressed : undefined]}>
-            <Text style={[theme.typography.caption, { color: theme.colors.primary }]}>{passwordVisible ? 'Ausblenden' : 'Anzeigen'}</Text>
+            <Text style={[theme.typography.caption, { color: theme.colors.primaryText }]}>{passwordVisible ? 'Ausblenden' : 'Anzeigen'}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -132,9 +166,9 @@ export function AuthNotice({
 }) {
   const theme = useAppTheme();
   const colors = {
-    info: { background: theme.colors.primaryMuted, foreground: theme.colors.onPrimaryMuted },
+    info: { background: theme.colors.accentMustardMuted, foreground: theme.colors.text },
     danger: { background: theme.colors.dangerMuted, foreground: theme.colors.danger },
-    success: { background: theme.colors.successMuted, foreground: theme.colors.success },
+    success: { background: theme.colors.accentOliveMuted, foreground: theme.colors.text },
   }[tone];
 
   return (
@@ -155,7 +189,7 @@ export function AuthTextLink({ label, onPress }: { label: string; onPress: () =>
       accessibilityRole="link"
       onPress={onPress}
       style={({ pressed }) => [styles.textLink, pressed ? styles.pressed : undefined]}>
-      <Text style={[theme.typography.label, { color: theme.colors.primary }]}>{label}</Text>
+      <Text style={[theme.typography.label, { color: theme.colors.primaryText }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -196,13 +230,16 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     alignContent: 'flex-start',
     flexWrap: 'wrap',
+    padding: 32,
+    borderWidth: 1,
   },
   logo: {
     width: 48,
     height: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
+    borderRadius: 24,
+    borderWidth: 1,
     borderCurve: 'continuous',
   },
   logoText: {
@@ -216,12 +253,30 @@ const styles = StyleSheet.create({
   widePitch: {
     width: '100%',
     gap: 14,
-    marginTop: 80,
+    marginTop: 64,
+  },
+  retroBars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingBottom: 4,
+  },
+  retroBar: {
+    width: 42,
+    height: 8,
+    borderRadius: 999,
+  },
+  retroBarLong: {
+    width: 72,
+  },
+  retroBarShort: {
+    width: 24,
   },
   card: {
     width: '100%',
     alignSelf: 'center',
     gap: 24,
+    borderTopWidth: 4,
   },
   cardWide: {
     flex: 1,
