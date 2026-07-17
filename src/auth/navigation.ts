@@ -34,41 +34,6 @@ export function getStudyStorageConfiguration(
   };
 }
 
-export function getRequiredAuthRoute({
-  onPasswordUpdateRoute,
-  passwordRecoveryPending,
-  ready,
-}: {
-  onPasswordUpdateRoute: boolean;
-  passwordRecoveryPending: boolean;
-  ready: boolean;
-}): '/update-password' | null {
-  if (!ready) return null;
-  return passwordRecoveryPending && !onPasswordUpdateRoute
-    ? '/update-password'
-    : null;
-}
-
-export function getStartupRoute({
-  hasResolvedRoute,
-  onHomeRoute,
-  onPasswordUpdateRoute,
-  passwordRecoveryPending,
-  ready,
-}: {
-  hasResolvedRoute: boolean;
-  onHomeRoute: boolean;
-  onPasswordUpdateRoute: boolean;
-  passwordRecoveryPending: boolean;
-  ready: boolean;
-}): '/' | '/update-password' | null {
-  if (!ready || !hasResolvedRoute) return null;
-  if (passwordRecoveryPending) {
-    return onPasswordUpdateRoute ? null : '/update-password';
-  }
-  return onHomeRoute ? null : '/';
-}
-
 export function isPasswordRecoveryUrl(url: string | null): boolean {
   if (!url) return false;
 

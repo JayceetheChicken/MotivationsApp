@@ -1,16 +1,13 @@
 import { DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
-import { Redirect, router, useSegments } from 'expo-router';
+import { router, useSegments } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { StatusBar } from 'expo-status-bar';
-import { type PropsWithChildren, useEffect, useState } from 'react';
+import { type PropsWithChildren, useEffect } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import 'react-native-reanimated';
 
 import {
-  getRequiredAuthRoute,
-  getStartupRoute,
   getStudyStorageConfiguration,
-  HOME_NAVIGATION_ANCHOR,
   ROOT_NAVIGATION_ANCHOR,
 } from '@/auth/navigation';
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
@@ -106,50 +103,23 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   const segments = useSegments();
   const auth = useAuthStore();
   const study = useStudyStore();
-  const [startupHandled, setStartupHandled] = useState(false);
-  // Nur die lokalen Lerndaten gaten das Rendern. Der Auth-Store (SecureStore,
-  // Supabase-Session) hydriert im Hintergrund und darf den Start nie blockieren.
-  const ready = study.hydrated;
-  const hasResolvedRoute = segments.length > 0;
-  const onHomeRoute = segments.some((segment) => segment === ROOT_NAVIGATION_ANCHOR)
-    && segments.some((segment) => segment === HOME_NAVIGATION_ANCHOR);
   const onPasswordUpdateRoute = segments.some((segment) => segment === 'update-password');
-  const startupRoute = getStartupRoute({
-    hasResolvedRoute,
-    onHomeRoute,
-    onPasswordUpdateRoute,
-    passwordRecoveryPending: auth.passwordRecoveryPending,
-    ready,
-  });
 
+  // Einzige automatische Weiterleitung: ein echter Passwort-Recovery-Link.
   useEffect(() => {
-    if (
-      startupHandled
-      || !ready
-      || !hasResolvedRoute
-      || startupRoute !== null
-    ) {
-      return;
+    if (study.hydrated && auth.passwordRecoveryPending && !onPasswordUpdateRoute) {
+      router.replace('/update-password');
     }
-    const completion = setTimeout(() => setStartupHandled(true), 0);
-    return () => clearTimeout(completion);
-  }, [hasResolvedRoute, ready, startupHandled, startupRoute]);
+  }, [auth.passwordRecoveryPending, onPasswordUpdateRoute, study.hydrated]);
 
   useEffect(() => {
-    if (!startupHandled) return;
-    const requiredRoute = getRequiredAuthRoute({
-      onPasswordUpdateRoute,
-      passwordRecoveryPending: auth.passwordRecoveryPending,
-      ready,
-    });
-    if (requiredRoute) router.replace(requiredRoute);
-  }, [auth.passwordRecoveryPending, onPasswordUpdateRoute, ready, startupHandled]);
+    if (study.hydrated) console.log('[BOOT] App navigation ready');
+  }, [study.hydrated]);
 
-  useEffect(() => {
-    if (startupHandled) console.log('[BOOT] App navigation ready');
-  }, [startupHandled]);
-
-  if (!ready || !hasResolvedRoute || (!startupHandled && startupRoute === null)) {
+  // Nur die synchron hydrierenden lokalen Lerndaten gaten den Start. Der Stack
+  // mountet sofort danach – Segmente dürfen nie Voraussetzung sein, weil sie
+  // auf Native erst durch den gemounteten Stack aufgelöst werden.
+  if (!study.hydrated) {
     return (
       <View
         accessibilityLabel="Lerndaten werden geladen"
@@ -162,10 +132,6 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
         <ActivityIndicator color={appTheme.colors.primary} size="large" />
       </View>
     );
-  }
-
-  if (!startupHandled && startupRoute) {
-    return <Redirect href={startupRoute} />;
   }
 
   return (

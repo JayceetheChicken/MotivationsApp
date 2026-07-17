@@ -1,6 +1,4 @@
 import {
-  getStartupRoute,
-  getRequiredAuthRoute,
   getStudyStorageConfiguration,
   getStudyStorageScope,
   HOME_NAVIGATION_ANCHOR,
@@ -23,74 +21,14 @@ describe('optional authentication navigation', () => {
     });
   });
 
-  it('never configures a data import or login requirement for guest startup', () => {
+  it('never configures a data import for guest startup', () => {
     expect(getStudyStorageConfiguration('none')).toEqual({ storageScope: 'local' });
     expect(getStudyStorageConfiguration('local')).toEqual({ storageScope: 'local' });
-    expect(getRequiredAuthRoute({
-      onPasswordUpdateRoute: false,
-      passwordRecoveryPending: false,
-      ready: false,
-    })).toBeNull();
   });
 
   it('anchors the root route directly to the home tab', () => {
     expect(ROOT_NAVIGATION_ANCHOR).toBe('(tabs)');
     expect(HOME_NAVIGATION_ANCHOR).toBe('(home)');
-  });
-
-  it('opens first start and a hydrated guest restart on home', () => {
-    expect(getStartupRoute({
-      hasResolvedRoute: false,
-      onHomeRoute: false,
-      onPasswordUpdateRoute: false,
-      passwordRecoveryPending: false,
-      ready: false,
-    })).toBeNull();
-    expect(getStartupRoute({
-      hasResolvedRoute: true,
-      onHomeRoute: true,
-      onPasswordUpdateRoute: false,
-      passwordRecoveryPending: false,
-      ready: true,
-    })).toBeNull();
-  });
-
-  it('normalizes every persisted non-recovery start route back to home', () => {
-    expect(getStartupRoute({
-      hasResolvedRoute: true,
-      onHomeRoute: false,
-      onPasswordUpdateRoute: false,
-      passwordRecoveryPending: false,
-      ready: true,
-    })).toBe('/');
-  });
-
-  it('does not require a login route after hydration', () => {
-    expect(getRequiredAuthRoute({
-      onPasswordUpdateRoute: false,
-      passwordRecoveryPending: false,
-      ready: true,
-    })).toBeNull();
-  });
-
-  it('preserves the password-recovery redirect', () => {
-    expect(getRequiredAuthRoute({
-      onPasswordUpdateRoute: false,
-      passwordRecoveryPending: true,
-      ready: true,
-    })).toBe('/update-password');
-    expect(getRequiredAuthRoute({
-      onPasswordUpdateRoute: true,
-      passwordRecoveryPending: true,
-      ready: true,
-    })).toBeNull();
-    expect(getStartupRoute({
-      hasResolvedRoute: true,
-      onHomeRoute: false,
-      onPasswordUpdateRoute: false,
-      passwordRecoveryPending: true,
-      ready: true,
-    })).toBe('/update-password');
   });
 
   it('recognizes only credential-bearing password recovery deep links', () => {
