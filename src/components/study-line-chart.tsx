@@ -446,7 +446,7 @@ export function StudyLineChart({
                     <Path
                       d={areaPath}
                       fill={theme.colors.accentTurquoise}
-                      fillOpacity={theme.isDark ? 0.18 : 0.12}
+                      fillOpacity={0.12}
                       key={`area-${firstPoint.index}`}
                     />
                   );

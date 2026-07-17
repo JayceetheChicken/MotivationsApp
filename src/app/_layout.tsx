@@ -1,14 +1,14 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
+import { DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
 import { router, useSegments } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { StatusBar } from 'expo-status-bar';
 import { type PropsWithChildren, useEffect } from 'react';
-import { ActivityIndicator, Pressable, Text, View, useColorScheme } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 import { StudyStoreProvider, useStudyStore } from '@/state/study-store';
-import { darkTheme, lightTheme, type AppTheme } from '@/theme';
+import { appTheme, type AppTheme } from '@/theme';
 
 export const unstable_settings = { anchor: '(tabs)' };
 
@@ -187,29 +187,25 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   );
 }
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-  const appTheme = isDark ? darkTheme : lightTheme;
-  const baseNavigationTheme = isDark ? DarkTheme : DefaultTheme;
-  const navigationTheme = {
-    ...baseNavigationTheme,
-    colors: {
-      ...baseNavigationTheme.colors,
-      primary: appTheme.colors.primary,
-      background: appTheme.colors.background,
-      card: appTheme.colors.surface,
-      text: appTheme.colors.text,
-      border: appTheme.colors.border,
-      notification: appTheme.colors.danger,
-    },
-  };
+const navigationTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: appTheme.colors.primary,
+    background: appTheme.colors.background,
+    card: appTheme.colors.surface,
+    text: appTheme.colors.text,
+    border: appTheme.colors.border,
+    notification: appTheme.colors.danger,
+  },
+};
 
+export default function RootLayout() {
   return (
     <ThemeProvider value={navigationTheme}>
       <AuthStoreProvider>
         <ScopedStudyStore>
-          <StatusBar style={isDark ? 'light' : 'dark'} />
+          <StatusBar style="dark" />
           <HydratedNavigator appTheme={appTheme} />
         </ScopedStudyStore>
       </AuthStoreProvider>

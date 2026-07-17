@@ -13,7 +13,7 @@ Lernzeit ist eine responsive Expo-/Android-App für persönliche Lernziele, zuve
 - Statistiken für Lernzeit, Sessions, Durchschnitt, Fächer, Ziele, Streaks und Vorperioden
 - freiwilliger privater Freundesvergleich und vorbereitete Challenges ohne öffentliche Rangliste
 - zentrale Datenschutzfreigaben pro Kennzahl
-- Smartphone-/Tablet-Layouts sowie Light und Dark Mode
+- Smartphone-/Tablet-Layouts im durchgängig hellen Retro-Design (kein Dark Mode)
 - kontogetrennte lokale Persistenz
 
 ## Starten
@@ -60,7 +60,7 @@ npx expo-doctor
 - `src/lib` – Ziel-, Timer-, Diagramm- und Statistiklogik
 - `src/data` – ausschließlich leerer Initialzustand und Farbpalette
 - `src/components` – wiederverwendbare, barrierearme UI-Bausteine
-- `src/theme` – zentrales warmes Retro-/70er-Light-/Dark-Designsystem
+- `src/theme` – zentrales warmes Retro-/70er-Designsystem (nur helles Theme)
 - `__tests__` – Domain-, Store-, Statistik-, Chart- und Responsive-Tests
 
 ## Spätere Erweiterung

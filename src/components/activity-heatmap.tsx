@@ -58,17 +58,6 @@ function formatMinutes(minutes: number): string {
 }
 
 function getHeatmapPalette(theme: AppTheme): readonly [string, string, string, string, string, string] {
-  if (theme.isDark) {
-    return [
-      theme.colors.background,
-      theme.colors.primaryMuted,
-      theme.colors.primary,
-      theme.colors.focus,
-      theme.colors.primaryText,
-      theme.colors.focusText,
-    ];
-  }
-
   return [
     theme.colors.surfaceMuted,
     theme.colors.accentPeachMuted,

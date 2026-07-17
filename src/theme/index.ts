@@ -1,9 +1,5 @@
 import type { TextStyle } from 'react-native';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export type AppThemeMode = 'light' | 'dark';
-
 export type AppThemeColors = Readonly<{
   background: string;
   surface: string;
@@ -143,8 +139,6 @@ export const layout = {
 } as const;
 
 export type AppTheme = Readonly<{
-  mode: AppThemeMode;
-  isDark: boolean;
   colors: AppThemeColors;
   spacing: typeof spacing;
   radii: typeof radii;
@@ -152,7 +146,7 @@ export type AppTheme = Readonly<{
   layout: typeof layout;
 }>;
 
-const lightColors: AppThemeColors = {
+const retroColors: AppThemeColors = {
   background: '#F4E8D0',
   surface: '#FFF3DC',
   surfaceMuted: '#EAD6B5',
@@ -203,87 +197,14 @@ const lightColors: AppThemeColors = {
   overlay: 'rgba(57, 34, 24, 0.58)',
 };
 
-const darkColors: AppThemeColors = {
-  background: '#2B1D18',
-  surface: '#3A2922',
-  surfaceMuted: '#463229',
-  surfaceElevated: '#402D25',
-  surfacePressed: '#573C30',
-  text: '#F4E5C6',
-  textMuted: '#CBB697',
-  textSubtle: '#A99177',
-  primary: '#E07A4E',
-  primaryPressed: '#EF9065',
-  primaryText: '#F09A72',
-  onPrimary: '#2B1D18',
-  primaryMuted: '#603426',
-  onPrimaryMuted: '#F5C3A4',
-  border: '#65483A',
-  borderStrong: '#84604C',
-  divider: '#523A2F',
-  track: '#594034',
-  success: '#B1B873',
-  successMuted: '#3C4028',
-  warning: '#D8AD4B',
-  warningMuted: '#4E3D1D',
-  danger: '#EA8E70',
-  dangerPressed: '#F09A7D',
-  dangerMuted: '#5A3027',
-  onDanger: '#2B1712',
-  focus: '#E78960',
-  focusAccent: '#D6AD4A',
-  focusBackground: '#241713',
-  focusText: '#F4E5C6',
-  focusTextMuted: 'rgba(244, 229, 198, 0.72)',
-  focusSurface: 'rgba(244, 229, 198, 0.08)',
-  focusSurfaceStrong: 'rgba(244, 229, 198, 0.14)',
-  focusBorder: 'rgba(244, 229, 198, 0.18)',
-  focusBorderStrong: 'rgba(244, 229, 198, 0.34)',
-  focusShadow: 'rgba(20, 10, 7, 0.40)',
-  accentPeach: '#E9A273',
-  accentPeachMuted: '#56372C',
-  accentMustard: '#D6AD4A',
-  accentMustardMuted: '#4E3D1D',
-  accentOlive: '#B1B873',
-  accentOliveMuted: '#3D4028',
-  accentTurquoise: '#70A69E',
-  accentTurquoiseMuted: '#293E39',
-  accentBrown: '#C18E70',
-  accentBrownMuted: '#4E382F',
-  shadow: 'rgba(20, 10, 7, 0.34)',
-  overlay: 'rgba(20, 11, 8, 0.72)',
-};
-
-export const lightTheme: AppTheme = {
-  mode: 'light',
-  isDark: false,
-  colors: lightColors,
+export const appTheme: AppTheme = {
+  colors: retroColors,
   spacing,
   radii,
   typography,
   layout,
 };
-
-export const darkTheme: AppTheme = {
-  mode: 'dark',
-  isDark: true,
-  colors: darkColors,
-  spacing,
-  radii,
-  typography,
-  layout,
-};
-
-export const themes: Readonly<Record<AppThemeMode, AppTheme>> = {
-  light: lightTheme,
-  dark: darkTheme,
-};
-
-export function getAppTheme(mode: AppThemeMode): AppTheme {
-  return themes[mode];
-}
 
 export function useAppTheme(): AppTheme {
-  const colorScheme = useColorScheme();
-  return colorScheme === 'dark' ? darkTheme : lightTheme;
+  return appTheme;
 }

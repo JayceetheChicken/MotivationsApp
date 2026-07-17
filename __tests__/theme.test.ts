@@ -1,10 +1,4 @@
-import {
-  darkTheme,
-  getAppTheme,
-  layout,
-  lightTheme,
-  themes,
-} from '@/theme';
+import { appTheme, layout } from '@/theme';
 
 function rgb(hex: string): [number, number, number] {
   const value = hex.replace('#', '');
@@ -37,69 +31,57 @@ function contrastRatio(first: string, second: string): number {
   );
 }
 
-describe('application themes', () => {
-  it('exposes complete and distinct light and dark modes', () => {
-    expect(getAppTheme('light')).toBe(lightTheme);
-    expect(getAppTheme('dark')).toBe(darkTheme);
-    expect(themes).toEqual({ light: lightTheme, dark: darkTheme });
-    expect(lightTheme.mode).toBe('light');
-    expect(lightTheme.isDark).toBe(false);
-    expect(darkTheme.mode).toBe('dark');
-    expect(darkTheme.isDark).toBe(true);
-    expect(lightTheme.colors.background).not.toBe(darkTheme.colors.background);
-    expect(lightTheme.colors.text).not.toBe(darkTheme.colors.text);
+describe('application theme', () => {
+  it('exposes a single light retro theme with a bright warm background', () => {
+    const [red, green, blue] = rgb(appTheme.colors.background);
+
+    expect(relativeLuminance(appTheme.colors.background)).toBeGreaterThan(0.5);
+    expect(red).toBeGreaterThanOrEqual(green);
+    expect(green).toBeGreaterThanOrEqual(blue);
+    expect(relativeLuminance(appTheme.colors.text)).toBeLessThan(0.1);
   });
 
-  it.each([lightTheme, darkTheme])(
-    'uses a terracotta-dominant primary in $mode mode',
-    (theme) => {
-      const [red, green, blue] = rgb(theme.colors.primary);
+  it('uses a terracotta-dominant primary', () => {
+    const [red, green, blue] = rgb(appTheme.colors.primary);
 
-      expect(red).toBeGreaterThan(green);
-      expect(red).toBeGreaterThan(blue);
-      expect(theme.colors.primary).not.toBe(theme.colors.success);
-      expect(theme.colors.focus).not.toBe(theme.colors.success);
-      expect(theme.colors.onPrimary).not.toBe(theme.colors.primary);
-    },
-  );
+    expect(red).toBeGreaterThan(green);
+    expect(red).toBeGreaterThan(blue);
+    expect(appTheme.colors.primary).not.toBe(appTheme.colors.success);
+    expect(appTheme.colors.focus).not.toBe(appTheme.colors.success);
+    expect(appTheme.colors.onPrimary).not.toBe(appTheme.colors.primary);
+  });
 
-  it.each([lightTheme, darkTheme])(
-    'provides restrained retro accents without pure white or black in $mode mode',
-    (theme) => {
-      expect(theme.colors.accentMustard).not.toBe(theme.colors.primary);
-      expect(theme.colors.accentOlive).not.toBe(theme.colors.primary);
-      expect(theme.colors.accentTurquoise).not.toBe(theme.colors.primary);
-      expect(theme.colors.accentPeach).not.toBe(theme.colors.primary);
+  it('provides restrained retro accents without pure white or black', () => {
+    expect(appTheme.colors.accentMustard).not.toBe(appTheme.colors.primary);
+    expect(appTheme.colors.accentOlive).not.toBe(appTheme.colors.primary);
+    expect(appTheme.colors.accentTurquoise).not.toBe(appTheme.colors.primary);
+    expect(appTheme.colors.accentPeach).not.toBe(appTheme.colors.primary);
 
-      Object.values(theme.colors).forEach((color) => {
-        expect(color.toUpperCase()).not.toBe('#FFFFFF');
-        expect(color.toUpperCase()).not.toBe('#000000');
-      });
-    },
-  );
+    Object.values(appTheme.colors).forEach((color) => {
+      expect(color.toUpperCase()).not.toBe('#FFFFFF');
+      expect(color.toUpperCase()).not.toBe('#000000');
+    });
+  });
 
-  it.each([lightTheme, darkTheme])(
-    'keeps essential text and accent combinations readable in $mode mode',
-    (theme) => {
-      const foregroundPairs = [
-        [theme.colors.text, theme.colors.background],
-        [theme.colors.textMuted, theme.colors.background],
-        [theme.colors.onPrimary, theme.colors.primary],
-        [theme.colors.primaryText, theme.colors.surfaceElevated],
-        [theme.colors.primaryText, theme.colors.accentPeachMuted],
-        [theme.colors.accentMustard, theme.colors.surfaceElevated],
-        [theme.colors.accentOlive, theme.colors.accentOliveMuted],
-        [theme.colors.accentTurquoise, theme.colors.surfaceElevated],
-        [theme.colors.accentBrown, theme.colors.surface],
-        [theme.colors.danger, theme.colors.dangerMuted],
-        [theme.colors.focusAccent, theme.colors.focusBackground],
-      ] as const;
+  it('keeps essential text and accent combinations readable', () => {
+    const foregroundPairs = [
+      [appTheme.colors.text, appTheme.colors.background],
+      [appTheme.colors.textMuted, appTheme.colors.background],
+      [appTheme.colors.onPrimary, appTheme.colors.primary],
+      [appTheme.colors.primaryText, appTheme.colors.surfaceElevated],
+      [appTheme.colors.primaryText, appTheme.colors.accentPeachMuted],
+      [appTheme.colors.accentMustard, appTheme.colors.surfaceElevated],
+      [appTheme.colors.accentOlive, appTheme.colors.accentOliveMuted],
+      [appTheme.colors.accentTurquoise, appTheme.colors.surfaceElevated],
+      [appTheme.colors.accentBrown, appTheme.colors.surface],
+      [appTheme.colors.danger, appTheme.colors.dangerMuted],
+      [appTheme.colors.focusAccent, appTheme.colors.focusBackground],
+    ] as const;
 
-      foregroundPairs.forEach(([foreground, background]) => {
-        expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
-      });
-    },
-  );
+    foregroundPairs.forEach(([foreground, background]) => {
+      expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
+    });
+  });
 });
 
 describe('responsive layout tokens', () => {
