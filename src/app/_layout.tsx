@@ -107,7 +107,9 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   const auth = useAuthStore();
   const study = useStudyStore();
   const [startupHandled, setStartupHandled] = useState(false);
-  const ready = auth.hydrated && study.hydrated;
+  // Nur die lokalen Lerndaten gaten das Rendern. Der Auth-Store (SecureStore,
+  // Supabase-Session) hydriert im Hintergrund und darf den Start nie blockieren.
+  const ready = study.hydrated;
   const hasResolvedRoute = segments.length > 0;
   const onHomeRoute = segments.some((segment) => segment === ROOT_NAVIGATION_ANCHOR)
     && segments.some((segment) => segment === HOME_NAVIGATION_ANCHOR);
@@ -142,6 +144,10 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
     });
     if (requiredRoute) router.replace(requiredRoute);
   }, [auth.passwordRecoveryPending, onPasswordUpdateRoute, ready, startupHandled]);
+
+  useEffect(() => {
+    if (startupHandled) console.log('[BOOT] App navigation ready');
+  }, [startupHandled]);
 
   if (!ready || !hasResolvedRoute || (!startupHandled && startupRoute === null)) {
     return (

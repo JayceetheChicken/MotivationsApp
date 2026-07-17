@@ -60,11 +60,17 @@ function wrapper({ children }: PropsWithChildren) {
 describe('AuthStoreProvider startup', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockStorageGetItem.mockResolvedValue(null);
     mockGetInitialURL.mockResolvedValue(null);
     mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
     mockExchangeCodeForSession.mockResolvedValue({ data: { session: null }, error: null });
     mockSetSession.mockResolvedValue({ data: { session: null }, error: null });
+  });
+
+  afterAll(() => {
+    jest.restoreAllMocks();
   });
 
   it('hydrates first start and restart directly as a guest without a profile', async () => {
@@ -79,7 +85,7 @@ describe('AuthStoreProvider startup', () => {
     await restarted.unmount();
   });
 
-  it('processes a genuine password-reset deep link before hydration completes', async () => {
+  it('processes a genuine password-reset deep link in the background after hydration', async () => {
     mockGetInitialURL.mockResolvedValue('lernzeit://update-password?code=recovery-code');
     mockExchangeCodeForSession.mockResolvedValue({
       data: { session: mockRecoverySession },
@@ -88,10 +94,34 @@ describe('AuthStoreProvider startup', () => {
 
     const recovery = await renderHook(() => useAuthStore(), { wrapper });
     await waitFor(() => expect(recovery.result.current.hydrated).toBe(true));
+    await waitFor(() => expect(recovery.result.current.passwordRecoveryPending).toBe(true));
 
     expect(mockExchangeCodeForSession).toHaveBeenCalledWith('recovery-code');
-    expect(recovery.result.current.passwordRecoveryPending).toBe(true);
     expect(recovery.result.current.user?.id).toBe('account-123');
     await recovery.unmount();
+  });
+
+  it('hydrates as a guest even when the Supabase session request hangs', async () => {
+    let releaseSession: (value: { data: { session: null }; error: null }) => void = () => {};
+    mockGetSession.mockReturnValue(new Promise((resolve) => { releaseSession = resolve; }));
+
+    const hung = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(hung.result.current.hydrated).toBe(true));
+    expect(hung.result.current.activeMode).toBe('none');
+    expect(hung.result.current.session).toBeNull();
+    await hung.unmount();
+
+    // Settle the hanging request so its boot timeout timer is cleaned up.
+    releaseSession({ data: { session: null }, error: null });
+  });
+
+  it('hydrates as a guest when secure storage is corrupt or unavailable', async () => {
+    mockStorageGetItem.mockRejectedValue(new Error('SecureStore ist beschädigt'));
+
+    const corrupt = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(corrupt.result.current.hydrated).toBe(true));
+    expect(corrupt.result.current.activeMode).toBe('none');
+    expect(corrupt.result.current.localProfile).toBeNull();
+    await corrupt.unmount();
   });
 });

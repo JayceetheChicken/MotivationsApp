@@ -1156,6 +1156,7 @@ export function StudyStoreProvider({
       // Corrupt or unavailable storage must never prevent an empty app start.
     } finally {
       setHydrated(true);
+      console.log('[BOOT] Study store hydrated');
     }
   }, [accountUserId, importStorageScope, storageKey, storageScope]);
 

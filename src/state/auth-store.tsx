@@ -22,8 +22,23 @@ import {
   displayNameError,
   usernameError,
 } from '@/auth/validation';
+import { withTimeout } from '@/lib/with-timeout';
 
 const LOCAL_PROFILE_STORAGE_KEY = 'lernzeit.local-profile.v1';
+const BOOT_STEP_TIMEOUT_MS = 4000;
+
+/**
+ * Boot steps must always settle: a hanging or failing step resolves to its
+ * fallback so the app can continue as a guest instead of blocking startup.
+ */
+async function settleBootStep<T>(label: string, promise: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await withTimeout(promise, BOOT_STEP_TIMEOUT_MS, label);
+  } catch (error) {
+    console.warn(`[BOOT] ${label} übersprungen – die App startet als Gast weiter.`, error);
+    return fallback;
+  }
+}
 
 export interface LocalProfile {
   schemaVersion: 1;
@@ -208,30 +223,39 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     });
 
     const restore = async () => {
+      console.log('[BOOT] Auth restore started');
+
+      // Phase 1 – nur lokale Daten. Jeder Schritt settelt garantiert
+      // (Timeout + Fallback), danach ist der App-Start freigegeben.
       try {
-        const [storedProfile, sessionResult, initialUrl] = await Promise.all([
-          readLocalProfile(),
-          supabase ? supabase.auth.getSession() : Promise.resolve(null),
-          Linking.getInitialURL(),
-        ]);
-
-        if (!isMounted) return;
-        setLocalProfile(storedProfile);
-
-        if (sessionResult) {
-          if (sessionResult.error) throw sessionResult.error;
-          setSession(sessionResult.data.session);
-        }
-
-        await handleAuthUrl(initialUrl);
-      } catch (restoreError) {
-        if (isMounted) setError(translateAuthError(restoreError));
+        const storedProfile = await settleBootStep('Lokales Profil laden', readLocalProfile(), null);
+        if (isMounted) setLocalProfile(storedProfile);
+        console.log('[BOOT] Local profile restored');
       } finally {
         if (isMounted) {
           setHydrated(true);
           setPendingAction(null);
         }
       }
+
+      // Phase 2 – Hintergrund: bestehende Supabase-Session und Auth-Deep-Links.
+      // Fehler, Timeouts oder fehlende Konfiguration lassen den Gastmodus unberührt.
+      if (supabase) {
+        const sessionResult = await settleBootStep(
+          'Supabase-Session wiederherstellen',
+          supabase.auth.getSession(),
+          null,
+        );
+        if (!isMounted) return;
+        if (sessionResult && !sessionResult.error && sessionResult.data.session) {
+          setSession(sessionResult.data.session);
+        }
+        console.log('[BOOT] Supabase session restored');
+      }
+
+      const initialUrl = await settleBootStep('Start-URL lesen', Linking.getInitialURL(), null);
+      if (!isMounted) return;
+      await handleAuthUrl(initialUrl);
     };
 
     void restore();

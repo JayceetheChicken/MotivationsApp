@@ -1,6 +1,8 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { withTimeout } from '@/lib/with-timeout';
+
 export interface AsyncKeyValueStorage {
   getItem: (key: string) => Promise<string | null>;
   setItem: (key: string, value: string) => Promise<void>;
@@ -10,6 +12,9 @@ export interface AsyncKeyValueStorage {
 // A small character limit also stays below older SecureStore byte limits for Unicode text.
 const CHUNK_SIZE = 450;
 const MAX_CHUNKS = 128;
+// A hanging or corrupt SecureStore must degrade to "no stored value" so the
+// app (and Supabase's session restore) can continue as a guest.
+const READ_TIMEOUT_MS = 4000;
 const secureStoreOptions: SecureStore.SecureStoreOptions = {
   keychainService: 'lernzeit.auth',
 };
@@ -107,9 +112,16 @@ async function removeNativeItem(key: string): Promise<void> {
 
 export const authStorage: AsyncKeyValueStorage = {
   async getItem(key) {
-    return Platform.OS === 'web'
-      ? getWebStorage().getItem(key)
-      : getNativeItem(key);
+    if (Platform.OS === 'web') {
+      return getWebStorage().getItem(key);
+    }
+
+    try {
+      return await withTimeout(getNativeItem(key), READ_TIMEOUT_MS, `SecureStore-Lesezugriff „${key}“`);
+    } catch (error) {
+      console.warn('SecureStore-Lesezugriff fehlgeschlagen – Wert wird als leer behandelt.', error);
+      return null;
+    }
   },
   async setItem(key, value) {
     if (Platform.OS === 'web') {
