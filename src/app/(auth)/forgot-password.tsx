@@ -38,8 +38,8 @@ export default function ForgotPasswordScreen() {
       title="Passwort zurücksetzen">
       <View style={styles.form}>
         {!configuration.isConfigured ? (
-          <AuthNotice title="Supabase nicht konfiguriert">
-            {configuration.message} Eine Reset-E-Mail wird nicht simuliert.
+          <AuthNotice title="Passwort-Reset nicht verfügbar">
+            Der Online-Dienst ist momentan nicht eingerichtet.
           </AuthNotice>
         ) : null}
         {error ? <AuthNotice tone="danger">{error}</AuthNotice> : null}

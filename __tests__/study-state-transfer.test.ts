@@ -126,16 +126,49 @@ describe('local study-state account transfer', () => {
 
     const first = mergeLocalStudyStateIntoAccount(account, localState(), 'account-123');
     const second = mergeLocalStudyStateIntoAccount(first, localState(), 'account-123');
+    const updatedLocal = localState();
+    updatedLocal.data = {
+      ...updatedLocal.data,
+      subjects: [...updatedLocal.data.subjects, {
+        id: 'subject-physics',
+        name: 'Physik',
+        color: '#2C7974',
+        icon: 'book',
+      }],
+      sessions: [...updatedLocal.data.sessions, {
+        ...updatedLocal.data.sessions[0],
+        id: 'session-later',
+        goalId: null,
+        subjectId: 'subject-physics',
+      }],
+      grades: [...updatedLocal.data.grades, {
+        ...updatedLocal.data.grades[0],
+        id: 'grade-later',
+        subjectId: 'subject-physics',
+        sessionIds: ['session-later'],
+      }],
+    };
+    const reconnected = mergeLocalStudyStateIntoAccount(
+      second,
+      updatedLocal,
+      'account-123',
+    );
 
-    expect(second.data.subjects).toEqual([
+    expect(reconnected.data.subjects).toEqual([
       expect.objectContaining({ id: 'subject-math', name: 'Mathe LK' }),
+      expect.objectContaining({ id: 'subject-physics', name: 'Physik' }),
     ]);
-    expect(second.data.sessions.map((session) => session.id).sort()).toEqual([
+    expect(reconnected.data.sessions.map((session) => session.id).sort()).toEqual([
       'session-cloud',
+      'session-later',
       'session-local',
     ]);
-    expect(second.data.grades).toHaveLength(1);
-    expect(second.data.goals).toHaveLength(1);
-    expect(second.privacy).toEqual(account.privacy);
+    expect(reconnected.data.sessions.filter((session) => session.id === 'session-local')).toHaveLength(1);
+    expect(reconnected.data.grades.map((grade) => grade.id).sort()).toEqual([
+      'grade-later',
+      'grade-local',
+    ]);
+    expect(reconnected.data.goals).toHaveLength(1);
+    expect(reconnected.privacy).toEqual(account.privacy);
   });
 });

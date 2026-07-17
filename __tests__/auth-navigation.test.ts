@@ -1,7 +1,11 @@
 import {
+  getStartupRoute,
   getRequiredAuthRoute,
   getStudyStorageConfiguration,
   getStudyStorageScope,
+  HOME_NAVIGATION_ANCHOR,
+  isPasswordRecoveryUrl,
+  ROOT_NAVIGATION_ANCHOR,
 } from '@/auth/navigation';
 
 describe('optional authentication navigation', () => {
@@ -29,6 +33,38 @@ describe('optional authentication navigation', () => {
     })).toBeNull();
   });
 
+  it('anchors the root route directly to the home tab', () => {
+    expect(ROOT_NAVIGATION_ANCHOR).toBe('(tabs)');
+    expect(HOME_NAVIGATION_ANCHOR).toBe('(home)');
+  });
+
+  it('opens first start and a hydrated guest restart on home', () => {
+    expect(getStartupRoute({
+      hasResolvedRoute: false,
+      onHomeRoute: false,
+      onPasswordUpdateRoute: false,
+      passwordRecoveryPending: false,
+      ready: false,
+    })).toBeNull();
+    expect(getStartupRoute({
+      hasResolvedRoute: true,
+      onHomeRoute: true,
+      onPasswordUpdateRoute: false,
+      passwordRecoveryPending: false,
+      ready: true,
+    })).toBeNull();
+  });
+
+  it('normalizes every persisted non-recovery start route back to home', () => {
+    expect(getStartupRoute({
+      hasResolvedRoute: true,
+      onHomeRoute: false,
+      onPasswordUpdateRoute: false,
+      passwordRecoveryPending: false,
+      ready: true,
+    })).toBe('/');
+  });
+
   it('does not require a login route after hydration', () => {
     expect(getRequiredAuthRoute({
       onPasswordUpdateRoute: false,
@@ -48,5 +84,21 @@ describe('optional authentication navigation', () => {
       passwordRecoveryPending: true,
       ready: true,
     })).toBeNull();
+    expect(getStartupRoute({
+      hasResolvedRoute: true,
+      onHomeRoute: false,
+      onPasswordUpdateRoute: false,
+      passwordRecoveryPending: true,
+      ready: true,
+    })).toBe('/update-password');
+  });
+
+  it('recognizes only credential-bearing password recovery deep links', () => {
+    expect(isPasswordRecoveryUrl('lernzeit://update-password?code=pkce-code')).toBe(true);
+    expect(isPasswordRecoveryUrl('https://lernzeit.app/update-password?code=pkce-code')).toBe(true);
+    expect(isPasswordRecoveryUrl('https://lernzeit.app/#type=recovery&access_token=access&refresh_token=refresh')).toBe(true);
+    expect(isPasswordRecoveryUrl('lernzeit://update-password')).toBe(false);
+    expect(isPasswordRecoveryUrl('https://lernzeit.app/?code=ordinary-login')).toBe(false);
+    expect(isPasswordRecoveryUrl(null)).toBe(false);
   });
 });

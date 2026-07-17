@@ -11,6 +11,7 @@ import {
 } from 'react';
 
 import { authStorage } from '@/auth/storage';
+import { isPasswordRecoveryUrl } from '@/auth/navigation';
 import {
   supabase,
   supabaseConfiguration,
@@ -144,7 +145,7 @@ function translateAuthError(error: unknown): string {
 
   const message = errorMessage(error)?.toLowerCase();
   if (message?.includes('network request failed') || message?.includes('failed to fetch')) {
-    return 'Supabase ist gerade nicht erreichbar. Prüfe deine Internetverbindung.';
+    return 'Der Online-Dienst ist gerade nicht erreichbar. Prüfe deine Internetverbindung.';
   }
   if (message?.includes('invalid login credentials')) {
     return 'E-Mail-Adresse oder Passwort ist nicht korrekt.';
@@ -177,23 +178,23 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       try {
         const parsedUrl = new URL(url);
         const fragment = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
-        const isRecovery = parsedUrl.pathname.includes('update-password')
-          || parsedUrl.searchParams.get('type') === 'recovery'
-          || fragment.get('type') === 'recovery';
+        const isRecovery = isPasswordRecoveryUrl(url);
         const code = parsedUrl.searchParams.get('code');
 
         if (code) {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError) throw exchangeError;
+          if (isMounted) setSession(exchangeData.session);
         } else {
           const accessToken = fragment.get('access_token');
           const refreshToken = fragment.get('refresh_token');
           if (accessToken && refreshToken) {
-            const { error: sessionError } = await supabase.auth.setSession({
+            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken,
             });
             if (sessionError) throw sessionError;
+            if (isMounted) setSession(sessionData.session);
           }
         }
 
@@ -208,9 +209,10 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
 
     const restore = async () => {
       try {
-        const [storedProfile, sessionResult] = await Promise.all([
+        const [storedProfile, sessionResult, initialUrl] = await Promise.all([
           readLocalProfile(),
           supabase ? supabase.auth.getSession() : Promise.resolve(null),
+          Linking.getInitialURL(),
         ]);
 
         if (!isMounted) return;
@@ -220,6 +222,8 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
           if (sessionResult.error) throw sessionResult.error;
           setSession(sessionResult.data.session);
         }
+
+        await handleAuthUrl(initialUrl);
       } catch (restoreError) {
         if (isMounted) setError(translateAuthError(restoreError));
       } finally {
@@ -231,7 +235,6 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     };
 
     void restore();
-    void Linking.getInitialURL().then(handleAuthUrl);
 
     return () => {
       isMounted = false;
@@ -246,7 +249,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
   }, []);
 
   const configurationFailure = useCallback((): AuthActionResult => {
-    const message = supabaseConfiguration.message;
+    const message = 'Online-Konten sind derzeit nicht verfügbar.';
     setError(message);
     setNotice(null);
     return { ok: false, message };
@@ -267,7 +270,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       if (signInError) throw signInError;
 
       if (!data.session) {
-        const message = 'Supabase hat keine gültige Sitzung zurückgegeben. Bitte versuche es erneut.';
+        const message = 'Die Anmeldung hat keine gültige Sitzung zurückgegeben. Bitte versuche es erneut.';
         setError(message);
         return { ok: false, message };
       }
@@ -383,6 +386,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       if (signOutError) throw signOutError;
 
       setSession(null);
+      setPasswordRecoveryPending(false);
       const message = 'Du wurdest abgemeldet.';
       setNotice(message);
       return { ok: true, message };

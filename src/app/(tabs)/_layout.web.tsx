@@ -1,9 +1,10 @@
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
 
+import { HOME_NAVIGATION_ANCHOR } from '@/auth/navigation';
 import { useAppTheme } from '@/theme';
 
-export const unstable_settings = { anchor: '(home)' };
+export const unstable_settings = { anchor: HOME_NAVIGATION_ANCHOR };
 
 export default function WebTabsLayout() {
   const theme = useAppTheme();

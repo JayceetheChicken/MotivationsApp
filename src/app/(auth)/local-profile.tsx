@@ -123,7 +123,6 @@ export default function LocalProfileScreen() {
       </View>
 
       <AuthTextLink label="Ohne Profil zurück zur App" onPress={() => router.replace('/')} />
-      <AuthTextLink label="Zur Kontoauswahl" onPress={() => router.replace('./connect-account')} />
     </AuthScaffold>
   );
 }

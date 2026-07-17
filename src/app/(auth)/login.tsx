@@ -43,11 +43,11 @@ export default function LoginScreen() {
   return (
     <AuthScaffold
       subtitle="Deine vorhandenen lokalen Lerndaten werden beim Verbinden automatisch in den Konto-Bereich übernommen."
-      title="Cloud-Konto verbinden">
+      title="Online-Konto anmelden">
       <View style={styles.form}>
         {!configuration.isConfigured ? (
-          <AuthNotice title="Lokaler Entwicklungsmodus">
-            {configuration.message} Es wird keine Anmeldung simuliert.
+          <AuthNotice title="Online-Anmeldung nicht verfügbar">
+            Du kannst die App weiterhin vollständig ohne Konto nutzen.
           </AuthNotice>
         ) : null}
         {error ? <AuthNotice tone="danger">{error}</AuthNotice> : null}
@@ -102,7 +102,6 @@ export default function LoginScreen() {
       <View style={styles.secondaryActions}>
         <AuthTextLink label="Ohne Anmeldung zurück zur App" onPress={() => router.replace('/')} />
         <AuthTextLink label="Noch kein Konto? Registrieren" onPress={() => router.push('./register')} />
-        <AuthTextLink label="Zur Kontoauswahl" onPress={() => router.replace('./connect-account')} />
       </View>
     </AuthScaffold>
   );

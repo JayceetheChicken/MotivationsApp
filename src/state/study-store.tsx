@@ -45,7 +45,6 @@ import type {
 
 const LEGACY_STORAGE_KEY = 'lernzeit.study-state.v1';
 const STORAGE_KEY_PREFIX = 'lernzeit.study-state.v2';
-const IMPORT_MARKER_KEY_PREFIX = 'lernzeit.study-import.v1';
 const CURRENT_SCHEMA_VERSION = 3;
 const LOCAL_USER_ID = 'local-user';
 
@@ -1096,12 +1095,6 @@ function scopedStorageKey(storageScope: string): string {
   return `${STORAGE_KEY_PREFIX}.${safeScope}`;
 }
 
-function importMarkerKey(storageScope: string, importStorageScope: string): string {
-  const target = storageScope.trim().replace(/[^a-zA-Z0-9._-]/g, '_') || 'account';
-  const source = importStorageScope.trim().replace(/[^a-zA-Z0-9._-]/g, '_') || 'local';
-  return `${IMPORT_MARKER_KEY_PREFIX}.${source}-to-${target}`;
-}
-
 function readStoredState(storageScope: string): {
   raw: string | null;
   state: StudyState | null;
@@ -1138,11 +1131,9 @@ export function StudyStoreProvider({
         importStorageScope &&
         importStorageScope !== storageScope
       ) {
-        const markerKey = importMarkerKey(storageScope, importStorageScope);
-        const importCompleted = localStorage.getItem(markerKey) === 'complete';
         const localStorageState = readStoredState(importStorageScope);
 
-        if (!importCompleted && localStorageState.state) {
+        if (localStorageState.state) {
           nextState = mergeLocalStudyStateIntoAccount(
             nextState,
             localStorageState.state,
@@ -1153,7 +1144,6 @@ export function StudyStoreProvider({
             ...nextState,
           };
           localStorage.setItem(storageKey, JSON.stringify(payload));
-          localStorage.setItem(markerKey, 'complete');
         } else if (nextState) {
           nextState = assignStudyStateToAccount(nextState, accountUserId);
         }

@@ -1,20 +1,23 @@
 import { DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
-import { router, useSegments } from 'expo-router';
+import { Redirect, router, useSegments } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { StatusBar } from 'expo-status-bar';
-import { type PropsWithChildren, useEffect } from 'react';
+import { type PropsWithChildren, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import 'react-native-reanimated';
 
 import {
   getRequiredAuthRoute,
+  getStartupRoute,
   getStudyStorageConfiguration,
+  HOME_NAVIGATION_ANCHOR,
+  ROOT_NAVIGATION_ANCHOR,
 } from '@/auth/navigation';
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 import { StudyStoreProvider, useStudyStore } from '@/state/study-store';
 import { appTheme, type AppTheme } from '@/theme';
 
-export const unstable_settings = { anchor: '(tabs)' };
+export const unstable_settings = { anchor: ROOT_NAVIGATION_ANCHOR };
 
 function ModalBackButton({ color, surface, border }: { color: string; surface: string; border: string }) {
   return (
@@ -103,19 +106,44 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   const segments = useSegments();
   const auth = useAuthStore();
   const study = useStudyStore();
+  const [startupHandled, setStartupHandled] = useState(false);
   const ready = auth.hydrated && study.hydrated;
+  const hasResolvedRoute = segments.length > 0;
+  const onHomeRoute = segments.some((segment) => segment === ROOT_NAVIGATION_ANCHOR)
+    && segments.some((segment) => segment === HOME_NAVIGATION_ANCHOR);
   const onPasswordUpdateRoute = segments.some((segment) => segment === 'update-password');
+  const startupRoute = getStartupRoute({
+    hasResolvedRoute,
+    onHomeRoute,
+    onPasswordUpdateRoute,
+    passwordRecoveryPending: auth.passwordRecoveryPending,
+    ready,
+  });
 
   useEffect(() => {
+    if (
+      startupHandled
+      || !ready
+      || !hasResolvedRoute
+      || startupRoute !== null
+    ) {
+      return;
+    }
+    const completion = setTimeout(() => setStartupHandled(true), 0);
+    return () => clearTimeout(completion);
+  }, [hasResolvedRoute, ready, startupHandled, startupRoute]);
+
+  useEffect(() => {
+    if (!startupHandled) return;
     const requiredRoute = getRequiredAuthRoute({
       onPasswordUpdateRoute,
       passwordRecoveryPending: auth.passwordRecoveryPending,
       ready,
     });
     if (requiredRoute) router.replace(requiredRoute);
-  }, [auth.passwordRecoveryPending, onPasswordUpdateRoute, ready]);
+  }, [auth.passwordRecoveryPending, onPasswordUpdateRoute, ready, startupHandled]);
 
-  if (!ready) {
+  if (!ready || !hasResolvedRoute || (!startupHandled && startupRoute === null)) {
     return (
       <View
         accessibilityLabel="Lerndaten werden geladen"
@@ -130,6 +158,10 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
     );
   }
 
+  if (!startupHandled && startupRoute) {
+    return <Redirect href={startupRoute} />;
+  }
+
   return (
     <>
       <AccountStudyBridge />
@@ -142,8 +174,8 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
           headerTitleStyle: { color: appTheme.colors.text, fontWeight: '700' },
           headerBackButtonDisplayMode: 'minimal',
         }}>
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="session" options={{ presentation: 'fullScreenModal', headerShown: false }} />
         <Stack.Screen
           name="manual-entry"

@@ -45,7 +45,9 @@ export default function UpdatePasswordScreen() {
       title="Neues Passwort">
       <View style={styles.form}>
         {!configuration.isConfigured ? (
-          <AuthNotice title="Supabase nicht konfiguriert">{configuration.message}</AuthNotice>
+          <AuthNotice title="Passwort-Reset nicht verfügbar">
+            Der Online-Dienst ist momentan nicht eingerichtet.
+          </AuthNotice>
         ) : !user || !passwordRecoveryPending ? (
           <AuthNotice title="Reset-Link erforderlich">
             Öffne den aktuellen Link aus deiner Reset-E-Mail auf diesem Gerät. Erst danach kann das Passwort sicher geändert werden.

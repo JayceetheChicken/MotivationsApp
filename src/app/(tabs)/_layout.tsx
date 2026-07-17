@@ -1,8 +1,9 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
+import { HOME_NAVIGATION_ANCHOR } from '@/auth/navigation';
 import { useAppTheme } from '@/theme';
 
-export const unstable_settings = { anchor: '(home)' };
+export const unstable_settings = { anchor: HOME_NAVIGATION_ANCHOR };
 
 export default function TabsLayout() {
   const theme = useAppTheme();

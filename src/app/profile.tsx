@@ -51,7 +51,6 @@ export default function ProfileScreen() {
     clearAllData,
   } = useStudyStore();
   const [confirmation, setConfirmation] = useState<'data' | 'local-profile' | null>(null);
-  const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const isGuest = auth.activeMode === 'none';
   const displayName = isGuest
     ? 'Gast'
@@ -123,21 +122,29 @@ export default function ProfileScreen() {
         </View>
       </AppCard>
 
-      {auth.activeMode !== 'supabase' ? (
-        <View style={styles.section}>
-          <SectionHeader
-            description={isGuest
-              ? 'Die App bleibt ohne Anmeldung vollständig nutzbar. Ein Konto kannst du jederzeit freiwillig ergänzen.'
-              : 'Dein lokales Profil und deine Lerndaten bleiben erhalten, wenn du später ein Konto verbindest.'}
-            eyebrow="Optional"
-            title="Konto verbinden"
+      <View style={styles.section}>
+        <SectionHeader
+          description="Online-Konten und lokale Profile sind freiwillig. Deine vorhandenen Lerndaten bleiben beim Wechsel erhalten."
+          eyebrow="Optional"
+          title="Konto & Synchronisierung"
+        />
+        <AppCard style={styles.accountActions} variant="subtle">
+          {auth.activeMode === 'supabase' ? (
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Dein Online-Konto ist verbunden.</Text>
+          ) : auth.configuration.isConfigured ? (
+            <>
+              <AppButton fullWidth label="Online-Konto anmelden" onPress={() => router.push('/login')} />
+              <AppButton fullWidth label="Online-Konto erstellen" onPress={() => router.push('/register')} variant="outline" />
+            </>
+          ) : null}
+          <AppButton
+            fullWidth
+            label={auth.localProfile ? 'Lokales Profil bearbeiten' : 'Lokales Profil erstellen'}
+            onPress={() => router.push('/local-profile')}
+            variant={auth.configuration.isConfigured ? 'ghost' : 'outline'}
           />
-          <AppCard style={styles.accountActions} variant="subtle">
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Wähle anschließend zwischen lokalem Profil, Cloud-Anmeldung oder neuem Cloud-Konto.</Text>
-            <AppButton fullWidth label="Konto verbinden" onPress={() => router.push('/connect-account')} />
-          </AppCard>
-        </View>
-      ) : null}
+        </AppCard>
+      </View>
 
       <View style={styles.section}>
         <SectionHeader
@@ -208,20 +215,7 @@ export default function ProfileScreen() {
         )}
 
         {auth.activeMode === 'supabase' ? (
-          <>
-            <AppButton fullWidth label="Abmelden" loading={auth.pendingAction === 'sign-out'} onPress={() => void signOut()} variant="outline" />
-            <AppCard style={styles.accountDeleteCard} variant="subtle">
-              <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Online-Konto löschen</Text>
-              <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Die Oberfläche ist vorbereitet. Eine Kontolöschung wird erst aktiviert, wenn die dafür notwendige geschützte Serverfunktion eingerichtet ist.</Text>
-              <AppButton
-                fullWidth
-                label="Löschung noch nicht verfügbar"
-                onPress={() => setAccountNotice('Es wurde nichts gelöscht. Richte zuerst die serverseitige Löschfunktion ein.')}
-                variant="outline"
-              />
-              {accountNotice ? <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.warning }]}>{accountNotice}</Text> : null}
-            </AppCard>
-          </>
+          <AppButton fullWidth label="Abmelden" loading={auth.pendingAction === 'sign-out'} onPress={() => void signOut()} variant="outline" />
         ) : auth.activeMode === 'local' && confirmation === 'local-profile' ? (
           <AppCard style={styles.confirmCard} variant="outlined">
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Lokales Profil und alle Daten löschen?</Text>
@@ -252,5 +246,4 @@ const styles = StyleSheet.create({
   sourceRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
   sourceText: { flex: 1 },
   confirmCard: { gap: 12 },
-  accountDeleteCard: { gap: 12 },
 });

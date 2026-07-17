@@ -12,7 +12,6 @@ export default function AuthStackLayout() {
         contentStyle: { backgroundColor: theme.colors.background },
         headerShown: false,
       }}>
-      <Stack.Screen name="connect-account" />
       <Stack.Screen name="login" />
       <Stack.Screen name="register" />
       <Stack.Screen name="forgot-password" />

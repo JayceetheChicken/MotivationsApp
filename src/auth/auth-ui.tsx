@@ -194,18 +194,6 @@ export function AuthTextLink({ label, onPress }: { label: string; onPress: () =>
   );
 }
 
-export function AuthDivider({ label = 'oder' }: { label?: string }) {
-  const theme = useAppTheme();
-
-  return (
-    <View accessibilityElementsHidden importantForAccessibility="no" style={styles.dividerRow}>
-      <View style={[styles.dividerLine, { backgroundColor: theme.colors.divider }]} />
-      <Text style={[theme.typography.caption, { color: theme.colors.textSubtle }]}>{label}</Text>
-      <View style={[styles.dividerLine, { backgroundColor: theme.colors.divider }]} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   screenContent: {
     justifyContent: 'center',
@@ -324,15 +312,5 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.62,
-  },
-  dividerRow: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  dividerLine: {
-    height: StyleSheet.hairlineWidth,
-    flex: 1,
   },
 });

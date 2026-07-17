@@ -65,11 +65,11 @@ export default function RegisterScreen() {
   return (
     <AuthScaffold
       subtitle="Deine lokalen Lerndaten bleiben bestehen und werden nach erfolgreicher Anmeldung in den Konto-Bereich übernommen."
-      title="Cloud-Konto erstellen">
+      title="Online-Konto erstellen">
       <View style={styles.form}>
         {!configuration.isConfigured ? (
           <AuthNotice title="Registrierung nicht verfügbar">
-            {configuration.message} Es wird kein Konto vorgetäuscht.
+            Du kannst die App weiterhin vollständig ohne Konto nutzen.
           </AuthNotice>
         ) : null}
         {error ? <AuthNotice tone="danger">{error}</AuthNotice> : null}
@@ -141,7 +141,6 @@ export default function RegisterScreen() {
       <View style={styles.secondaryActions}>
         <AuthTextLink label="Ohne Anmeldung zurück zur App" onPress={() => router.replace('/')} />
         <AuthTextLink label="Schon registriert? Anmelden" onPress={() => router.replace('./login')} />
-        <AuthTextLink label="Zur Kontoauswahl" onPress={() => router.replace('./connect-account')} />
       </View>
     </AuthScaffold>
   );

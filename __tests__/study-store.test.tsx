@@ -867,7 +867,7 @@ describe('StudyStoreProvider account import', () => {
     );
   }
 
-  it('copies local learning data non-destructively and records the account import', async () => {
+  it('copies local learning data non-destructively even after a previous account import', async () => {
     const localPayload = JSON.stringify({
       schemaVersion: 3,
       privacy: {
@@ -900,6 +900,7 @@ describe('StudyStoreProvider account import', () => {
       },
     });
     storedValues.set(STORAGE_KEY, localPayload);
+    storedValues.set('lernzeit.study-import.v1.local-to-account-user-123', 'complete');
 
     const first = await renderHook(() => useStudyStore(), { wrapper: accountWrapper });
     await waitFor(() => expect(first.result.current.hydrated).toBe(true));
@@ -908,6 +909,5 @@ describe('StudyStoreProvider account import', () => {
     ]);
     expect(storedValues.get(STORAGE_KEY)).toBe(localPayload);
     expect(storedValues.get('lernzeit.study-state.v2.account-user-123')).toBeTruthy();
-    expect(storedValues.get('lernzeit.study-import.v1.local-to-account-user-123')).toBe('complete');
   });
 });
