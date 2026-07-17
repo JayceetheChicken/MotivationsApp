@@ -2,6 +2,7 @@ import { Dimensions } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
 
 import HomeScreen from '@/app/(tabs)/(home)/index';
+import ConnectAccountScreen from '@/app/(auth)/connect-account';
 import ProfileScreen from '@/app/profile';
 import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
@@ -72,6 +73,11 @@ const guestData: StudyData = {
 function setGuestStores() {
   mockedUseAuthStore.mockReturnValue({
     activeMode: 'none',
+    configuration: {
+      isConfigured: true,
+      mode: 'supabase',
+      message: 'Supabase-Authentifizierung ist konfiguriert.',
+    },
     localProfile: null,
     user: null,
     pendingAction: null,
@@ -113,11 +119,23 @@ describe('guest mode', () => {
 
     expect(rendered.getByText('Ohne Konto')).toBeTruthy();
     expect(rendered.getByText('Direkt und ohne Anmeldung')).toBeTruthy();
-    expect(rendered.getByText('Online-Konto erstellen')).toBeTruthy();
-    expect(rendered.getByText('Lokales Profil einrichten')).toBeTruthy();
+    expect(rendered.getByRole('button', { name: 'Konto verbinden' })).toBeTruthy();
     expect(rendered.queryByText('Lokales Profil und Daten löschen')).toBeNull();
 
-    await fireEvent.press(rendered.getByText('Anmelden'));
+    await fireEvent.press(rendered.getByRole('button', { name: 'Konto verbinden' }));
+    expect(mockPush).toHaveBeenCalledWith('/connect-account');
+    await rendered.unmount();
+  });
+
+  it('keeps local and cloud account choices voluntary behind the connection screen', async () => {
+    const rendered = await render(<ConnectAccountScreen />);
+
+    expect(rendered.getByText('Deine Daten bleiben erhalten')).toBeTruthy();
+    expect(rendered.getByText('Mit Cloud-Konto anmelden')).toBeTruthy();
+    expect(rendered.getByText('Cloud-Konto erstellen')).toBeTruthy();
+    expect(rendered.getByText('Lokales Profil erstellen')).toBeTruthy();
+
+    await fireEvent.press(rendered.getByText('Mit Cloud-Konto anmelden'));
     expect(mockPush).toHaveBeenCalledWith('/login');
     await rendered.unmount();
   });

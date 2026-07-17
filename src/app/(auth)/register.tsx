@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import {
-  AuthDivider,
   AuthField,
   AuthNotice,
   AuthScaffold,
@@ -65,8 +64,8 @@ export default function RegisterScreen() {
 
   return (
     <AuthScaffold
-      subtitle="Erstelle dein privates Lernkonto. Deine Freigaben bestimmst du später selbst."
-      title="Konto erstellen">
+      subtitle="Deine lokalen Lerndaten bleiben bestehen und werden nach erfolgreicher Anmeldung in den Konto-Bereich übernommen."
+      title="Cloud-Konto erstellen">
       <View style={styles.form}>
         {!configuration.isConfigured ? (
           <AuthNotice title="Registrierung nicht verfügbar">
@@ -142,13 +141,7 @@ export default function RegisterScreen() {
       <View style={styles.secondaryActions}>
         <AuthTextLink label="Ohne Anmeldung zurück zur App" onPress={() => router.replace('/')} />
         <AuthTextLink label="Schon registriert? Anmelden" onPress={() => router.replace('./login')} />
-        <AuthDivider />
-        <AppButton
-          fullWidth
-          label="Stattdessen lokal beginnen"
-          onPress={() => router.push('./local-profile')}
-          variant="outline"
-        />
+        <AuthTextLink label="Zur Kontoauswahl" onPress={() => router.replace('./connect-account')} />
       </View>
     </AuthScaffold>
   );

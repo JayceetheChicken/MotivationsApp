@@ -14,7 +14,7 @@ Lernzeit ist eine responsive Expo-/Android-App für persönliche Lernziele, zuve
 - freiwilliger privater Freundesvergleich und vorbereitete Challenges ohne öffentliche Rangliste
 - zentrale Datenschutzfreigaben pro Kennzahl
 - Smartphone-/Tablet-Layouts im durchgängig hellen Retro-Design (kein Dark Mode)
-- kontogetrennte lokale Persistenz
+- lokaler Gaststart ohne Anmeldung sowie kontogetrennte Persistenz bei freiwilliger Kontoverbindung
 
 ## Starten
 
@@ -25,10 +25,12 @@ npm start
 
 Die App lässt sich danach mit Expo Go auf Android oder im Browser mit `npm run web` öffnen.
 
-Beim ersten Start stehen zwei Wege zur Verfügung:
-
-1. **Lokales Profil:** funktioniert sofort und speichert Profil und Lernfortschritt nur auf diesem Gerät.
-2. **Supabase-Konto:** aktiviert echte Anmeldung, Registrierung, Passwort-Reset und Session-Wiederherstellung.
+Beim ersten Start öffnet sich Lernzeit sofort als vollständig nutzbare Gast-App. Fächer,
+Lernzeiten, Noten, Ziele und Einstellungen werden ohne Konto lokal auf dem Gerät
+gespeichert. Über **Konto & Einstellungen → Konto verbinden** kann später freiwillig
+ein lokales Profil erstellt oder ein Supabase-Konto verbunden werden. Vorhandene
+lokale Lerninhalte werden dabei nicht gelöscht, sondern einmalig und ohne Duplikate
+in den kontogetrennten Gerätespeicher übernommen.
 
 ## Supabase konfigurieren
 
@@ -39,7 +41,9 @@ EXPO_PUBLIC_SUPABASE_URL=https://dein-projekt.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=dein-oeffentlicher-anon-key
 ```
 
-Anschließend Expo neu starten. Ohne beide Werte bleiben Online-Kontoaktionen deaktiviert; die App meldet das klar und simuliert keine Anmeldung. Ein Service-Role-Key gehört niemals in die App.
+Anschließend Expo neu starten. Ohne beide Werte bleiben nur die freiwilligen
+Cloud-Kontoaktionen deaktiviert; der Gastmodus und lokale Profile funktionieren
+vollständig weiter. Ein Service-Role-Key gehört niemals in die App.
 
 Die Oberfläche für eine Kontolöschung ist vorbereitet, bleibt aber deaktiviert, bis eine geschützte serverseitige Löschfunktion eingerichtet wurde.
 

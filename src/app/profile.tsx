@@ -127,20 +127,14 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <SectionHeader
             description={isGuest
-              ? 'Die App bleibt ohne Anmeldung vollständig für deine persönlichen Lernzeiten nutzbar.'
-              : 'Dein lokales Profil bleibt auf diesem Gerät. Ein Online-Konto ist weiterhin freiwillig.'}
+              ? 'Die App bleibt ohne Anmeldung vollständig nutzbar. Ein Konto kannst du jederzeit freiwillig ergänzen.'
+              : 'Dein lokales Profil und deine Lerndaten bleiben erhalten, wenn du später ein Konto verbindest.'}
             eyebrow="Optional"
-            title="Konto & Profil"
+            title="Konto verbinden"
           />
           <AppCard style={styles.accountActions} variant="subtle">
-            <AppButton fullWidth label="Anmelden" onPress={() => router.push('/login')} />
-            <AppButton fullWidth label="Online-Konto erstellen" onPress={() => router.push('/register')} variant="outline" />
-            <AppButton
-              fullWidth
-              label={isGuest ? 'Lokales Profil einrichten' : 'Lokales Profil bearbeiten'}
-              onPress={() => router.push('/local-profile')}
-              variant="ghost"
-            />
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Wähle anschließend zwischen lokalem Profil, Cloud-Anmeldung oder neuem Cloud-Konto.</Text>
+            <AppButton fullWidth label="Konto verbinden" onPress={() => router.push('/connect-account')} />
           </AppCard>
         </View>
       ) : null}

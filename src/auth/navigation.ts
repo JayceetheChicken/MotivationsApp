@@ -9,6 +9,28 @@ export function getStudyStorageScope(
     : 'local';
 }
 
+export interface StudyStorageConfiguration {
+  storageScope: string;
+  importStorageScope?: string;
+  accountUserId?: string;
+}
+
+export function getStudyStorageConfiguration(
+  activeMode: AuthMode,
+  accountUserId?: string,
+): StudyStorageConfiguration {
+  const cleanAccountUserId = accountUserId?.trim();
+  if (activeMode !== 'supabase' || !cleanAccountUserId) {
+    return { storageScope: 'local' };
+  }
+
+  return {
+    storageScope: getStudyStorageScope(activeMode, cleanAccountUserId),
+    importStorageScope: 'local',
+    accountUserId: cleanAccountUserId,
+  };
+}
+
 export function getRequiredAuthRoute({
   onPasswordUpdateRoute,
   passwordRecoveryPending,

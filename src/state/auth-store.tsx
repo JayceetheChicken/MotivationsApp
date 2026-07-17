@@ -73,7 +73,6 @@ interface AuthStoreValue {
   localProfile: LocalProfile | null;
   passwordRecoveryPending: boolean;
   activeMode: ActiveAuthMode;
-  hasAccess: boolean;
   error: string | null;
   notice: string | null;
   configuration: SupabaseConfiguration;
@@ -468,7 +467,6 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       localProfile,
       passwordRecoveryPending,
       activeMode,
-      hasAccess: activeMode !== 'none',
       error,
       notice,
       configuration: supabaseConfiguration,

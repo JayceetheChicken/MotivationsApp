@@ -6,7 +6,10 @@ import { type PropsWithChildren, useEffect } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import 'react-native-reanimated';
 
-import { getRequiredAuthRoute, getStudyStorageScope } from '@/auth/navigation';
+import {
+  getRequiredAuthRoute,
+  getStudyStorageConfiguration,
+} from '@/auth/navigation';
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 import { StudyStoreProvider, useStudyStore } from '@/state/study-store';
 import { appTheme, type AppTheme } from '@/theme';
@@ -70,7 +73,12 @@ function AccountStudyBridge() {
     ) {
       return;
     }
-    updateLocalProfile({ displayName, username, avatarUrl });
+    updateLocalProfile({
+      userId: activeMode === 'supabase' ? user?.id : undefined,
+      displayName,
+      username,
+      avatarUrl,
+    });
   }, [activeMode, data.currentUser, hydrated, localProfile, updateLocalProfile, user]);
 
   return null;
@@ -78,10 +86,14 @@ function AccountStudyBridge() {
 
 function ScopedStudyStore({ children }: PropsWithChildren) {
   const { activeMode, user } = useAuthStore();
-  const storageScope = getStudyStorageScope(activeMode, user?.id);
+  const storage = getStudyStorageConfiguration(activeMode, user?.id);
 
   return (
-    <StudyStoreProvider key={storageScope} storageScope={storageScope}>
+    <StudyStoreProvider
+      accountUserId={storage.accountUserId}
+      importStorageScope={storage.importStorageScope}
+      key={storage.storageScope}
+      storageScope={storage.storageScope}>
       {children}
     </StudyStoreProvider>
   );

@@ -13,6 +13,10 @@ import '@/lib/local-storage';
 import { isValidGradeDate } from '@/lib/grades';
 import { getGoalSubjectId, getGoalTitle } from '@/lib/goals';
 import {
+  assignStudyStateToAccount,
+  mergeLocalStudyStateIntoAccount,
+} from '@/lib/study-state-transfer';
+import {
   buildTimerSession,
   getTimerFinishDecision,
   pauseActiveTimer,
@@ -41,6 +45,7 @@ import type {
 
 const LEGACY_STORAGE_KEY = 'lernzeit.study-state.v1';
 const STORAGE_KEY_PREFIX = 'lernzeit.study-state.v2';
+const IMPORT_MARKER_KEY_PREFIX = 'lernzeit.study-import.v1';
 const CURRENT_SCHEMA_VERSION = 3;
 const LOCAL_USER_ID = 'local-user';
 
@@ -137,6 +142,7 @@ export interface GoalUpdate {
 }
 
 export interface LocalProfileUpdate {
+  userId?: string;
   displayName?: string;
   username?: string;
   avatarUrl?: string | null;
@@ -1079,6 +1085,10 @@ const StudyStoreContext = createContext<StudyStoreValue | null>(null);
 interface StudyStoreProviderProps extends PropsWithChildren {
   /** Keeps local caches isolated between authenticated users and local mode. */
   storageScope?: string;
+  /** Optional device workspace copied once when an account is connected. */
+  importStorageScope?: string;
+  /** Authenticated owner used to rebind imported device records. */
+  accountUserId?: string;
 }
 
 function scopedStorageKey(storageScope: string): string {
@@ -1086,26 +1096,78 @@ function scopedStorageKey(storageScope: string): string {
   return `${STORAGE_KEY_PREFIX}.${safeScope}`;
 }
 
-export function StudyStoreProvider({ children, storageScope = 'local' }: StudyStoreProviderProps) {
+function importMarkerKey(storageScope: string, importStorageScope: string): string {
+  const target = storageScope.trim().replace(/[^a-zA-Z0-9._-]/g, '_') || 'account';
+  const source = importStorageScope.trim().replace(/[^a-zA-Z0-9._-]/g, '_') || 'local';
+  return `${IMPORT_MARKER_KEY_PREFIX}.${source}-to-${target}`;
+}
+
+function readStoredState(storageScope: string): {
+  raw: string | null;
+  state: StudyState | null;
+} {
+  const raw = localStorage.getItem(scopedStorageKey(storageScope))
+    ?? (storageScope === 'local' ? localStorage.getItem(LEGACY_STORAGE_KEY) : null);
+  if (!raw) return { raw: null, state: null };
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return { raw, state: migratePersistedStudyState(parsed) };
+  } catch {
+    return { raw, state: null };
+  }
+}
+
+export function StudyStoreProvider({
+  accountUserId,
+  children,
+  importStorageScope,
+  storageScope = 'local',
+}: StudyStoreProviderProps) {
   const [state, dispatch] = useReducer(reducer, undefined, createInitialStudyState);
   const [hydrated, setHydrated] = useState(false);
   const storageKey = scopedStorageKey(storageScope);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(storageKey)
-        ?? (storageScope === 'local' ? localStorage.getItem(LEGACY_STORAGE_KEY) : null);
-      if (raw) {
-        const parsed: unknown = JSON.parse(raw);
-        const migrated = migratePersistedStudyState(parsed);
-        if (migrated) dispatch({ type: 'hydrate', payload: migrated });
+      const accountStorage = readStoredState(storageScope);
+      let nextState = accountStorage.state;
+
+      if (
+        accountUserId &&
+        importStorageScope &&
+        importStorageScope !== storageScope
+      ) {
+        const markerKey = importMarkerKey(storageScope, importStorageScope);
+        const importCompleted = localStorage.getItem(markerKey) === 'complete';
+        const localStorageState = readStoredState(importStorageScope);
+
+        if (!importCompleted && localStorageState.state) {
+          nextState = mergeLocalStudyStateIntoAccount(
+            nextState,
+            localStorageState.state,
+            accountUserId,
+          );
+          const payload: PersistedStudyState = {
+            schemaVersion: CURRENT_SCHEMA_VERSION,
+            ...nextState,
+          };
+          localStorage.setItem(storageKey, JSON.stringify(payload));
+          localStorage.setItem(markerKey, 'complete');
+        } else if (nextState) {
+          nextState = assignStudyStateToAccount(nextState, accountUserId);
+        }
+      }
+
+      if (nextState) {
+        dispatch({ type: 'hydrate', payload: nextState });
       }
     } catch {
       // Corrupt or unavailable storage must never prevent an empty app start.
     } finally {
       setHydrated(true);
     }
-  }, [storageKey, storageScope]);
+  }, [accountUserId, importStorageScope, storageKey, storageScope]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1122,6 +1184,8 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
   }, [hydrated, state, storageKey, storageScope]);
 
   const value = useMemo<StudyStoreValue>(() => {
+    const currentActorId = accountUserId?.trim() || actorId(state.data);
+
     const addSubject = (name: string): Subject => {
       const cleanName = name.trim() || 'Allgemein';
       const existing = state.data.subjects.find(
@@ -1146,7 +1210,7 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
         : normalizeUsername(profile.username);
       if (!displayName || !username) return null;
       const user: StudyUser = {
-        id: previous?.id ?? LOCAL_USER_ID,
+        id: profile.userId?.trim() || previous?.id || currentActorId,
         displayName,
         username,
         avatarUrl: profile.avatarUrl === null
@@ -1184,7 +1248,7 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       const timer: ActiveTimer = {
         schemaVersion: 1,
         id: makeId('timer'),
-        userId: actorId(state.data),
+        userId: currentActorId,
         goalId: binding.goalId,
         subjectId: binding.subjectId,
         goalTitleSnapshot: binding.goalTitleSnapshot,
@@ -1249,7 +1313,7 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       const now = new Date().toISOString();
       const session: ManualStudySession = {
         id: makeId('manual'),
-        userId: actorId(state.data),
+        userId: currentActorId,
         goalId: binding.goalId,
         subjectId: binding.subjectId,
         goalTitleSnapshot: binding.goalTitleSnapshot,
@@ -1273,7 +1337,7 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       );
       const title = cleanOptionalText(input.title);
       const assessmentDate = cleanOptionalText(input.assessmentDate);
-      const userId = actorId(state.data);
+      const userId = currentActorId;
       if (
         !subject ||
         (input.assessmentType !== 'exam' && input.assessmentType !== 'other') ||
@@ -1318,7 +1382,7 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
     };
 
     const createGoal = (input: NewGoal): StudyGoal => {
-      const goal = createStudyGoal(input, actorId(state.data), new Date());
+      const goal = createStudyGoal(input, currentActorId, new Date());
       dispatch({ type: 'add-goal', payload: goal });
       return goal;
     };
@@ -1370,13 +1434,13 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       addGrade,
       deleteGrade: (gradeId) => {
         const grade = state.data.grades.find((entry) => entry.id === gradeId);
-        if (!grade || grade.userId !== actorId(state.data)) return false;
+        if (!grade || grade.userId !== currentActorId) return false;
         dispatch({ type: 'delete-grade', payload: gradeId });
         return true;
       },
       deleteSession: (sessionId) => {
         const session = state.data.sessions.find((entry) => entry.id === sessionId);
-        if (!session || session.userId !== actorId(state.data)) return false;
+        if (!session || session.userId !== currentActorId) return false;
         dispatch({ type: 'delete-session', payload: sessionId });
         return true;
       },
@@ -1394,7 +1458,7 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
         dispatch({ type: 'set-privacy-preference', key, payload: enabled }),
       clearAllData,
     };
-  }, [hydrated, state, storageKey, storageScope]);
+  }, [accountUserId, hydrated, state, storageKey, storageScope]);
 
   return <StudyStoreContext value={value}>{children}</StudyStoreContext>;
 }

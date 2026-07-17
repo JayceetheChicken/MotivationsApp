@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import {
-  AuthDivider,
   AuthField,
   AuthNotice,
   AuthScaffold,
@@ -43,8 +42,8 @@ export default function LoginScreen() {
 
   return (
     <AuthScaffold
-      subtitle="Melde dich an, um deine Lernzeit geräteübergreifend vorzubereiten."
-      title="Willkommen zurück">
+      subtitle="Deine vorhandenen lokalen Lerndaten werden beim Verbinden automatisch in den Konto-Bereich übernommen."
+      title="Cloud-Konto verbinden">
       <View style={styles.form}>
         {!configuration.isConfigured ? (
           <AuthNotice title="Lokaler Entwicklungsmodus">
@@ -103,13 +102,7 @@ export default function LoginScreen() {
       <View style={styles.secondaryActions}>
         <AuthTextLink label="Ohne Anmeldung zurück zur App" onPress={() => router.replace('/')} />
         <AuthTextLink label="Noch kein Konto? Registrieren" onPress={() => router.push('./register')} />
-        <AuthDivider />
-        <AppButton
-          fullWidth
-          label="Lokales Profil anlegen"
-          onPress={() => router.push('./local-profile')}
-          variant="outline"
-        />
+        <AuthTextLink label="Zur Kontoauswahl" onPress={() => router.replace('./connect-account')} />
       </View>
     </AuthScaffold>
   );

@@ -854,3 +854,60 @@ describe('StudyStoreProvider data reset', () => {
     }
   });
 });
+
+describe('StudyStoreProvider account import', () => {
+  function accountWrapper({ children }: PropsWithChildren) {
+    return (
+      <StudyStoreProvider
+        accountUserId="user-123"
+        importStorageScope="local"
+        storageScope="account-user-123">
+        {children}
+      </StudyStoreProvider>
+    );
+  }
+
+  it('copies local learning data non-destructively and records the account import', async () => {
+    const localPayload = JSON.stringify({
+      schemaVersion: 3,
+      privacy: {
+        friendComparisonsEnabled: false,
+        shareAutomaticMinutes: false,
+        shareGoalProgress: false,
+        shareStreak: false,
+      },
+      data: {
+        currentUser: null,
+        subjects: [{ id: 'subject-local', name: 'Biologie', color: '#747644', icon: 'book' }],
+        sessions: [{
+          id: 'session-local',
+          userId: 'local-user',
+          goalId: null,
+          subjectId: 'subject-local',
+          source: 'manual',
+          status: 'completed',
+          startedAt: '2026-07-17T10:00:00.000Z',
+          endedAt: '2026-07-17T10:30:00.000Z',
+          enteredAt: '2026-07-17T10:30:00.000Z',
+          createdAt: '2026-07-17T10:30:00.000Z',
+          durationMinutes: 30,
+        }],
+        grades: [],
+        goals: [],
+        friends: [],
+        challenges: [],
+        activeTimer: null,
+      },
+    });
+    storedValues.set(STORAGE_KEY, localPayload);
+
+    const first = await renderHook(() => useStudyStore(), { wrapper: accountWrapper });
+    await waitFor(() => expect(first.result.current.hydrated).toBe(true));
+    expect(first.result.current.data.sessions).toEqual([
+      expect.objectContaining({ id: 'session-local', userId: 'user-123' }),
+    ]);
+    expect(storedValues.get(STORAGE_KEY)).toBe(localPayload);
+    expect(storedValues.get('lernzeit.study-state.v2.account-user-123')).toBeTruthy();
+    expect(storedValues.get('lernzeit.study-import.v1.local-to-account-user-123')).toBe('complete');
+  });
+});
