@@ -52,6 +52,25 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+describe('StudyStoreProvider subjects', () => {
+  it('accepts an arbitrary subject name and reuses an existing case-insensitive match', async () => {
+    const { result } = await renderHydratedStore();
+    let subjectId = '';
+
+    await act(() => {
+      subjectId = result.current.addSubject('Robotik-Werkstatt').id;
+    });
+    await waitFor(() => expect(result.current.data.subjects).toHaveLength(1));
+
+    await act(() => {
+      expect(result.current.addSubject('robotik-werkstatt').id).toBe(subjectId);
+    });
+    expect(result.current.data.subjects).toEqual([
+      expect.objectContaining({ id: subjectId, name: 'Robotik-Werkstatt' }),
+    ]);
+  });
+});
+
 describe('StudyStoreProvider goal lifecycle', () => {
   it('creates an untitled goal, pauses, resumes, archives and deletes it', async () => {
     const { result } = await renderHydratedStore();
@@ -406,6 +425,157 @@ describe('StudyStoreProvider goal lifecycle', () => {
   });
 });
 
+describe('StudyStoreProvider grades', () => {
+  it('stores a validated grade with unique linked sessions and removes deleted links', async () => {
+    const { result } = await renderHydratedStore();
+    let subjectId = '';
+    let sessionId = '';
+
+    await act(() => {
+      subjectId = result.current.addSubject('Mathematik').id;
+    });
+    await waitFor(() => expect(result.current.data.subjects).toHaveLength(1));
+
+    await act(() => {
+      sessionId = result.current.addManualEntry({
+        subjectId,
+        durationMinutes: 45,
+        studiedOn: '2026-07-10',
+      })?.id ?? '';
+    });
+    await waitFor(() => expect(result.current.data.sessions).toHaveLength(1));
+
+    await act(() => {
+      expect(result.current.addGrade({
+        subjectId,
+        assessmentType: 'exam',
+        title: '  Analysis-Klausur  ',
+        assessmentDate: '2026-07-16',
+        points: 15,
+        additionalStudyMinutes: 30,
+        sessionIds: [sessionId, sessionId],
+      })).toMatchObject({
+        userId: 'local-user',
+        subjectId,
+        subjectNameSnapshot: 'Mathematik',
+        title: 'Analysis-Klausur',
+        points: 15,
+        additionalStudyMinutes: 30,
+        sessionIds: [sessionId],
+      });
+    });
+    await waitFor(() => expect(result.current.data.grades).toHaveLength(1));
+
+    await act(() => {
+      expect(result.current.deleteSession(sessionId)).toBe(true);
+    });
+    await waitFor(() => expect(result.current.data.grades[0].sessionIds).toEqual([]));
+  });
+
+  it('rejects invalid points, dates, subjects and cross-subject sessions', async () => {
+    const { result } = await renderHydratedStore();
+    let mathId = '';
+    let germanId = '';
+    let germanSessionId = '';
+
+    await act(() => {
+      mathId = result.current.addSubject('Mathematik').id;
+      germanId = result.current.addSubject('Deutsch').id;
+    });
+    await waitFor(() => expect(result.current.data.subjects).toHaveLength(2));
+
+    await act(() => {
+      germanSessionId = result.current.addManualEntry({
+        subjectId: germanId,
+        durationMinutes: 20,
+        studiedOn: '2026-07-10',
+      })?.id ?? '';
+    });
+    await waitFor(() => expect(result.current.data.sessions).toHaveLength(1));
+
+    const validBase = {
+      subjectId: mathId,
+      assessmentType: 'other' as const,
+      title: 'Abfrage',
+      assessmentDate: '2026-07-16',
+      points: 9,
+      additionalStudyMinutes: 0,
+      sessionIds: [] as string[],
+    };
+
+    await act(() => {
+      expect(result.current.addGrade({ ...validBase, points: 16 })).toBeNull();
+      expect(result.current.addGrade({ ...validBase, assessmentDate: '2026-02-30' })).toBeNull();
+      expect(result.current.addGrade({ ...validBase, subjectId: 'missing' })).toBeNull();
+      expect(result.current.addGrade({ ...validBase, sessionIds: [germanSessionId] })).toBeNull();
+    });
+    expect(result.current.data.grades).toEqual([]);
+  });
+
+  it('creates a grade without a title or assessment date', async () => {
+    const { result } = await renderHydratedStore();
+    let subjectId = '';
+
+    await act(() => {
+      subjectId = result.current.addSubject('Biologie').id;
+    });
+    await waitFor(() => expect(result.current.data.subjects).toHaveLength(1));
+
+    await act(() => {
+      expect(result.current.addGrade({
+        subjectId,
+        assessmentType: 'other',
+        points: 12,
+        additionalStudyMinutes: 0,
+        sessionIds: [],
+      })).toMatchObject({
+        subjectId,
+        assessmentType: 'other',
+        points: 12,
+      });
+    });
+
+    await waitFor(() => expect(result.current.data.grades).toHaveLength(1));
+    expect(result.current.data.grades[0].title).toBeUndefined();
+    expect(result.current.data.grades[0].assessmentDate).toBeUndefined();
+  });
+
+  it('deletes only the selected grade and keeps its linked learning session', async () => {
+    const { result } = await renderHydratedStore();
+    let subjectId = '';
+    let sessionId = '';
+    let gradeId = '';
+
+    await act(() => {
+      subjectId = result.current.addSubject('Chemie').id;
+    });
+    await act(() => {
+      sessionId = result.current.addManualEntry({
+        subjectId,
+        durationMinutes: 35,
+        studiedOn: '2026-07-17',
+      })?.id ?? '';
+    });
+    await act(() => {
+      gradeId = result.current.addGrade({
+        subjectId,
+        assessmentType: 'exam',
+        points: 10,
+        additionalStudyMinutes: 0,
+        sessionIds: [sessionId],
+      })?.id ?? '';
+    });
+    await waitFor(() => expect(result.current.data.grades).toHaveLength(1));
+
+    await act(() => {
+      expect(result.current.deleteGrade(gradeId)).toBe(true);
+    });
+    await waitFor(() => expect(result.current.data.grades).toEqual([]));
+    expect(result.current.data.sessions.map((session) => session.id)).toEqual([sessionId]);
+    expect(result.current.deleteGrade(gradeId)).toBe(false);
+  });
+});
+
 describe('persisted goal-bound session migration', () => {
   const baseData = {
     currentUser: null,
@@ -462,9 +632,67 @@ describe('persisted goal-bound session migration', () => {
     });
 
     expect(migrated?.data.sessions).toHaveLength(1);
+    expect(migrated?.data.grades).toEqual([]);
     expect(migrated?.data.sessions[0].goalId).toBeUndefined();
     expect(migrated?.data.sessions[0].status).toBe('completed');
     expect(migrated?.data.activeTimer).toBeNull();
+  });
+
+  it('restores valid schema-3 grades and discards invalid individual records', () => {
+    const createdAt = '2026-07-16T12:00:00.000Z';
+    const validGrade = {
+      id: 'grade-math',
+      userId: 'local-user',
+      subjectId: 'subject-deutsch',
+      subjectNameSnapshot: 'Deutsch',
+      assessmentType: 'other',
+      title: 'Referat',
+      assessmentDate: '2026-07-16',
+      points: 11,
+      additionalStudyMinutes: 25,
+      sessionIds: [],
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const migrated = migratePersistedStudyState({
+      schemaVersion: 3,
+      privacy: {},
+      data: {
+        ...baseData,
+        sessions: [],
+        grades: [validGrade, validGrade, { ...validGrade, id: 'invalid', points: 17 }],
+        activeTimer: null,
+      },
+    });
+
+    expect(migrated?.data.grades).toEqual([validGrade]);
+  });
+
+  it('restores schema-3 grades whose optional title and date are missing', () => {
+    const createdAt = '2026-07-16T12:00:00.000Z';
+    const gradeWithoutOptionalFields = {
+      id: 'grade-without-metadata',
+      userId: 'local-user',
+      subjectId: 'subject-deutsch',
+      assessmentType: 'exam',
+      points: 7,
+      additionalStudyMinutes: 0,
+      sessionIds: [],
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const migrated = migratePersistedStudyState({
+      schemaVersion: 3,
+      privacy: {},
+      data: {
+        ...baseData,
+        sessions: [],
+        grades: [gradeWithoutOptionalFields],
+        activeTimer: null,
+      },
+    });
+
+    expect(migrated?.data.grades).toEqual([gradeWithoutOptionalFields]);
   });
 
   it('restores an unfinished timer with its exact goal binding', () => {
@@ -562,6 +790,19 @@ describe('StudyStoreProvider data reset', () => {
       });
     });
     await waitFor(() => expect(result.current.data.sessions).toHaveLength(1));
+
+    await act(() => {
+      result.current.addGrade({
+        subjectId,
+        assessmentType: 'exam',
+        title: 'Klausur',
+        assessmentDate: '2026-07-11',
+        points: 10,
+        additionalStudyMinutes: 0,
+        sessionIds: [],
+      });
+    });
+    await waitFor(() => expect(result.current.data.grades).toHaveLength(1));
 
     await act(() => {
       result.current.createGoal({

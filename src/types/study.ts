@@ -134,6 +134,29 @@ export interface SessionsGoal extends StudyGoalBase {
 
 export type StudyGoal = DurationGoal | SessionsGoal;
 
+export type GradeAssessmentType = 'exam' | 'other';
+
+export interface StudyGrade {
+  id: string;
+  userId: string;
+  subjectId: string;
+  /** Keeps the row understandable if a subject is renamed or archived later. */
+  subjectNameSnapshot?: string;
+  assessmentType: GradeAssessmentType;
+  /** Optional custom label; the assessment type is used as a display fallback. */
+  title?: string;
+  /** Optional local calendar date in YYYY-MM-DD form. */
+  assessmentDate?: string;
+  /** Whole-number points used in the Bavarian upper-school 0–15 system. */
+  points: number;
+  /** Learning time that was not captured by one of the linked sessions. */
+  additionalStudyMinutes: number;
+  /** Explicit links; only sessions of the same user and subject may be stored. */
+  sessionIds: readonly string[];
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
 export interface FriendStudySnapshot {
   weekMinutes: number;
   automaticMinutes: number;
@@ -193,6 +216,7 @@ export interface StudyData {
   currentUser: StudyUser | null;
   subjects: readonly Subject[];
   sessions: readonly StudySession[];
+  grades: readonly StudyGrade[];
   goals: readonly StudyGoal[];
   friends: readonly Friend[];
   challenges: readonly StudyChallenge[];

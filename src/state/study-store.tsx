@@ -10,6 +10,7 @@ import {
 
 import { createInitialData, subjectColorPalette } from '@/data/initial-data';
 import '@/lib/local-storage';
+import { isValidGradeDate } from '@/lib/grades';
 import { getGoalSubjectId, getGoalTitle } from '@/lib/goals';
 import {
   buildTimerSession,
@@ -23,12 +24,14 @@ import type {
   ChallengeParticipant,
   Friend,
   FriendStudySnapshot,
+  GradeAssessmentType,
   GoalPeriod,
   GoalSourcePolicy,
   GoalStatus,
   ManualStudySession,
   StudyChallenge,
   StudyData,
+  StudyGrade,
   StudyGoal,
   StudySession,
   StudyUser,
@@ -38,7 +41,7 @@ import type {
 
 const LEGACY_STORAGE_KEY = 'lernzeit.study-state.v1';
 const STORAGE_KEY_PREFIX = 'lernzeit.study-state.v2';
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 const LOCAL_USER_ID = 'local-user';
 
 const LEGACY_SEEDED_SESSION_IDS = new Set([
@@ -83,6 +86,16 @@ export interface NewManualEntry {
   durationMinutes: number;
   studiedOn: string;
   note?: string;
+}
+
+export interface NewGrade {
+  subjectId: string;
+  assessmentType: GradeAssessmentType;
+  title?: string;
+  assessmentDate?: string;
+  points: number;
+  additionalStudyMinutes: number;
+  sessionIds: readonly string[];
 }
 
 export interface StartTimerOptions {
@@ -147,6 +160,8 @@ export interface StudyStoreValue extends StudyState {
   discardTimer: () => void;
   addManualEntry: (entry: NewManualEntry) => ManualStudySession | null;
   deleteSession: (sessionId: string) => boolean;
+  addGrade: (grade: NewGrade) => StudyGrade | null;
+  deleteGrade: (gradeId: string) => boolean;
   createGoal: (goal: NewGoal) => StudyGoal;
   /** Backwards-compatible alias for createGoal. */
   addGoal: (goal: NewGoal) => StudyGoal;
@@ -172,6 +187,8 @@ type Action =
   | { type: 'finish-timer'; payload: TimerStudySession }
   | { type: 'add-manual-entry'; payload: ManualStudySession }
   | { type: 'delete-session'; payload: string }
+  | { type: 'add-grade'; payload: StudyGrade }
+  | { type: 'delete-grade'; payload: string }
   | { type: 'add-goal'; payload: StudyGoal }
   | { type: 'replace-goal'; payload: StudyGoal }
   | { type: 'delete-goal'; payload: string }
@@ -241,6 +258,23 @@ function reducer(state: StudyState, action: Action): StudyState {
         data: {
           ...state.data,
           sessions: state.data.sessions.filter((session) => session.id !== action.payload),
+          grades: state.data.grades.map((grade) => ({
+            ...grade,
+            sessionIds: grade.sessionIds.filter((sessionId) => sessionId !== action.payload),
+          })),
+        },
+      };
+    case 'add-grade':
+      return {
+        ...state,
+        data: { ...state.data, grades: [action.payload, ...state.data.grades] },
+      };
+    case 'delete-grade':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          grades: state.data.grades.filter((grade) => grade.id !== action.payload),
         },
       };
     case 'add-goal':
@@ -623,6 +657,53 @@ function parseSession(value: unknown): StudySession | null {
   return { ...base, source: 'timer', segments };
 }
 
+function parseGrade(value: unknown): StudyGrade | null {
+  if (!isRecord(value)) return null;
+  const title = optionalString(value.title);
+  const assessmentDate = optionalString(value.assessmentDate);
+  if (
+    !isString(value.id) ||
+    !isString(value.userId) ||
+    !isString(value.subjectId) ||
+    (value.assessmentType !== 'exam' && value.assessmentType !== 'other') ||
+    (assessmentDate !== undefined && !isValidGradeDate(assessmentDate)) ||
+    !isFiniteNumber(value.points) ||
+    !Number.isInteger(value.points) ||
+    value.points < 0 ||
+    value.points > 15 ||
+    !isFiniteNumber(value.additionalStudyMinutes) ||
+    !Number.isInteger(value.additionalStudyMinutes) ||
+    value.additionalStudyMinutes < 0 ||
+    !Array.isArray(value.sessionIds) ||
+    !isIsoDate(value.createdAt) ||
+    !isIsoDate(value.updatedAt)
+  ) {
+    return null;
+  }
+
+  const sessionIds = [...new Set(
+    value.sessionIds
+      .filter(isString)
+      .map((sessionId) => sessionId.trim())
+      .filter(Boolean),
+  )];
+
+  return {
+    id: value.id,
+    userId: value.userId,
+    subjectId: value.subjectId,
+    subjectNameSnapshot: optionalString(value.subjectNameSnapshot),
+    assessmentType: value.assessmentType,
+    ...(title ? { title } : {}),
+    ...(assessmentDate ? { assessmentDate } : {}),
+    points: value.points,
+    additionalStudyMinutes: value.additionalStudyMinutes,
+    sessionIds,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  };
+}
+
 function parseActiveTimer(value: unknown): ActiveTimer | null {
   if (!isRecord(value) || !Array.isArray(value.segments)) return null;
   if (
@@ -909,6 +990,22 @@ function parseData(value: unknown): StudyData | null {
     seenSessionIds.add(session.id);
     return true;
   });
+  const parsedGrades = Array.isArray(value.grades)
+    ? value.grades.map(parseGrade).filter((entry): entry is StudyGrade => entry !== null)
+    : [];
+  const seenGradeIds = new Set<string>();
+  const sessionById = new Map(sessions.map((session) => [session.id, session]));
+  const grades = parsedGrades.flatMap((grade) => {
+    if (seenGradeIds.has(grade.id)) return [];
+    seenGradeIds.add(grade.id);
+    return [{
+      ...grade,
+      sessionIds: grade.sessionIds.filter((sessionId) => {
+        const session = sessionById.get(sessionId);
+        return session?.userId === grade.userId && session.subjectId === grade.subjectId;
+      }),
+    }];
+  });
   const goals = Array.isArray(value.goals)
     ? value.goals.map(parseGoal).filter((entry): entry is StudyGoal => entry !== null)
     : [];
@@ -933,6 +1030,7 @@ function parseData(value: unknown): StudyData | null {
     currentUser: value.currentUser === null ? null : parseUser(value.currentUser),
     subjects,
     sessions,
+    grades,
     goals,
     friends,
     challenges,
@@ -950,6 +1048,7 @@ function removeLegacyDemoContent(data: StudyData): StudyData {
     currentUser: data.currentUser?.id === 'user-lea' ? null : data.currentUser,
     subjects,
     sessions,
+    grades: data.grades,
     goals,
     friends: data.friends.filter((friend) => !LEGACY_SEEDED_FRIEND_IDS.has(friend.id)),
     challenges: data.challenges.filter(
@@ -961,7 +1060,10 @@ function removeLegacyDemoContent(data: StudyData): StudyData {
 
 /** Parses current data and safely upgrades the former demo-backed v1 payload. */
 export function migratePersistedStudyState(value: unknown): StudyState | null {
-  if (!isRecord(value) || (value.schemaVersion !== 1 && value.schemaVersion !== 2)) {
+  if (
+    !isRecord(value) ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3)
+  ) {
     return null;
   }
   const data = parseData(value.data);
@@ -1165,6 +1267,56 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       return session;
     };
 
+    const addGrade = (input: NewGrade): StudyGrade | null => {
+      const subject = state.data.subjects.find(
+        (entry) => entry.id === input.subjectId && !entry.archived,
+      );
+      const title = cleanOptionalText(input.title);
+      const assessmentDate = cleanOptionalText(input.assessmentDate);
+      const userId = actorId(state.data);
+      if (
+        !subject ||
+        (input.assessmentType !== 'exam' && input.assessmentType !== 'other') ||
+        (assessmentDate !== undefined && !isValidGradeDate(assessmentDate)) ||
+        !Number.isInteger(input.points) ||
+        input.points < 0 ||
+        input.points > 15 ||
+        !Number.isInteger(input.additionalStudyMinutes) ||
+        input.additionalStudyMinutes < 0
+      ) {
+        return null;
+      }
+
+      const sessionIds = [...new Set(
+        input.sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean),
+      )];
+      const sessionsAreValid = sessionIds.every((sessionId) => {
+        const session = state.data.sessions.find((entry) => entry.id === sessionId);
+        return session?.userId === userId &&
+          session.subjectId === subject.id &&
+          (!session.status || session.status === 'completed');
+      });
+      if (!sessionsAreValid) return null;
+
+      const now = new Date().toISOString();
+      const grade: StudyGrade = {
+        id: makeId('grade'),
+        userId,
+        subjectId: subject.id,
+        subjectNameSnapshot: subject.name,
+        assessmentType: input.assessmentType,
+        ...(title ? { title } : {}),
+        ...(assessmentDate ? { assessmentDate } : {}),
+        points: input.points,
+        additionalStudyMinutes: input.additionalStudyMinutes,
+        sessionIds,
+        createdAt: now,
+        updatedAt: now,
+      };
+      dispatch({ type: 'add-grade', payload: grade });
+      return grade;
+    };
+
     const createGoal = (input: NewGoal): StudyGoal => {
       const goal = createStudyGoal(input, actorId(state.data), new Date());
       dispatch({ type: 'add-goal', payload: goal });
@@ -1215,6 +1367,13 @@ export function StudyStoreProvider({ children, storageScope = 'local' }: StudySt
       finishTimer,
       discardTimer: () => dispatch({ type: 'set-active-timer', payload: null }),
       addManualEntry,
+      addGrade,
+      deleteGrade: (gradeId) => {
+        const grade = state.data.grades.find((entry) => entry.id === gradeId);
+        if (!grade || grade.userId !== actorId(state.data)) return false;
+        dispatch({ type: 'delete-grade', payload: gradeId });
+        return true;
+      },
       deleteSession: (sessionId) => {
         const session = state.data.sessions.find((entry) => entry.id === sessionId);
         if (!session || session.userId !== actorId(state.data)) return false;

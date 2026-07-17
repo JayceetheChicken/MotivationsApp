@@ -6,6 +6,7 @@ describe('initial study data', () => {
       currentUser: null,
       subjects: [],
       sessions: [],
+      grades: [],
       goals: [],
       friends: [],
       challenges: [],
@@ -23,6 +24,7 @@ describe('initial study data', () => {
     expect(first).not.toBe(second);
     expect(first.subjects).not.toBe(second.subjects);
     expect(first.sessions).not.toBe(second.sessions);
+    expect(first.grades).not.toBe(second.grades);
     expect(first.goals).not.toBe(second.goals);
     expect(first.friends).not.toBe(second.friends);
     expect(first.challenges).not.toBe(second.challenges);

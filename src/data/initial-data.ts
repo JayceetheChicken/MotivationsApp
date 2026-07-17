@@ -17,6 +17,7 @@ export function createInitialData(): StudyData {
     currentUser: null,
     subjects: [],
     sessions: [],
+    grades: [],
     goals: [],
     friends: [],
     challenges: [],

@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { SubjectChip } from '@/components/subject-chip';
+import { SubjectSelector } from '@/components/subject-selector';
 import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
@@ -26,7 +26,6 @@ export default function ManualEntryScreen() {
   const { data, addManualEntry, addSubject } = useStudyStore();
   const [subjectId, setSubjectId] = useState(() => data.subjects[0]?.id ?? '');
   const [goalId, setGoalId] = useState<string | null>(null);
-  const [newSubjectName, setNewSubjectName] = useState('');
   const [duration, setDuration] = useState('30');
   const [studiedOn, setStudiedOn] = useState(() => toLocalDateInput(new Date()));
   const [note, setNote] = useState('');
@@ -56,14 +55,6 @@ export default function ManualEntryScreen() {
       && availableSubjects.some((subject) => subject.id === goalSubjectId);
   });
   const selectedGoal = assignableGoals.find((goal) => goal.id === goalId);
-
-  const createSubject = () => {
-    if (!newSubjectName.trim()) return;
-    const subject = addSubject(newSubjectName);
-    setSubjectId(subject.id);
-    setGoalId(null);
-    setNewSubjectName('');
-  };
 
   const selectGoal = (nextGoalId: string | null) => {
     setGoalId(nextGoalId);
@@ -177,77 +168,13 @@ export default function ManualEntryScreen() {
               {availableSubjects.find((subject) => subject.id === subjectId)?.name ?? 'Fach nicht verfügbar'}
             </Text>
           </AppCard>
-        ) : availableSubjects.length === 0 ? (
-          <AppCard style={styles.subjectSetup} variant="subtle">
-            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Lege zuerst ein Fach an</Text>
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>So bleibt die nachgetragene Zeit in deiner Statistik eindeutig zugeordnet.</Text>
-            <TextInput
-              accessibilityLabel="Name des ersten Fachs"
-              onChangeText={setNewSubjectName}
-              onSubmitEditing={createSubject}
-              placeholder="z. B. Mathematik"
-              placeholderTextColor={theme.colors.textSubtle}
-              returnKeyType="done"
-              style={[
-                theme.typography.body,
-                styles.subjectNameInput,
-                {
-                  color: theme.colors.text,
-                  backgroundColor: theme.colors.surfaceMuted,
-                  borderColor: theme.colors.accentBrownMuted,
-                  borderRadius: theme.radii.lg,
-                },
-              ]}
-              value={newSubjectName}
-            />
-            <AppButton
-              disabled={!newSubjectName.trim()}
-              label="Fach hinzufügen"
-              onPress={createSubject}
-              variant="outline"
-            />
-          </AppCard>
         ) : (
-          <View style={styles.subjectSelection}>
-            <View accessibilityRole="radiogroup" style={styles.wrapRow}>
-              {availableSubjects.map((subject) => (
-                <SubjectChip
-                  key={subject.id}
-                  onPress={() => setSubjectId(subject.id)}
-                  selected={subjectId === subject.id}
-                  subject={subject}
-                />
-              ))}
-            </View>
-            <View style={styles.addSubjectRow}>
-              <TextInput
-                accessibilityLabel="Weiteres Fach hinzufügen"
-                onChangeText={setNewSubjectName}
-                onSubmitEditing={createSubject}
-                placeholder="Weiteres Fach"
-                placeholderTextColor={theme.colors.textSubtle}
-                returnKeyType="done"
-                style={[
-                  theme.typography.body,
-                  styles.subjectNameInput,
-                  styles.additionalSubjectInput,
-                  {
-                    color: theme.colors.text,
-                    backgroundColor: theme.colors.surfaceMuted,
-                    borderColor: theme.colors.accentBrownMuted,
-                    borderRadius: theme.radii.lg,
-                  },
-                ]}
-                value={newSubjectName}
-              />
-              <AppButton
-                disabled={!newSubjectName.trim()}
-                label="Hinzufügen"
-                onPress={createSubject}
-                variant="outline"
-              />
-            </View>
-          </View>
+          <SubjectSelector
+            onCreateSubject={addSubject}
+            onSelectSubject={(subject) => { setSubjectId(subject.id); setGoalId(null); setError(null); }}
+            selectedSubjectId={subjectId}
+            subjects={data.subjects}
+          />
         )}
       </View>
 
@@ -429,29 +356,11 @@ const styles = StyleSheet.create({
   lockedSubject: {
     gap: 4,
   },
-  subjectSetup: {
-    gap: 12,
-  },
-  subjectSelection: {
-    gap: 14,
-  },
-  addSubjectRow: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
   subjectNameInput: {
     width: '100%',
     minHeight: 52,
     paddingHorizontal: 14,
     borderWidth: 1,
-  },
-  additionalSubjectInput: {
-    width: 'auto',
-    minWidth: 190,
-    flex: 1,
   },
   labelRow: {
     flexDirection: 'row',

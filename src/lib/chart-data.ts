@@ -9,6 +9,11 @@ export interface ChartPoint {
   valueMinutes: number | null;
 }
 
+export interface ChartPeriodRange {
+  start: Date;
+  endExclusive: Date;
+}
+
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -23,6 +28,26 @@ function mondayOf(date: Date): Date {
   const result = startOfDay(date);
   result.setDate(result.getDate() - ((result.getDay() + 6) % 7));
   return result;
+}
+
+export function getChartPeriodRange(
+  period: ChartPeriod,
+  referenceDate: Date = new Date(),
+): ChartPeriodRange {
+  if (period === 'week') {
+    const start = mondayOf(referenceDate);
+    return { start, endExclusive: addDays(start, 7) };
+  }
+  if (period === 'month') {
+    return {
+      start: new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1),
+      endExclusive: new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1),
+    };
+  }
+  return {
+    start: new Date(referenceDate.getFullYear(), 0, 1),
+    endExclusive: new Date(referenceDate.getFullYear() + 1, 0, 1),
+  };
 }
 
 function minutesBetween(
@@ -124,4 +149,3 @@ export function buildChartSeries(
   if (period === 'year') return buildYearChart(sessions, referenceDate);
   return buildWeekChart(sessions, referenceDate);
 }
-

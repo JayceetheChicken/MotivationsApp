@@ -1,6 +1,8 @@
 import {
   ACTIVITY_LEVEL_THRESHOLDS,
   buildActivityHeatmap,
+  calculateActivityChange,
+  calculateActivityOverview,
   calculateActivitySummary,
   filterValidActivitySessions,
   findActivityDay,
@@ -226,6 +228,71 @@ describe('activity summary', () => {
       todayMinutes: 30,
       lastSevenDaysMinutes: 60,
       currentMonthMinutes: 30,
+    });
+  });
+
+  it('compares local calendar periods with yesterday, the preceding seven days and last month', () => {
+    const overview = calculateActivityOverview([
+      makeSession({ id: 'comparison-today', durationMinutes: 60 }),
+      makeSession({
+        id: 'comparison-yesterday',
+        startedAt: localIso(2026, 7, 13, 10),
+        endedAt: localIso(2026, 7, 13, 10, 30),
+        durationMinutes: 50,
+      }),
+      makeSession({
+        id: 'comparison-previous-seven',
+        startedAt: localIso(2026, 7, 7, 10),
+        endedAt: localIso(2026, 7, 7, 10, 30),
+        durationMinutes: 100,
+      }),
+      makeSession({
+        id: 'comparison-last-month',
+        startedAt: localIso(2026, 6, 15, 10),
+        endedAt: localIso(2026, 6, 15, 10, 30),
+        durationMinutes: 300,
+      }),
+    ], { userId: 'user-current', referenceDate });
+
+    expect(overview.summary).toEqual({
+      todayMinutes: 60,
+      lastSevenDaysMinutes: 110,
+      currentMonthMinutes: 210,
+    });
+    expect(overview.comparisons).toEqual({
+      today: {
+        currentMinutes: 60,
+        previousMinutes: 50,
+        percentChange: 20,
+        trend: 'positive',
+      },
+      lastSevenDays: {
+        currentMinutes: 110,
+        previousMinutes: 100,
+        percentChange: 10,
+        trend: 'positive',
+      },
+      currentMonth: {
+        currentMinutes: 210,
+        previousMinutes: 300,
+        percentChange: -30,
+        trend: 'negative',
+      },
+    });
+  });
+
+  it('uses New for activity after zero and keeps unchanged zero neutral', () => {
+    expect(calculateActivityChange(45, 0)).toEqual({
+      currentMinutes: 45,
+      previousMinutes: 0,
+      percentChange: null,
+      trend: 'new',
+    });
+    expect(calculateActivityChange(0, 0)).toEqual({
+      currentMinutes: 0,
+      previousMinutes: 0,
+      percentChange: 0,
+      trend: 'neutral',
     });
   });
 });

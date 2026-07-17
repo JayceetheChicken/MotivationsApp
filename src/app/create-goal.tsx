@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SegmentedControl } from '@/components/segmented-control';
+import { SubjectSelector } from '@/components/subject-selector';
 import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
@@ -92,7 +93,7 @@ function dateInputToIso(value: string, endOfDay = false): string | undefined {
 export default function CreateGoalScreen() {
   const theme = useAppTheme();
   const { goalId } = useLocalSearchParams<{ goalId?: string }>();
-  const { data, createGoal, updateGoal } = useStudyStore();
+  const { data, addSubject, createGoal, updateGoal } = useStudyStore();
   const existing = data.goals.find((goal) => goal.id === goalId);
   const existingDurationUsesHours = existing?.type === 'duration'
     && existing.targetMinutes >= 60
@@ -255,23 +256,12 @@ export default function CreateGoalScreen() {
 
         <View style={styles.field}>
           <Text style={[theme.typography.label, { color: theme.colors.text }]}>Fach</Text>
-          {data.subjects.some((subject) => !subject.archived) ? (
-            <View accessibilityRole="radiogroup" style={styles.subjectChoices}>
-              {data.subjects.filter((subject) => !subject.archived).map((subject) => (
-                <SubjectChoice
-                  color={subject.color}
-                  key={subject.id}
-                  label={subject.name}
-                  onPress={() => { setSubjectId(subject.id); clearError(); }}
-                  selected={subjectId === subject.id}
-                />
-              ))}
-            </View>
-          ) : (
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
-              Lege zuerst in einer Lern-Session ein Fach an.
-            </Text>
-          )}
+          <SubjectSelector
+            onCreateSubject={addSubject}
+            onSelectSubject={(subject) => { setSubjectId(subject.id); clearError(); }}
+            selectedSubjectId={subjectId}
+            subjects={data.subjects}
+          />
         </View>
 
         <View style={styles.field}>
@@ -376,7 +366,7 @@ export default function CreateGoalScreen() {
         <Text accessibilityRole="alert" style={[theme.typography.bodyMedium, { color: theme.colors.danger }]}>{error}</Text>
       ) : null}
       <AppButton
-        disabled={!data.subjects.some((subject) => !subject.archived)}
+        disabled={!subjectId}
         fullWidth
         label={existing ? 'Änderungen speichern' : 'Ziel erstellen'}
         loading={saving}
@@ -392,7 +382,6 @@ const styles = StyleSheet.create({
   section: { width: '100%', gap: 24 },
   field: { width: '100%', gap: 10 },
   input: { width: '100%', minHeight: 52, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12 },
-  subjectChoices: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   periodChoices: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   subjectChoice: { minHeight: 48, minWidth: 145, flexGrow: 1, flexBasis: '40%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, paddingHorizontal: 14 },
   subjectDot: { width: 10, height: 10, borderRadius: 5 },

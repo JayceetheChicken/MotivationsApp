@@ -52,14 +52,22 @@ export default function ProfileScreen() {
   } = useStudyStore();
   const [confirmation, setConfirmation] = useState<'data' | 'local-profile' | null>(null);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
-  const displayName = data.currentUser?.displayName
-    ?? auth.localProfile?.displayName
-    ?? (typeof auth.user?.user_metadata.display_name === 'string' ? auth.user.user_metadata.display_name : 'Lernprofil');
+  const isGuest = auth.activeMode === 'none';
+  const displayName = isGuest
+    ? 'Gast'
+    : data.currentUser?.displayName
+      ?? auth.localProfile?.displayName
+      ?? (typeof auth.user?.user_metadata.display_name === 'string' ? auth.user.user_metadata.display_name : 'Lernprofil');
   const username = data.currentUser?.username
     ?? auth.localProfile?.username
     ?? auth.user?.email?.split('@')[0]
     ?? 'profil';
-  const avatarUrl = data.currentUser?.avatarUrl ?? auth.localProfile?.avatarUri;
+  const avatarUrl = isGuest ? undefined : data.currentUser?.avatarUrl ?? auth.localProfile?.avatarUri;
+  const modeLabel = {
+    none: 'Ohne Konto',
+    local: 'Lokales Profil',
+    supabase: 'Online-Konto',
+  }[auth.activeMode];
   const preferenceRows: {
     key: Exclude<keyof PrivacyPreferences, 'friendComparisonsEnabled'>;
     label: string;
@@ -84,13 +92,13 @@ export default function ProfileScreen() {
 
   const signOut = async () => {
     const result = await auth.signOut();
-    if (result.ok) router.replace('/login');
+    if (result.ok) router.replace('/');
   };
 
   const removeLocalProfileAndData = async () => {
     clearAllData();
     const result = await auth.removeLocalProfile();
-    if (result.ok) router.replace('/login');
+    if (result.ok) router.replace('/');
   };
 
   return (
@@ -107,18 +115,34 @@ export default function ProfileScreen() {
         <Avatar name={displayName} size="xl" source={avatarUrl ? { uri: avatarUrl } : undefined} />
         <View style={styles.profileCopy}>
           <Text accessibilityRole="header" style={[theme.typography.heading, { color: theme.colors.text }]}>{displayName}</Text>
-          <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>@{username}</Text>
+          <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>{isGuest ? 'Direkt und ohne Anmeldung' : `@${username}`}</Text>
           <View style={[styles.modePill, { backgroundColor: theme.colors.accentMustardMuted }]}>
             <View style={[styles.modeDot, { backgroundColor: theme.colors.accentMustard }]} />
-            <Text style={[theme.typography.caption, { color: theme.colors.text }]}>
-              {auth.activeMode === 'supabase' ? 'Supabase-Konto' : 'Lokales Profil'}
-            </Text>
+            <Text style={[theme.typography.caption, { color: theme.colors.text }]}>{modeLabel}</Text>
           </View>
         </View>
       </AppCard>
 
-      {auth.activeMode === 'local' ? (
-        <AppButton fullWidth label="Lokales Profil bearbeiten" onPress={() => router.push('/local-profile')} variant="outline" />
+      {auth.activeMode !== 'supabase' ? (
+        <View style={styles.section}>
+          <SectionHeader
+            description={isGuest
+              ? 'Die App bleibt ohne Anmeldung vollständig für deine persönlichen Lernzeiten nutzbar.'
+              : 'Dein lokales Profil bleibt auf diesem Gerät. Ein Online-Konto ist weiterhin freiwillig.'}
+            eyebrow="Optional"
+            title="Konto & Profil"
+          />
+          <AppCard style={styles.accountActions} variant="subtle">
+            <AppButton fullWidth label="Anmelden" onPress={() => router.push('/login')} />
+            <AppButton fullWidth label="Online-Konto erstellen" onPress={() => router.push('/register')} variant="outline" />
+            <AppButton
+              fullWidth
+              label={isGuest ? 'Lokales Profil einrichten' : 'Lokales Profil bearbeiten'}
+              onPress={() => router.push('/local-profile')}
+              variant="ghost"
+            />
+          </AppCard>
+        </View>
       ) : null}
 
       <View style={styles.section}>
@@ -176,7 +200,7 @@ export default function ProfileScreen() {
         {confirmation === 'data' ? (
           <AppCard style={styles.confirmCard} variant="outlined">
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Alle lokalen Lerndaten löschen?</Text>
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Sessions, Ziele, Fächer, Freunde, Challenges und ein laufender Timer werden entfernt. Dein Profil bleibt bestehen.</Text>
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Sessions, Ziele, Fächer, Freunde, Challenges und ein laufender Timer werden entfernt. {isGuest ? 'Du kannst die App danach weiter ohne Anmeldung nutzen.' : 'Dein Profil bleibt bestehen.'}</Text>
             <AppButton
               fullWidth
               label="Lerndaten endgültig löschen"
@@ -204,16 +228,16 @@ export default function ProfileScreen() {
               {accountNotice ? <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.warning }]}>{accountNotice}</Text> : null}
             </AppCard>
           </>
-        ) : confirmation === 'local-profile' ? (
+        ) : auth.activeMode === 'local' && confirmation === 'local-profile' ? (
           <AppCard style={styles.confirmCard} variant="outlined">
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Lokales Profil und alle Daten löschen?</Text>
             <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Das Profil und sämtliche Lerninhalte auf diesem Gerät werden endgültig entfernt.</Text>
             <AppButton fullWidth label="Profil und Daten löschen" onPress={() => void removeLocalProfileAndData()} variant="danger" />
             <AppButton fullWidth label="Abbrechen" onPress={() => setConfirmation(null)} variant="ghost" />
           </AppCard>
-        ) : (
+        ) : auth.activeMode === 'local' ? (
           <AppButton fullWidth label="Lokales Profil und Daten löschen" onPress={() => setConfirmation('local-profile')} variant="danger" />
-        )}
+        ) : null}
       </View>
     </Screen>
   );
@@ -226,6 +250,7 @@ const styles = StyleSheet.create({
   modePill: { minHeight: 28, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 7, paddingHorizontal: 10, borderRadius: 999 },
   modeDot: { width: 7, height: 7, borderRadius: 4 },
   section: { gap: 14 },
+  accountActions: { gap: 10 },
   preferencesCard: { overflow: 'hidden' },
   preferenceRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 18, paddingVertical: 13, borderBottomWidth: StyleSheet.hairlineWidth },
   preferenceCopy: { flex: 1, minWidth: 0, gap: 2 },

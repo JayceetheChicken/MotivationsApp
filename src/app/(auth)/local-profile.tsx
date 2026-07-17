@@ -122,6 +122,7 @@ export default function LocalProfileScreen() {
         />
       </View>
 
+      <AuthTextLink label="Ohne Profil zurück zur App" onPress={() => router.replace('/')} />
       <AuthTextLink label="Zur Anmeldung" onPress={() => router.replace('./login')} />
     </AuthScaffold>
   );

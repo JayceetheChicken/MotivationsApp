@@ -140,6 +140,7 @@ export default function RegisterScreen() {
       </View>
 
       <View style={styles.secondaryActions}>
+        <AuthTextLink label="Ohne Anmeldung zurück zur App" onPress={() => router.replace('/')} />
         <AuthTextLink label="Schon registriert? Anmelden" onPress={() => router.replace('./login')} />
         <AuthDivider />
         <AppButton

@@ -90,6 +90,27 @@ export interface ActivitySummary {
   readonly currentMonthMinutes: number;
 }
 
+export type ActivityComparisonTrend = 'positive' | 'negative' | 'neutral' | 'new';
+
+export interface ActivityPeriodComparison {
+  readonly currentMinutes: number;
+  readonly previousMinutes: number;
+  /** `null` represents new activity after a zero-minute comparison period. */
+  readonly percentChange: number | null;
+  readonly trend: ActivityComparisonTrend;
+}
+
+export interface ActivitySummaryComparisons {
+  readonly today: ActivityPeriodComparison;
+  readonly lastSevenDays: ActivityPeriodComparison;
+  readonly currentMonth: ActivityPeriodComparison;
+}
+
+export interface ActivityOverview {
+  readonly summary: ActivitySummary;
+  readonly comparisons: ActivitySummaryComparisons;
+}
+
 export interface ActivityCalculationOptions {
   readonly userId: string;
   readonly referenceDate?: Date;
@@ -547,18 +568,70 @@ export function calculateActivitySummary(
   sessions: readonly ActivitySessionInput[],
   options: ActivityCalculationOptions,
 ): ActivitySummary {
+  return calculateActivityOverview(sessions, options).summary;
+}
+
+export function calculateActivityChange(
+  currentMinutes: number,
+  previousMinutes: number,
+): ActivityPeriodComparison {
+  const current = Number.isFinite(currentMinutes) ? Math.max(0, currentMinutes) : 0;
+  const previous = Number.isFinite(previousMinutes) ? Math.max(0, previousMinutes) : 0;
+
+  if (previous === 0) {
+    return {
+      currentMinutes: current,
+      previousMinutes: previous,
+      percentChange: current > 0 ? null : 0,
+      trend: current > 0 ? 'new' : 'neutral',
+    };
+  }
+
+  const percentChange = Math.round(((current - previous) / previous) * 100);
+  return {
+    currentMinutes: current,
+    previousMinutes: previous,
+    percentChange,
+    trend: percentChange > 0 ? 'positive' : percentChange < 0 ? 'negative' : 'neutral',
+  };
+}
+
+/**
+ * Calculates the current dashboard periods and their preceding local calendar
+ * periods in one pass over the stored sessions.
+ */
+export function calculateActivityOverview(
+  sessions: readonly ActivitySessionInput[],
+  options: ActivityCalculationOptions,
+): ActivityOverview {
   const referenceDate = options.referenceDate ?? new Date();
   const today = startOfLocalDay(referenceDate);
   const activityDays = buildActivityDays(sessions, { ...options, referenceDate });
-
-  return {
+  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const previousMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const previousMonthEnd = addLocalDays(currentMonthStart, -1);
+  const summary: ActivitySummary = {
     todayMinutes: activityDays.get(toLocalDateKey(today))?.minutes ?? 0,
     lastSevenDaysMinutes: sumActivityDays(activityDays, addLocalDays(today, -6), today),
-    currentMonthMinutes: sumActivityDays(
-      activityDays,
-      new Date(today.getFullYear(), today.getMonth(), 1),
-      today,
-    ),
+    currentMonthMinutes: sumActivityDays(activityDays, currentMonthStart, today),
+  };
+
+  return {
+    summary,
+    comparisons: {
+      today: calculateActivityChange(
+        summary.todayMinutes,
+        activityDays.get(toLocalDateKey(addLocalDays(today, -1)))?.minutes ?? 0,
+      ),
+      lastSevenDays: calculateActivityChange(
+        summary.lastSevenDaysMinutes,
+        sumActivityDays(activityDays, addLocalDays(today, -13), addLocalDays(today, -7)),
+      ),
+      currentMonth: calculateActivityChange(
+        summary.currentMonthMinutes,
+        sumActivityDays(activityDays, previousMonthStart, previousMonthEnd),
+      ),
+    },
   };
 }
 

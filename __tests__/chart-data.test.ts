@@ -3,6 +3,7 @@ import {
   buildMonthChart,
   buildWeekChart,
   buildYearChart,
+  getChartPeriodRange,
 } from '@/lib/chart-data';
 import type { StudySession } from '@/types/study';
 
@@ -27,6 +28,17 @@ function timerSession(
 }
 
 describe('chart data', () => {
+  it.each([
+    ['week', new Date(2026, 6, 6), new Date(2026, 6, 13)],
+    ['month', new Date(2026, 6, 1), new Date(2026, 7, 1)],
+    ['year', new Date(2026, 0, 1), new Date(2027, 0, 1)],
+  ] as const)('returns local calendar boundaries for %s', (period, start, endExclusive) => {
+    expect(getChartPeriodRange(period, new Date(2026, 6, 10, 12))).toEqual({
+      start,
+      endExclusive,
+    });
+  });
+
   it('builds a seven-day week with empty past values and null future values', () => {
     const reference = new Date(2026, 6, 8, 12);
     const points = buildWeekChart([], reference);

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { SubjectChip } from '@/components/subject-chip';
+import { SubjectSelector } from '@/components/subject-selector';
 import { AppButton } from '@/components/ui/app-button';
 import { useCurrentDate } from '@/hooks/use-current-date';
 import { useTimerElapsed } from '@/hooks/use-timer-elapsed';
@@ -46,7 +46,6 @@ export default function SessionScreen() {
   const [selectedSubjectId, setSelectedSubjectId] = useState(
     () => data.activeTimer?.subjectId ?? requestedGoalSubjectId ?? availableSubjects[0]?.id ?? '',
   );
-  const [newSubjectName, setNewSubjectName] = useState('');
   const [plannedDuration, setPlannedDuration] = useState('');
   const [note, setNote] = useState('');
   const [startError, setStartError] = useState<string | null>(null);
@@ -91,13 +90,6 @@ export default function SessionScreen() {
   const correctRecoveredSession = () => {
     discardTimer();
     router.replace('/manual-entry');
-  };
-
-  const createFirstSubject = () => {
-    if (!newSubjectName.trim()) return;
-    const subject = addSubject(newSubjectName);
-    setSelectedSubjectId(subject.id);
-    setNewSubjectName('');
   };
 
   const beginSession = () => {
@@ -314,62 +306,14 @@ export default function SessionScreen() {
                 <Text style={[theme.typography.subheading, { color: foreground }]}>{activeSubject?.name}</Text>
               </View>
             </View>
-          ) : availableSubjects.length === 0 ? (
-            <View style={[styles.firstSubjectCard, { backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorder }]}>
-              <Text style={[theme.typography.subheading, { color: foreground }]}>Erstes Fach anlegen</Text>
-              <Text style={[theme.typography.body, { color: foregroundMuted }]}>Zum Beispiel Mathematik, Sprachen oder Prüfungsvorbereitung.</Text>
-              <TextInput
-                accessibilityLabel="Name des ersten Fachs"
-                onChangeText={setNewSubjectName}
-                onSubmitEditing={createFirstSubject}
-                placeholder="Name des Fachs"
-                placeholderTextColor={foregroundMuted}
-                returnKeyType="done"
-                style={[styles.subjectInput, theme.typography.body, { color: foreground, backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorderStrong }]}
-                value={newSubjectName}
-              />
-              <AppButton
-                disabled={!newSubjectName.trim()}
-                fullWidth
-                label="Fach hinzufügen"
-                onPress={createFirstSubject}
-                style={[styles.lightButton, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}
-                textStyle={{ color: theme.colors.onPrimary }}
-              />
-            </View>
           ) : (
-            <View style={styles.subjectSelection}>
-              <View accessibilityRole="radiogroup" style={styles.subjectGrid}>
-                {availableSubjects.map((subject) => (
-                  <SubjectChip
-                    dark
-                    key={subject.id}
-                    onPress={() => { setSelectedSubjectId(subject.id); setStartError(null); }}
-                    selected={selectedSubjectId === subject.id}
-                    subject={subject}
-                  />
-                ))}
-              </View>
-              <View style={styles.additionalSubjectRow}>
-                <TextInput
-                  accessibilityLabel="Weiteres Fach hinzufügen"
-                  onChangeText={setNewSubjectName}
-                  onSubmitEditing={createFirstSubject}
-                  placeholder="Weiteres Fach"
-                  placeholderTextColor={foregroundMuted}
-                  returnKeyType="done"
-                  style={[styles.subjectInput, styles.additionalSubjectInput, theme.typography.body, { color: foreground, backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorderStrong }]}
-                  value={newSubjectName}
-                />
-                <AppButton
-                  disabled={!newSubjectName.trim()}
-                  label="Hinzufügen"
-                  onPress={createFirstSubject}
-                  style={[styles.lightButton, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}
-                  textStyle={{ color: theme.colors.onPrimary }}
-                />
-              </View>
-            </View>
+            <SubjectSelector
+              dark
+              onCreateSubject={addSubject}
+              onSelectSubject={(subject) => { setSelectedSubjectId(subject.id); setStartError(null); }}
+              selectedSubjectId={selectedSubjectId}
+              subjects={data.subjects}
+            />
           )}
 
           <View style={styles.sessionDetails}>
@@ -468,12 +412,6 @@ const styles = StyleSheet.create({
   goalBindingMeta: { fontSize: 13, lineHeight: 19 },
   lockedSubjectCard: { width: '100%', gap: 9, padding: 18, borderRadius: 14, borderWidth: 1 },
   lockedSubjectRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  subjectGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  subjectSelection: { gap: 16 },
-  additionalSubjectRow: { width: '100%', flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 },
-  additionalSubjectInput: { width: 'auto', minWidth: 180, flex: 1 },
-  firstSubjectCard: { width: '100%', gap: 12, padding: 20, borderRadius: 14, borderWidth: 1 },
-  subjectInput: { width: '100%', minHeight: 52, borderWidth: 1, borderRadius: 8, paddingHorizontal: 14 },
   sessionDetails: { width: '100%', gap: 18 },
   sessionDetailField: { width: '100%', gap: 7 },
   detailLabel: { fontSize: 10, lineHeight: 15, fontWeight: '800', letterSpacing: 1.1 },

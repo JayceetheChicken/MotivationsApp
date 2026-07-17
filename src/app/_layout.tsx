@@ -6,6 +6,7 @@ import { type PropsWithChildren, useEffect } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import 'react-native-reanimated';
 
+import { getRequiredAuthRoute, getStudyStorageScope } from '@/auth/navigation';
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 import { StudyStoreProvider, useStudyStore } from '@/state/study-store';
 import { appTheme, type AppTheme } from '@/theme';
@@ -77,11 +78,7 @@ function AccountStudyBridge() {
 
 function ScopedStudyStore({ children }: PropsWithChildren) {
   const { activeMode, user } = useAuthStore();
-  const storageScope = activeMode === 'supabase' && user
-    ? `account-${user.id}`
-    : activeMode === 'local'
-      ? 'local'
-      : 'guest';
+  const storageScope = getStudyStorageScope(activeMode, user?.id);
 
   return (
     <StudyStoreProvider key={storageScope} storageScope={storageScope}>
@@ -95,17 +92,16 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   const auth = useAuthStore();
   const study = useStudyStore();
   const ready = auth.hydrated && study.hydrated;
-  const inAuthGroup = segments[0] === '(auth)';
   const onPasswordUpdateRoute = segments.some((segment) => segment === 'update-password');
 
   useEffect(() => {
-    if (!ready) return;
-    if (auth.passwordRecoveryPending && !onPasswordUpdateRoute) {
-      router.replace('/update-password');
-    } else if (!auth.hasAccess && !inAuthGroup) {
-      router.replace('/login');
-    }
-  }, [auth.hasAccess, auth.passwordRecoveryPending, inAuthGroup, onPasswordUpdateRoute, ready]);
+    const requiredRoute = getRequiredAuthRoute({
+      onPasswordUpdateRoute,
+      passwordRecoveryPending: auth.passwordRecoveryPending,
+      ready,
+    });
+    if (requiredRoute) router.replace(requiredRoute);
+  }, [auth.passwordRecoveryPending, onPasswordUpdateRoute, ready]);
 
   if (!ready) {
     return (
@@ -171,7 +167,7 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
           name="profile"
           options={{
             presentation: 'modal',
-            title: 'Profil & Datenschutz',
+            title: 'Konto & Einstellungen',
             headerBackVisible: false,
             headerLeft: () => (
               <ModalBackButton
