@@ -7,7 +7,6 @@ import { SubjectSelector } from '@/components/subject-selector';
 import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
-import { toLocalDateInput } from '@/lib/format';
 import { getGoalSubjectId } from '@/lib/goals';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
@@ -25,10 +24,10 @@ const PERIOD_OPTIONS = [
   { value: 'day', label: 'Täglich' },
   { value: 'week', label: 'Wöchentlich' },
   { value: 'month', label: 'Monatlich' },
-  { value: 'custom', label: 'Eigener Zeitraum' },
 ] as const;
 
 const LEGACY_YEAR_OPTION = { value: 'year', label: 'Jährlich' } as const;
+const LEGACY_CUSTOM_OPTION = { value: 'custom', label: 'Eigener Zeitraum' } as const;
 
 const SOURCE_OPTIONS = [
   { value: 'all', label: 'Alle Zeiten' },
@@ -74,22 +73,6 @@ function SubjectChoice({
   );
 }
 
-function isValidDateInput(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [year, month, day] = value.split('-').map(Number);
-  const date = new Date(year, month - 1, day);
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-}
-
-function dateInputToIso(value: string, endOfDay = false): string | undefined {
-  if (!value) return undefined;
-  const [year, month, day] = value.split('-').map(Number);
-  const date = endOfDay
-    ? new Date(year, month - 1, day, 23, 59, 59, 999)
-    : new Date(year, month - 1, day, 0, 0, 0, 0);
-  return date.toISOString();
-}
-
 export default function CreateGoalScreen() {
   const theme = useAppTheme();
   const { goalId } = useLocalSearchParams<{ goalId?: string }>();
@@ -114,8 +97,6 @@ export default function CreateGoalScreen() {
   const [subjectId, setSubjectId] = useState<string | undefined>(
     existing ? getGoalSubjectId(existing) ?? undefined : undefined,
   );
-  const [startDate, setStartDate] = useState(() => existing?.startsAt ? toLocalDateInput(new Date(existing.startsAt)) : '');
-  const [endDate, setEndDate] = useState(() => existing?.endsAt ? toLocalDateInput(new Date(existing.endsAt)) : '');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const numericTarget = Number(target.replace(',', '.'));
@@ -123,7 +104,11 @@ export default function CreateGoalScreen() {
     ? numericTarget * 60
     : numericTarget;
   const periodOptions = useMemo(
-    () => period === 'year' ? [...PERIOD_OPTIONS, LEGACY_YEAR_OPTION] : PERIOD_OPTIONS,
+    () => {
+      if (period === 'year') return [...PERIOD_OPTIONS, LEGACY_YEAR_OPTION];
+      if (period === 'custom') return [...PERIOD_OPTIONS, LEGACY_CUSTOM_OPTION];
+      return PERIOD_OPTIONS;
+    },
     [period],
   );
 
@@ -147,24 +132,6 @@ export default function CreateGoalScreen() {
       setError('Die Mindestdauer muss mindestens 1 Minute betragen.');
       return;
     }
-    if (startDate && !isValidDateInput(startDate)) {
-      setError('Bitte gib das Startdatum als JJJJ-MM-TT ein.');
-      return;
-    }
-    if (endDate && !isValidDateInput(endDate)) {
-      setError('Bitte gib das Enddatum als JJJJ-MM-TT ein.');
-      return;
-    }
-    if (period === 'custom' && (!startDate || !endDate)) {
-      setError('Für einen eigenen Zeitraum werden Start- und Enddatum benötigt.');
-      return;
-    }
-    const startsAt = dateInputToIso(startDate);
-    const endsAt = dateInputToIso(endDate, true);
-    if (startsAt && endsAt && new Date(endsAt).getTime() < new Date(startsAt).getTime()) {
-      setError('Das Enddatum muss am oder nach dem Startdatum liegen.');
-      return;
-    }
 
     setSaving(true);
     const input = {
@@ -174,16 +141,10 @@ export default function CreateGoalScreen() {
       subjectId,
       sourcePolicy,
       period,
-      startsAt,
-      endsAt,
       minimumSessionMinutes: type === 'sessions' ? Math.round(minimum) : undefined,
     };
     if (existing) {
-      updateGoal(existing.id, {
-        ...input,
-        startsAt: startsAt ?? null,
-        endsAt: endsAt ?? null,
-      });
+      updateGoal(existing.id, input);
     } else {
       createGoal(input);
     }
@@ -262,43 +223,6 @@ export default function CreateGoalScreen() {
             selectedSubjectId={subjectId}
             subjects={data.subjects}
           />
-        </View>
-
-        <View style={styles.field}>
-          <Text style={[theme.typography.label, { color: theme.colors.text }]}>Optionaler Start und Abschluss</Text>
-          <View style={styles.dateRow}>
-            <View style={styles.dateField}>
-              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Startdatum</Text>
-              <TextInput
-                accessibilityLabel="Startdatum im Format Jahr Monat Tag"
-                autoCapitalize="none"
-                keyboardType="numbers-and-punctuation"
-                maxLength={10}
-                onChangeText={(value) => { setStartDate(value); clearError(); }}
-                placeholder="JJJJ-MM-TT"
-                placeholderTextColor={theme.colors.textSubtle}
-                style={[styles.input, theme.typography.body, { color: theme.colors.text, backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.accentBrownMuted, borderRadius: theme.radii.lg }]}
-                value={startDate}
-              />
-            </View>
-            <View style={styles.dateField}>
-              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Enddatum</Text>
-              <TextInput
-                accessibilityLabel="Enddatum im Format Jahr Monat Tag"
-                autoCapitalize="none"
-                keyboardType="numbers-and-punctuation"
-                maxLength={10}
-                onChangeText={(value) => { setEndDate(value); clearError(); }}
-                placeholder="JJJJ-MM-TT"
-                placeholderTextColor={theme.colors.textSubtle}
-                style={[styles.input, theme.typography.body, { color: theme.colors.text, backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.accentBrownMuted, borderRadius: theme.radii.lg }]}
-                value={endDate}
-              />
-            </View>
-          </View>
-          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-            Bei „Eigener Zeitraum“ sind beide Daten erforderlich. Sonst begrenzen sie das wiederkehrende Ziel optional.
-          </Text>
         </View>
 
         <View style={styles.field}>
@@ -385,7 +309,5 @@ const styles = StyleSheet.create({
   periodChoices: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   subjectChoice: { minHeight: 48, minWidth: 145, flexGrow: 1, flexBasis: '40%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, paddingHorizontal: 14 },
   subjectDot: { width: 10, height: 10, borderRadius: 5 },
-  dateRow: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  dateField: { minWidth: 210, flex: 1, gap: 6 },
   numeric: { fontVariant: ['tabular-nums'] },
 });

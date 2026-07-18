@@ -47,7 +47,6 @@ export default function SessionScreen() {
     () => data.activeTimer?.subjectId ?? requestedGoalSubjectId ?? availableSubjects[0]?.id ?? '',
   );
   const [plannedDuration, setPlannedDuration] = useState('');
-  const [note, setNote] = useState('');
   const [startError, setStartError] = useState<string | null>(null);
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const [reviewingRecovery, setReviewingRecovery] = useState(
@@ -105,7 +104,6 @@ export default function SessionScreen() {
       subjectId: effectiveSelectedSubjectId,
       goalId: requestedGoalSubjectId ? requestedGoal?.id : null,
       plannedDurationMinutes: plannedDuration.trim() ? parsedPlannedDuration : undefined,
-      note,
     });
     if (!started) {
       setStartError('Die Session konnte nicht gestartet werden. Prüfe bitte Ziel und Fach.');
@@ -333,20 +331,6 @@ export default function SessionScreen() {
                 <Text style={[theme.typography.label, { color: foregroundMuted }]}>Minuten</Text>
               </View>
             </View>
-            <View style={styles.sessionDetailField}>
-              <Text style={[styles.detailLabel, { color: foregroundMuted }]}>NOTIZ · OPTIONAL</Text>
-              <TextInput
-                accessibilityLabel="Notiz zur Lern-Session"
-                maxLength={180}
-                multiline
-                onChangeText={setNote}
-                placeholder="Was möchtest du schaffen?"
-                placeholderTextColor={foregroundMuted}
-                style={[styles.noteInput, theme.typography.body, { color: foreground, backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorderStrong }]}
-                textAlignVertical="top"
-                value={note}
-              />
-            </View>
           </View>
 
           <View style={styles.setupFooter}>
@@ -417,7 +401,6 @@ const styles = StyleSheet.create({
   detailLabel: { fontSize: 10, lineHeight: 15, fontWeight: '800', letterSpacing: 1.1 },
   detailInputShell: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderWidth: 1, borderRadius: 10 },
   detailInput: { minHeight: 52, flex: 1, fontVariant: ['tabular-nums'] },
-  noteInput: { minHeight: 88, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderRadius: 10 },
   setupFooter: { gap: 12 },
   startError: { fontSize: 13, lineHeight: 19, textAlign: 'center' },
   setupHint: { fontSize: 12, lineHeight: 18, textAlign: 'center' },

@@ -214,7 +214,7 @@ export default function GoalsScreen() {
     <Screen maxWidth={1100}>
       <View style={styles.pageHeader}>
         <SectionHeader
-          description="Fortschritt wird aus Zeitraum, Startdatum, Fach und Zeitquelle einheitlich berechnet."
+          description="Fortschritt wird aus Zeitraum, Fach und Zeitquelle einheitlich berechnet."
           eyebrow="Dein Plan"
           title="Lernziele"
         />

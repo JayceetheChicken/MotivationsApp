@@ -28,7 +28,6 @@ export default function ManualEntryScreen() {
   const [goalId, setGoalId] = useState<string | null>(null);
   const [duration, setDuration] = useState('30');
   const [studiedOn, setStudiedOn] = useState(() => toLocalDateInput(new Date()));
-  const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const parsedDuration = Number(duration.replace(',', '.'));
   const durationIsValid = Number.isFinite(parsedDuration) && parsedDuration >= 1 && parsedDuration <= 720;
@@ -71,7 +70,6 @@ export default function ManualEntryScreen() {
       goalId,
       durationMinutes: parsedDuration,
       studiedOn,
-      note,
     });
     if (!saved) {
       setError('Der Eintrag konnte nicht gespeichert werden. Prüfe bitte Ziel, Fach und Datum.');
@@ -283,32 +281,6 @@ export default function ManualEntryScreen() {
         ) : null}
       </View>
 
-      <View style={styles.fieldGroup}>
-        <View style={styles.labelRow}>
-          <Text accessibilityRole="header" style={[theme.typography.subheading, { color: theme.colors.text }]}>Notiz</Text>
-          <Text style={[theme.typography.caption, { color: theme.colors.textSubtle }]}>Optional</Text>
-        </View>
-        <TextInput
-          accessibilityLabel="Notiz zum Lerneintrag"
-          maxLength={180}
-          multiline
-          onChangeText={setNote}
-          placeholder="Was hast du geschafft?"
-          placeholderTextColor={theme.colors.textSubtle}
-          style={[
-            theme.typography.body,
-            styles.noteInput,
-            {
-              color: theme.colors.text,
-              backgroundColor: theme.colors.surfaceMuted,
-              borderColor: theme.colors.accentBrownMuted,
-            },
-          ]}
-          textAlignVertical="top"
-          value={note}
-        />
-      </View>
-
       {error ? (
         <Text accessibilityRole="alert" style={[theme.typography.bodyMedium, { color: theme.colors.danger }]}>{error}</Text>
       ) : null}
@@ -394,13 +366,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 54,
     fontVariant: ['tabular-nums'],
-  },
-  noteInput: {
-    minHeight: 112,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderRadius: 14,
   },
   pressed: {
     opacity: 0.78,

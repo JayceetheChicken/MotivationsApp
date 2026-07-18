@@ -212,7 +212,7 @@ export default function HomeScreen() {
 
       <AppCard padding="lg" style={styles.sectionCard}>
         <SectionHeader
-          description={data.activeTimer ? 'Ziel, Fach, Notiz und geplante Dauer bleiben auch nach einem Neustart erhalten.' : 'Fach wählen und echte Lernzeit erfassen.'}
+          description={data.activeTimer ? 'Ziel, Fach und geplante Dauer bleiben auch nach einem Neustart erhalten.' : 'Fach wählen und echte Lernzeit erfassen.'}
           eyebrow={data.activeTimer ? (data.activeTimer.status === 'running' ? 'Läuft gerade' : 'Pausiert') : 'Freie Lernzeit'}
           title={data.activeTimer ? activeSubject?.name ?? data.activeTimer.subjectNameSnapshot ?? 'Lern-Session' : 'Session starten'}
         />
