@@ -40,29 +40,17 @@ function ModalBackButton({ color, surface, border }: { color: string; surface: s
 }
 
 function AccountStudyBridge() {
-  const { activeMode, localProfile, user } = useAuthStore();
+  const { activeMode, localProfile } = useAuthStore();
   const { data, hydrated, updateLocalProfile } = useStudyStore();
 
   useEffect(() => {
-    if (!hydrated || activeMode === 'none') return;
+    // Supabase profiles are loaded by StudyRepository from public.profiles.
+    // Mutable auth metadata is never projected into the domain store.
+    if (!hydrated || activeMode !== 'local') return;
 
-    const metadata = user?.user_metadata as Record<string, unknown> | undefined;
-    const emailFallback = user?.email?.split('@')[0] || 'lernprofil';
-    const displayName = activeMode === 'local'
-      ? localProfile?.displayName
-      : typeof metadata?.display_name === 'string'
-        ? metadata.display_name
-        : emailFallback;
-    const username = activeMode === 'local'
-      ? localProfile?.username
-      : typeof metadata?.username === 'string'
-        ? metadata.username
-        : emailFallback;
-    const avatarUrl = activeMode === 'local'
-      ? localProfile?.avatarUri
-      : typeof metadata?.avatar_url === 'string'
-        ? metadata.avatar_url
-        : undefined;
+    const displayName = localProfile?.displayName;
+    const username = localProfile?.username;
+    const avatarUrl = localProfile?.avatarUri;
 
     if (!displayName || !username) return;
     const current = data.currentUser;
@@ -74,12 +62,11 @@ function AccountStudyBridge() {
       return;
     }
     updateLocalProfile({
-      userId: activeMode === 'supabase' ? user?.id : undefined,
       displayName,
       username,
       avatarUrl,
     });
-  }, [activeMode, data.currentUser, hydrated, localProfile, updateLocalProfile, user]);
+  }, [activeMode, data.currentUser, hydrated, localProfile, updateLocalProfile]);
 
   return null;
 }
@@ -104,6 +91,7 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   const auth = useAuthStore();
   const study = useStudyStore();
   const onPasswordUpdateRoute = segments.some((segment) => segment === 'update-password');
+  const onLocalImportRoute = segments.some((segment) => segment === 'import-local-data');
 
   // Einzige automatische Weiterleitung: ein echter Passwort-Recovery-Link.
   useEffect(() => {
@@ -115,6 +103,24 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   useEffect(() => {
     if (study.hydrated) console.log('[BOOT] App navigation ready');
   }, [study.hydrated]);
+
+  useEffect(() => {
+    if (
+      study.hydrated &&
+      auth.activeMode === 'supabase' &&
+      study.localImportPreview &&
+      !onLocalImportRoute &&
+      !auth.passwordRecoveryPending
+    ) {
+      router.push('/import-local-data');
+    }
+  }, [
+    auth.activeMode,
+    auth.passwordRecoveryPending,
+    onLocalImportRoute,
+    study.hydrated,
+    study.localImportPreview,
+  ]);
 
   // Nur die synchron hydrierenden lokalen Lerndaten gaten den Start. Der Stack
   // mountet sofort danach – Segmente dürfen nie Voraussetzung sein, weil sie
@@ -192,6 +198,15 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
                 surface={appTheme.colors.accentPeachMuted}
               />
             ),
+          }}
+        />
+        <Stack.Screen
+          name="import-local-data"
+          options={{
+            presentation: 'modal',
+            title: 'Lokale Daten übertragen',
+            gestureEnabled: false,
+            headerBackVisible: false,
           }}
         />
       </Stack>

@@ -12,12 +12,23 @@ export interface StudyUser {
   avatarColor?: string;
 }
 
+/** Server-backed account profile. Local profiles intentionally omit these fields. */
+export interface AccountStudyUser extends StudyUser {
+  timeZone: string;
+  usernameNeedsReview: boolean;
+  revision: number;
+}
+
 export interface Subject {
   id: string;
   name: string;
   color: string;
   icon: string;
   archived?: boolean;
+  revision?: number;
+  syncVersion?: string;
+  updatedAt?: ISODateTime;
+  deletedAt?: ISODateTime | null;
 }
 
 export interface TimerSegment {
@@ -45,6 +56,10 @@ interface StudySessionBase {
   createdAt: ISODateTime;
   /** Optional so existing in-memory fixtures remain backwards-compatible. */
   status?: 'completed';
+  revision?: number;
+  syncVersion?: string;
+  updatedAt?: ISODateTime;
+  deletedAt?: ISODateTime | null;
 }
 
 export interface TimerStudySession extends StudySessionBase {
@@ -119,6 +134,10 @@ interface StudyGoalBase {
   pausedIntervals?: readonly GoalPauseInterval[];
   completedAt?: ISODateTime;
   archivedAt?: ISODateTime;
+  revision?: number;
+  syncVersion?: string;
+  updatedAt?: ISODateTime;
+  deletedAt?: ISODateTime | null;
 }
 
 export interface DurationGoal extends StudyGoalBase {
@@ -155,6 +174,9 @@ export interface StudyGrade {
   sessionIds: readonly string[];
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
+  revision?: number;
+  syncVersion?: string;
+  deletedAt?: ISODateTime | null;
 }
 
 export interface FriendStudySnapshot {
@@ -176,6 +198,77 @@ export interface Friend {
   stats?: FriendStudySnapshot;
 }
 
+export type FriendStatsPeriod =
+  | 'today'
+  | 'yesterday'
+  | 'this_week'
+  | 'last_week'
+  | 'this_month'
+  | 'last_month';
+
+/**
+ * Remote privacy grants. `friendComparisonsEnabled` deliberately is not part
+ * of this object because it is only a local display preference.
+ */
+export interface StudySharingPreferences {
+  shareTimerStats: boolean;
+  shareManualStats: boolean;
+  shareGoalProgress: boolean;
+  shareStreak: boolean;
+  revision: number;
+  updatedAt: ISODateTime;
+}
+
+export interface FriendPeriodStatistics {
+  period: FriendStatsPeriod;
+  startsAt: ISODateTime;
+  endsAt: ISODateTime;
+  timerMinutes: number | null;
+  timerSessionCount: number | null;
+  manualMinutes: number | null;
+  manualSessionCount: number | null;
+  totalMinutes: number | null;
+  totalSessionCount: number | null;
+}
+
+export interface FriendGoalVisibility {
+  reached: boolean;
+  achievedGoalCount: number;
+  evaluatedGoalCount: number;
+}
+
+export interface FriendProfileStatistics {
+  friend: AccountStudyUser;
+  periods: Readonly<Record<FriendStatsPeriod, FriendPeriodStatistics>>;
+  streakDays: number | null;
+  goals: FriendGoalVisibility | null;
+  /** True values describe grants, while nullable metrics distinguish hidden from zero. */
+  visibility: Readonly<{
+    timer: boolean;
+    manual: boolean;
+    goals: boolean;
+    streak: boolean;
+  }>;
+}
+
+export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
+
+export interface FriendshipConnection {
+  id: string;
+  requesterId: string;
+  addresseeId: string;
+  status: FriendshipStatus;
+  direction: 'incoming' | 'outgoing';
+  otherUser: StudyUser;
+  createdAt: ISODateTime;
+  respondedAt: ISODateTime | null;
+}
+
+export interface FriendSearchResult {
+  user: StudyUser;
+  connection: Pick<FriendshipConnection, 'id' | 'status' | 'direction'> | null;
+}
+
 export type ChallengeMode = 'per_participant' | 'shared';
 
 export type ChallengeTarget =
@@ -194,8 +287,44 @@ export type ChallengeTarget =
 export interface ChallengeParticipant {
   userId: string;
   status: 'invited' | 'accepted' | 'declined' | 'withdrawn';
+}
+
+export interface ChallengeParticipantProgress {
+  userId: string;
+  user: StudyUser;
+  status: ChallengeParticipant['status'];
+  contribution: number;
   contributionMinutes: number;
-  timerSessionCount: number;
+  sessionCount: number;
+  /** Present only for `per_participant` goals. Percent is deliberately not capped. */
+  target: number | null;
+  progressPercent: number | null;
+  remaining: number | null;
+  achieved: boolean | null;
+  exceededBy: number | null;
+}
+
+export interface SharedGoalTeamProgress {
+  contribution: number;
+  target: number;
+  progressPercent: number;
+  remaining: number;
+  achieved: boolean;
+  exceededBy: number;
+}
+
+export interface SharedGoalProgress {
+  goalId: string;
+  goalType: ChallengeTarget['type'];
+  mode: ChallengeMode;
+  sourcePolicy: GoalSourcePolicy;
+  startsAt: ISODateTime;
+  endsAt: ISODateTime;
+  revision: number;
+  participants: readonly ChallengeParticipantProgress[];
+  /** Non-null exactly when `mode` is `shared`. */
+  team: SharedGoalTeamProgress | null;
+  calculatedAt: ISODateTime;
 }
 
 export interface StudyChallenge {
@@ -209,6 +338,10 @@ export interface StudyChallenge {
   endsAt: ISODateTime;
   status: 'upcoming' | 'active' | 'completed';
   participants: readonly ChallengeParticipant[];
+  revision?: number;
+  syncVersion?: string;
+  updatedAt?: ISODateTime;
+  deletedAt?: ISODateTime | null;
 }
 
 export interface StudyData {

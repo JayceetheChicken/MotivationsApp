@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import {
@@ -16,12 +16,30 @@ import {
 import { AppButton } from '@/components/ui/app-button';
 import { Avatar } from '@/components/ui/avatar';
 import { useAuthStore } from '@/state/auth-store';
+import { useStudyStore } from '@/state/study-store';
+import type { AccountStudyUser } from '@/types/study';
 
 type LocalProfileField = 'displayName' | 'username' | 'avatarUri';
 type LocalProfileErrors = Partial<Record<LocalProfileField, string>>;
 
+function onlineAvatarUrlError(value: string): string | undefined {
+  const url = value.trim();
+  if (!url) return undefined;
+
+  try {
+    if (new URL(url).protocol !== 'https:') {
+      return 'Für Online-Profile ist nur ein sicherer Bildlink mit https:// erlaubt.';
+    }
+  } catch {
+    return 'Bitte gib einen gültigen Bildlink ein.';
+  }
+
+  return undefined;
+}
+
 export default function LocalProfileScreen() {
   const router = useRouter();
+  const auth = useAuthStore();
   const {
     error,
     localProfile,
@@ -29,11 +47,36 @@ export default function LocalProfileScreen() {
     pendingAction,
     saveLocalProfile,
     clearFeedback,
-  } = useAuthStore();
-  const [displayName, setDisplayName] = useState(localProfile?.displayName ?? '');
-  const [username, setUsername] = useState(localProfile?.username ?? '');
-  const [avatarUri, setAvatarUri] = useState(localProfile?.avatarUri ?? '');
+  } = auth;
+  const {
+    data,
+    socialError,
+    socialLoading,
+    updateAccountProfile,
+  } = useStudyStore();
+  const isOnlineProfile = auth.activeMode === 'supabase';
+  const accountProfile = isOnlineProfile
+    ? data.currentUser as AccountStudyUser | null
+    : null;
+  const [displayName, setDisplayName] = useState(
+    accountProfile?.displayName ?? localProfile?.displayName ?? '',
+  );
+  const [username, setUsername] = useState(
+    accountProfile?.username ?? localProfile?.username ?? '',
+  );
+  const [avatarUri, setAvatarUri] = useState(
+    accountProfile?.avatarUrl ?? localProfile?.avatarUri ?? '',
+  );
+  const [accountRevision, setAccountRevision] = useState(accountProfile?.revision ?? null);
   const [errors, setErrors] = useState<LocalProfileErrors>({});
+
+  useEffect(() => {
+    if (!isOnlineProfile || !accountProfile || accountRevision === accountProfile.revision) return;
+    setAccountRevision(accountProfile.revision);
+    setDisplayName(accountProfile.displayName);
+    setUsername(accountProfile.username);
+    setAvatarUri(accountProfile.avatarUrl ?? '');
+  }, [accountProfile, accountRevision, isOnlineProfile]);
 
   const updateField = (
     field: LocalProfileField,
@@ -49,26 +92,59 @@ export default function LocalProfileScreen() {
     const nextErrors: LocalProfileErrors = {
       displayName: displayNameError(displayName),
       username: usernameError(username),
-      avatarUri: avatarUriError(avatarUri),
+      avatarUri: isOnlineProfile
+        ? onlineAvatarUrlError(avatarUri)
+        : avatarUriError(avatarUri),
     };
     setErrors(nextErrors);
     if (Object.values(nextErrors).some(Boolean)) return;
+
+    if (isOnlineProfile) {
+      const updated = await updateAccountProfile({
+        displayName: displayName.trim(),
+        username: username.trim().toLowerCase(),
+        avatarUrl: avatarUri.trim() || undefined,
+      });
+      if (updated) router.replace('/profile');
+      return;
+    }
 
     const result = await saveLocalProfile({ displayName, username, avatarUri });
     if (result.ok) router.replace('/');
   };
 
-  const previewUri = avatarUri && !avatarUriError(avatarUri) ? avatarUri.trim() : undefined;
+  const currentAvatarError = isOnlineProfile
+    ? onlineAvatarUrlError(avatarUri)
+    : avatarUriError(avatarUri);
+  const previewUri = avatarUri && !currentAvatarError ? avatarUri.trim() : undefined;
 
   return (
     <AuthScaffold
-      subtitle="Beginne ohne Online-Konto. Dieses Profil bleibt ausschließlich auf diesem Gerät."
-      title={localProfile ? 'Lokales Profil bearbeiten' : 'Lokal beginnen'}>
-      <AuthNotice title="Nur auf diesem Gerät">
-        Es wird kein Konto erstellt. Synchronisation, Wiederherstellung und soziale Funktionen sind im lokalen Modus nicht verfügbar.
-      </AuthNotice>
-      {error ? <AuthNotice tone="danger">{error}</AuthNotice> : null}
-      {notice ? <AuthNotice tone="success">{notice}</AuthNotice> : null}
+      subtitle={isOnlineProfile
+        ? 'Name, eindeutiger Benutzername und Profilbild gelten für dein verbundenes Konto.'
+        : 'Beginne ohne Online-Konto. Dieses Profil bleibt ausschließlich auf diesem Gerät.'}
+      title={isOnlineProfile
+        ? accountProfile?.usernameNeedsReview
+          ? 'Benutzernamen bestätigen'
+          : 'Online-Profil bearbeiten'
+        : localProfile
+          ? 'Lokales Profil bearbeiten'
+          : 'Lokal beginnen'}>
+      {isOnlineProfile ? (
+        <AuthNotice title="Dein Online-Profil">
+          Der Benutzername wird für die exakte Freundessuche verwendet. Die Angaben werden in deinem Konto gespeichert und auf deinen Geräten synchronisiert.
+        </AuthNotice>
+      ) : (
+        <AuthNotice title="Nur auf diesem Gerät">
+          Es wird kein Konto erstellt. Synchronisation, Wiederherstellung und soziale Funktionen sind im lokalen Modus nicht verfügbar.
+        </AuthNotice>
+      )}
+      {!isOnlineProfile && error ? <AuthNotice tone="danger">{error}</AuthNotice> : null}
+      {!isOnlineProfile && notice ? <AuthNotice tone="success">{notice}</AuthNotice> : null}
+      {isOnlineProfile && !accountProfile ? (
+        <AuthNotice>Das Online-Profil wird geladen. Bitte versuche es gleich erneut.</AuthNotice>
+      ) : null}
+      {isOnlineProfile && socialError ? <AuthNotice tone="danger">{socialError}</AuthNotice> : null}
 
       <View style={styles.preview}>
         <Avatar
@@ -102,7 +178,9 @@ export default function LocalProfileScreen() {
           autoCapitalize="none"
           autoComplete="url"
           error={errors.avatarUri}
-          hint="Optional: vollständiger Link zu einem Bild."
+          hint={isOnlineProfile
+            ? 'Optional: sicherer, vollständiger Link mit https://.'
+            : 'Optional: vollständiger Link zu einem Bild.'}
           keyboardType="url"
           label="Profilbild-Link"
           onChangeText={(value) => updateField('avatarUri', setAvatarUri, value)}
@@ -113,16 +191,23 @@ export default function LocalProfileScreen() {
         />
 
         <AppButton
-          disabled={pendingAction !== null}
+          disabled={isOnlineProfile ? socialLoading || !accountProfile : pendingAction !== null}
           fullWidth
-          label={localProfile ? 'Profil speichern' : 'Lokal fortfahren'}
-          loading={pendingAction === 'save-local-profile'}
+          label={isOnlineProfile
+            ? 'Online-Profil speichern'
+            : localProfile
+              ? 'Profil speichern'
+              : 'Lokal fortfahren'}
+          loading={isOnlineProfile ? socialLoading : pendingAction === 'save-local-profile'}
           onPress={() => void submit()}
           size="large"
         />
       </View>
 
-      <AuthTextLink label="Ohne Profil zurück zur App" onPress={() => router.replace('/')} />
+      <AuthTextLink
+        label={isOnlineProfile ? 'Zurück zum Profil' : 'Ohne Profil zurück zur App'}
+        onPress={() => router.replace(isOnlineProfile ? '/profile' : '/')}
+      />
     </AuthScaffold>
   );
 }

@@ -3,6 +3,7 @@ import 'react-native-url-polyfill/auto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import { authStorage } from '@/auth/storage';
+import type { Database } from '@/types/database.generated';
 
 export type SupabaseConfiguration = Readonly<{
   isConfigured: boolean;
@@ -12,6 +13,8 @@ export type SupabaseConfiguration = Readonly<{
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim();
+const supabasePublishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+const supabasePublicKey = supabasePublishableKey || supabaseAnonKey;
 
 function validateUrl(value: string): string | null {
   try {
@@ -27,21 +30,21 @@ function validateUrl(value: string): string | null {
 }
 
 function missingConfigurationMessage(): string {
-  if (!supabaseUrl && !supabaseAnonKey) {
-    return 'Supabase ist noch nicht konfiguriert. Hinterlege EXPO_PUBLIC_SUPABASE_URL und EXPO_PUBLIC_SUPABASE_ANON_KEY und starte Expo anschließend neu.';
+  if (!supabaseUrl && !supabasePublicKey) {
+    return 'Supabase ist noch nicht konfiguriert. Hinterlege EXPO_PUBLIC_SUPABASE_URL und EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY und starte Expo anschließend neu.';
   }
 
   if (!supabaseUrl) {
     return 'EXPO_PUBLIC_SUPABASE_URL fehlt. Kontoaktionen bleiben deaktiviert.';
   }
 
-  return 'EXPO_PUBLIC_SUPABASE_ANON_KEY fehlt. Kontoaktionen bleiben deaktiviert.';
+  return 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY beziehungsweise EXPO_PUBLIC_SUPABASE_ANON_KEY fehlt. Kontoaktionen bleiben deaktiviert.';
 }
 
-let client: SupabaseClient | null = null;
+let client: SupabaseClient<Database> | null = null;
 let configuration: SupabaseConfiguration;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseUrl || !supabasePublicKey) {
   configuration = {
     isConfigured: false,
     mode: 'local-development',
@@ -58,7 +61,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
     };
   } else {
     try {
-      client = createClient(supabaseUrl, supabaseAnonKey, {
+      client = createClient<Database>(supabaseUrl, supabasePublicKey, {
         auth: {
           autoRefreshToken: true,
           detectSessionInUrl: false,
@@ -75,7 +78,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
       configuration = {
         isConfigured: false,
         mode: 'local-development',
-        message: 'Die Supabase-Konfiguration konnte nicht geladen werden. Prüfe URL und öffentlichen Anon-Key.',
+        message: 'Die Supabase-Konfiguration konnte nicht geladen werden. Prüfe URL und öffentlichen Publishable-Key.',
       };
     }
   }

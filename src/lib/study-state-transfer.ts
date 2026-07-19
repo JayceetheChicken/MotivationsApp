@@ -5,6 +5,7 @@ const LOCAL_USER_ID = 'local-user';
 export interface StudyPrivacySnapshot {
   friendComparisonsEnabled: boolean;
   shareAutomaticMinutes: boolean;
+  shareManualMinutes: boolean;
   shareGoalProgress: boolean;
   shareStreak: boolean;
 }

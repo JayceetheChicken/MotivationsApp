@@ -347,6 +347,25 @@ describe('StudyStoreProvider goal lifecycle', () => {
       null,
       goalId,
     ]);
+
+    let timerOnlyGoalId = '';
+    await act(() => {
+      timerOnlyGoalId = result.current.createGoal({
+        title: 'Nur mit Timer',
+        type: 'duration',
+        target: 60,
+        subjectId: mathId,
+        sourcePolicy: 'timer_only',
+      }).id;
+    });
+    await act(() => {
+      expect(result.current.addManualEntry({
+        goalId: timerOnlyGoalId,
+        durationMinutes: 15,
+        studiedOn: '2026-07-11',
+      })).toBeNull();
+    });
+    expect(result.current.data.sessions).toHaveLength(2);
   });
 
   it('keeps session snapshots stable when a linked goal is renamed', async () => {
@@ -822,6 +841,7 @@ describe('StudyStoreProvider data reset', () => {
     await act(() => {
       result.current.setFriendComparisonsEnabled(true);
       result.current.setPrivacyPreference('shareAutomaticMinutes', true);
+      result.current.setPrivacyPreference('shareManualMinutes', true);
       result.current.setPrivacyPreference('shareGoalProgress', true);
       result.current.setPrivacyPreference('shareStreak', true);
     });
@@ -829,6 +849,7 @@ describe('StudyStoreProvider data reset', () => {
       expect(result.current.privacy).toEqual({
         friendComparisonsEnabled: true,
         shareAutomaticMinutes: true,
+        shareManualMinutes: true,
         shareGoalProgress: true,
         shareStreak: true,
       }),
@@ -867,12 +888,13 @@ describe('StudyStoreProvider account import', () => {
     );
   }
 
-  it('copies local learning data non-destructively even after a previous account import', async () => {
+  it('previews local learning data and imports it only after explicit confirmation', async () => {
     const localPayload = JSON.stringify({
       schemaVersion: 3,
       privacy: {
         friendComparisonsEnabled: false,
         shareAutomaticMinutes: false,
+        shareManualMinutes: false,
         shareGoalProgress: false,
         shareStreak: false,
       },
@@ -900,14 +922,30 @@ describe('StudyStoreProvider account import', () => {
       },
     });
     storedValues.set(STORAGE_KEY, localPayload);
-    storedValues.set('lernzeit.study-import.v1.local-to-account-user-123', 'complete');
-
     const first = await renderHook(() => useStudyStore(), { wrapper: accountWrapper });
     await waitFor(() => expect(first.result.current.hydrated).toBe(true));
+    expect(first.result.current.data.sessions).toEqual([]);
+    expect(first.result.current.localImportPreview).toEqual({
+      subjects: 1,
+      sessions: 1,
+      goals: 0,
+      grades: 0,
+      hasActiveTimer: false,
+      warnings: [],
+    });
+
+    await act(async () => {
+      await first.result.current.confirmLocalImport();
+    });
+
     expect(first.result.current.data.sessions).toEqual([
       expect.objectContaining({ id: 'session-local', userId: 'user-123' }),
     ]);
+    expect(first.result.current.localImportPreview).toBeNull();
     expect(storedValues.get(STORAGE_KEY)).toBe(localPayload);
-    expect(storedValues.get('lernzeit.study-state.v2.account-user-123')).toBeTruthy();
+    await waitFor(() => {
+      expect(storedValues.get('lernzeit.study-state.v2.account-user-123')).toBeTruthy();
+    });
+    expect(storedValues.get('lernzeit.study-import.v2.user-123')).toMatch(/^[a-f0-9]{64}$/);
   });
 });

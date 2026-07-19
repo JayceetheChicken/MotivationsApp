@@ -11,6 +11,7 @@ import { SourceBadge } from '@/components/ui/source-badge';
 import { useAuthStore } from '@/state/auth-store';
 import { type PrivacyPreferences, useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
+import type { AccountStudyUser } from '@/types/study';
 
 interface PreferenceRowProps {
   label: string;
@@ -49,18 +50,32 @@ export default function ProfileScreen() {
     setFriendComparisonsEnabled,
     setPrivacyPreference,
     clearAllData,
+    lastSyncError = null,
+    pendingMutationCount = 0,
+    retrySync = async () => undefined,
+    sharingPreferences = null,
+    socialError = null,
+    socialLoading = false,
+    syncStatus = {
+      phase: 'idle',
+      pendingMutationCount: 0,
+      lastSyncedAt: null,
+      lastError: null,
+    },
   } = useStudyStore();
   const [confirmation, setConfirmation] = useState<'data' | 'local-profile' | null>(null);
   const isGuest = auth.activeMode === 'none';
+  const accountProfile = auth.activeMode === 'supabase'
+    ? data.currentUser as AccountStudyUser | null
+    : null;
   const displayName = isGuest
     ? 'Gast'
     : data.currentUser?.displayName
       ?? auth.localProfile?.displayName
-      ?? (typeof auth.user?.user_metadata.display_name === 'string' ? auth.user.user_metadata.display_name : 'Lernprofil');
+      ?? (auth.activeMode === 'supabase' ? 'Online-Profil' : 'Lernprofil');
   const username = data.currentUser?.username
     ?? auth.localProfile?.username
-    ?? auth.user?.email?.split('@')[0]
-    ?? 'profil';
+    ?? (auth.activeMode === 'supabase' ? 'profil-wird-geladen' : 'profil');
   const avatarUrl = isGuest ? undefined : data.currentUser?.avatarUrl ?? auth.localProfile?.avatarUri;
   const modeLabel = {
     none: 'Ohne Konto',
@@ -76,6 +91,11 @@ export default function ProfileScreen() {
       key: 'shareAutomaticMinutes',
       label: 'Gemessene Minuten',
       description: 'Freunde sehen die mit dem Timer erfasste Wochenzeit.',
+    },
+    {
+      key: 'shareManualMinutes',
+      label: 'Manuell eingetragene Zeit',
+      description: 'Freunde sehen manuelle Einträge getrennt von der Timer-Zeit.',
     },
     {
       key: 'shareGoalProgress',
@@ -122,6 +142,18 @@ export default function ProfileScreen() {
         </View>
       </AppCard>
 
+      {accountProfile?.usernameNeedsReview ? (
+        <AppCard style={styles.reviewCard} variant="outlined">
+          <Text accessibilityRole="alert" style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Benutzername noch nicht bestätigt</Text>
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Bitte wähle einen eindeutigen Benutzernamen. Erst danach kannst du andere Personen finden und Social-Funktionen zuverlässig nutzen.</Text>
+          <AppButton
+            fullWidth
+            label="Benutzernamen jetzt bestätigen"
+            onPress={() => router.push('/local-profile')}
+          />
+        </AppCard>
+      ) : null}
+
       <View style={styles.section}>
         <SectionHeader
           description="Online-Konten und lokale Profile sind freiwillig. Deine vorhandenen Lerndaten bleiben beim Wechsel erhalten."
@@ -130,19 +162,50 @@ export default function ProfileScreen() {
         />
         <AppCard style={styles.accountActions} variant="subtle">
           {auth.activeMode === 'supabase' ? (
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Dein Online-Konto ist verbunden.</Text>
+            <>
+              <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
+                {syncStatus.phase === 'offline'
+                  ? `Offline – ${pendingMutationCount} ausstehende Änderung${pendingMutationCount === 1 ? '' : 'en'} bleibt auf diesem Gerät gespeichert.`
+                  : syncStatus.phase === 'syncing'
+                    ? 'Deine Lerndaten werden synchronisiert.'
+                    : pendingMutationCount > 0
+                      ? `${pendingMutationCount} Änderung${pendingMutationCount === 1 ? '' : 'en'} wartet auf die Synchronisierung.`
+                      : 'Dein Online-Konto ist verbunden und aktuell.'}
+              </Text>
+              {lastSyncError ? (
+                <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.danger }]}>
+                  {lastSyncError}
+                </Text>
+              ) : null}
+              {syncStatus.phase === 'error' || syncStatus.phase === 'offline' ? (
+                <AppButton
+                  fullWidth
+                  label="Synchronisierung erneut versuchen"
+                  onPress={() => void retrySync()}
+                  variant="outline"
+                />
+              ) : null}
+              <AppButton
+                fullWidth
+                label="Online-Profil bearbeiten"
+                onPress={() => router.push('/local-profile')}
+                variant="outline"
+              />
+            </>
           ) : auth.configuration.isConfigured ? (
             <>
               <AppButton fullWidth label="Online-Konto anmelden" onPress={() => router.push('/login')} />
               <AppButton fullWidth label="Online-Konto erstellen" onPress={() => router.push('/register')} variant="outline" />
             </>
           ) : null}
-          <AppButton
-            fullWidth
-            label={auth.localProfile ? 'Lokales Profil bearbeiten' : 'Lokales Profil erstellen'}
-            onPress={() => router.push('/local-profile')}
-            variant={auth.configuration.isConfigured ? 'ghost' : 'outline'}
-          />
+          {auth.activeMode !== 'supabase' ? (
+            <AppButton
+              fullWidth
+              label={auth.localProfile ? 'Lokales Profil bearbeiten' : 'Lokales Profil erstellen'}
+              onPress={() => router.push('/local-profile')}
+              variant={auth.configuration.isConfigured ? 'ghost' : 'outline'}
+            />
+          ) : null}
         </AppCard>
       </View>
 
@@ -152,24 +215,37 @@ export default function ProfileScreen() {
           eyebrow="Du entscheidest"
           title="Privatsphäre"
         />
-        <AppCard padding="none" style={styles.preferencesCard}>
-          <PreferenceRow
-            description="Blendet den gesamten sozialen Statistikvergleich ein oder aus."
-            label="Freundesvergleiche"
-            onValueChange={setFriendComparisonsEnabled}
-            value={privacy.friendComparisonsEnabled}
-          />
-          {preferenceRows.map((row) => (
-            <PreferenceRow
-              description={row.description}
-              disabled={!privacy.friendComparisonsEnabled}
-              key={row.key}
-              label={row.label}
-              onValueChange={(value) => setPrivacyPreference(row.key, value)}
-              value={privacy[row.key]}
-            />
-          ))}
-        </AppCard>
+        {auth.activeMode === 'supabase' ? (
+          <>
+            {socialError ? (
+              <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.danger }]}>{socialError}</Text>
+            ) : null}
+            <AppCard padding="none" style={styles.preferencesCard}>
+              <PreferenceRow
+                description="Blendet den gesamten sozialen Statistikvergleich auf diesem Gerät ein oder aus."
+                label="Freundesvergleiche"
+                onValueChange={setFriendComparisonsEnabled}
+                value={privacy.friendComparisonsEnabled}
+              />
+              {preferenceRows.map((row) => (
+                <PreferenceRow
+                  description={row.description}
+                  key={row.key}
+                  label={row.label}
+                  onValueChange={(value) => setPrivacyPreference(row.key, value)}
+                  disabled={socialLoading || sharingPreferences === null || syncStatus.phase === 'offline'}
+                  value={privacy[row.key]}
+                />
+              ))}
+            </AppCard>
+          </>
+        ) : (
+          <AppCard variant="subtle">
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
+              Freigaben für Freunde werden erst mit einem Online-Konto angeboten. Im lokalen Modus verlässt keine Statistik dieses Gerät.
+            </Text>
+          </AppCard>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -196,9 +272,20 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.section}>
-        <SectionHeader description="Diese Aktionen lassen sich nicht rückgängig machen." title="Konto & lokale Daten" />
+        <SectionHeader
+          description={auth.activeMode === 'supabase'
+            ? 'Cloud-Daten bleiben erhalten; der Gerätecache kann jederzeit neu aufgebaut werden.'
+            : 'Das Löschen lokaler Daten lässt sich nicht rückgängig machen.'}
+          title="Konto & lokale Daten"
+        />
 
-        {confirmation === 'data' ? (
+        {auth.activeMode === 'supabase' ? (
+          <AppCard style={styles.confirmCard} variant="subtle">
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Gerätecache neu laden</Text>
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Die Cloud-Daten und ausstehenden Offline-Änderungen bleiben erhalten. Ein aktiver Timer bleibt auf diesem Gerät bestehen.</Text>
+            <AppButton fullWidth label="Gerätecache neu laden" onPress={clearAllData} variant="outline" />
+          </AppCard>
+        ) : confirmation === 'data' ? (
           <AppCard style={styles.confirmCard} variant="outlined">
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Alle lokalen Lerndaten löschen?</Text>
             <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Sessions, Ziele, Fächer, Freunde, Challenges und ein laufender Timer werden entfernt. {isGuest ? 'Du kannst die App danach weiter ohne Anmeldung nutzen.' : 'Dein Profil bleibt bestehen.'}</Text>
@@ -239,6 +326,7 @@ const styles = StyleSheet.create({
   modeDot: { width: 7, height: 7, borderRadius: 4 },
   section: { gap: 14 },
   accountActions: { gap: 10 },
+  reviewCard: { gap: 12 },
   preferencesCard: { overflow: 'hidden' },
   preferenceRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 18, paddingVertical: 13, borderBottomWidth: StyleSheet.hairlineWidth },
   preferenceCopy: { flex: 1, minWidth: 0, gap: 2 },

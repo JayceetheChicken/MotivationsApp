@@ -1,21 +1,43 @@
 import {
+  useCallback,
   createContext,
   type PropsWithChildren,
   use,
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
 } from 'react';
+import { randomUUID } from 'expo-crypto';
 
+import { supabase } from '@/auth/supabase';
 import { createInitialData, subjectColorPalette } from '@/data/initial-data';
+import { createLocalStudyRepository } from '@/data/repositories/local-study-repository';
+import { asRepositoryError } from '@/data/repositories/repository-error';
+import {
+  type CreateSharedGoalInput,
+  type LocalImportReport,
+  type SyncStatus,
+  type StudyRepository,
+} from '@/data/repositories/study-repository';
+import { createSupabaseStudyRepository } from '@/data/repositories/supabase-study-repository';
+import { useNetworkStatus } from '@/hooks/use-network-status';
 import '@/lib/local-storage';
 import { isValidGradeDate } from '@/lib/grades';
 import { getGoalSubjectId, getGoalTitle } from '@/lib/goals';
 import {
   assignStudyStateToAccount,
   mergeLocalStudyStateIntoAccount,
+  type StudyStateSnapshot,
 } from '@/lib/study-state-transfer';
+import {
+  createLocalImportManifest,
+  ImportCoordinator,
+  type ImportProgress,
+  sha256Hex,
+  stableStringify,
+} from '@/services/sync/import-coordinator';
 import {
   buildTimerSession,
   getTimerFinishDecision,
@@ -23,9 +45,13 @@ import {
   resumeActiveTimer,
 } from '@/lib/timer';
 import type {
+  AccountStudyUser,
   ActiveTimer,
   ChallengeMode,
   ChallengeParticipant,
+  FriendProfileStatistics,
+  FriendSearchResult,
+  FriendshipConnection,
   Friend,
   FriendStudySnapshot,
   GradeAssessmentType,
@@ -33,18 +59,23 @@ import type {
   GoalSourcePolicy,
   GoalStatus,
   ManualStudySession,
+  SessionSource,
   StudyChallenge,
   StudyData,
   StudyGrade,
   StudyGoal,
   StudySession,
+  StudySharingPreferences,
   StudyUser,
+  SharedGoalProgress,
   Subject,
   TimerStudySession,
 } from '@/types/study';
 
 const LEGACY_STORAGE_KEY = 'lernzeit.study-state.v1';
 const STORAGE_KEY_PREFIX = 'lernzeit.study-state.v2';
+const IMPORT_DECISION_KEY_PREFIX = 'lernzeit.study-import.v2';
+const DEVICE_FINGERPRINT_KEY = 'lernzeit.device-fingerprint.v1';
 const CURRENT_SCHEMA_VERSION = 3;
 const LOCAL_USER_ID = 'local-user';
 
@@ -70,6 +101,7 @@ const LEGACY_SEEDED_CHALLENGE_IDS = new Set([
 export interface PrivacyPreferences {
   friendComparisonsEnabled: boolean;
   shareAutomaticMinutes: boolean;
+  shareManualMinutes: boolean;
   shareGoalProgress: boolean;
   shareStreak: boolean;
 }
@@ -78,6 +110,23 @@ export interface StudyState {
   data: StudyData;
   privacy: PrivacyPreferences;
 }
+
+export interface LocalImportPreview {
+  subjects: number;
+  sessions: number;
+  goals: number;
+  grades: number;
+  hasActiveTimer: boolean;
+  warnings: readonly string[];
+}
+
+export type MigrationStatus =
+  | 'idle'
+  | 'preview'
+  | 'importing'
+  | 'completed'
+  | 'completed_with_conflicts'
+  | 'error';
 
 interface PersistedStudyState extends StudyState {
   schemaVersion: typeof CURRENT_SCHEMA_VERSION;
@@ -148,6 +197,13 @@ export interface LocalProfileUpdate {
   avatarColor?: string;
 }
 
+export interface AccountProfileUpdate {
+  displayName: string;
+  username: string;
+  avatarUrl?: string | null;
+  timeZone?: string;
+}
+
 export interface FinishTimerOptions {
   /** The UI must obtain explicit confirmation before setting this for <60 s. */
   allowShortSession?: boolean;
@@ -155,6 +211,39 @@ export interface FinishTimerOptions {
 
 export interface StudyStoreValue extends StudyState {
   hydrated: boolean;
+  localImportPreview: LocalImportPreview | null;
+  migrationStatus: MigrationStatus;
+  migrationProgress: ImportProgress | null;
+  migrationError: string | null;
+  migrationReport: LocalImportReport | null;
+  confirmLocalImport: () => Promise<StudyState | null>;
+  acknowledgeLocalImportReport: () => void;
+  deferLocalImport: () => void;
+  syncStatus: SyncStatus;
+  pendingMutationCount: number;
+  lastSyncError: string | null;
+  retrySync: () => Promise<void>;
+  socialLoading: boolean;
+  socialError: string | null;
+  friendConnections: readonly FriendshipConnection[];
+  sharingPreferences: StudySharingPreferences | null;
+  refreshSocial: () => Promise<void>;
+  updateAccountProfile: (profile: AccountProfileUpdate) => Promise<AccountStudyUser | null>;
+  findFriendByUsername: (username: string) => Promise<FriendSearchResult | null>;
+  sendFriendRequest: (username: string) => Promise<void>;
+  acceptFriendRequest: (friendshipId: string) => Promise<void>;
+  declineFriendRequest: (friendshipId: string) => Promise<void>;
+  removeFriendship: (friendshipId: string) => Promise<void>;
+  getFriendProfileStats: (friendId: string) => Promise<FriendProfileStatistics>;
+  createSharedGoal: (input: CreateSharedGoalInput) => Promise<StudyChallenge | null>;
+  respondSharedGoalInvitation: (
+    goalId: string,
+    accept: boolean,
+  ) => Promise<StudyChallenge | null>;
+  withdrawFromSharedGoal: (goalId: string) => Promise<void>;
+  getSharedGoalDetails: (goalId: string) => Promise<StudyChallenge | null>;
+  getSharedGoalProgress: (goalId: string) => Promise<SharedGoalProgress | null>;
+  subscribeSharedGoalProgress: StudyRepository['subscribeSharedGoalProgress'];
   addSubject: (name: string) => Subject;
   updateLocalProfile: (profile: LocalProfileUpdate) => StudyUser | null;
   clearLocalProfile: () => void;
@@ -197,6 +286,15 @@ type Action =
   | { type: 'add-goal'; payload: StudyGoal }
   | { type: 'replace-goal'; payload: StudyGoal }
   | { type: 'delete-goal'; payload: string }
+  | { type: 'upsert-challenge'; payload: StudyChallenge }
+  | { type: 'withdraw-from-challenge'; payload: { goalId: string; userId: string } }
+  | {
+      type: 'apply-account-profile';
+      payload: {
+        profile: StudyUser;
+        sharing: StudySharingPreferences;
+      };
+    }
   | { type: 'set-friend-comparisons'; payload: boolean }
   | {
       type: 'set-privacy-preference';
@@ -208,6 +306,7 @@ type Action =
 export const defaultPrivacy: Readonly<PrivacyPreferences> = {
   friendComparisonsEnabled: false,
   shareAutomaticMinutes: false,
+  shareManualMinutes: false,
   shareGoalProgress: false,
   shareStreak: false,
 };
@@ -305,6 +404,52 @@ function reducer(state: StudyState, action: Action): StudyState {
           goals: state.data.goals.filter((goal) => goal.id !== action.payload),
         },
       };
+    case 'upsert-challenge': {
+      const exists = state.data.challenges.some(
+        (challenge) => challenge.id === action.payload.id,
+      );
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          challenges: exists
+            ? state.data.challenges.map((challenge) =>
+                challenge.id === action.payload.id ? action.payload : challenge,
+              )
+            : [action.payload, ...state.data.challenges],
+        },
+      };
+    }
+    case 'withdraw-from-challenge':
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          challenges: state.data.challenges.map((challenge) =>
+            challenge.id !== action.payload.goalId
+              ? challenge
+              : {
+                  ...challenge,
+                  participants: challenge.participants.map((participant) =>
+                    participant.userId === action.payload.userId
+                      ? { ...participant, status: 'withdrawn' as const }
+                      : participant,
+                  ),
+                },
+          ),
+        },
+      };
+    case 'apply-account-profile':
+      return {
+        data: { ...state.data, currentUser: action.payload.profile },
+        privacy: {
+          ...state.privacy,
+          shareAutomaticMinutes: action.payload.sharing.shareTimerStats,
+          shareManualMinutes: action.payload.sharing.shareManualStats,
+          shareGoalProgress: action.payload.sharing.shareGoalProgress,
+          shareStreak: action.payload.sharing.shareStreak,
+        },
+      };
     case 'set-friend-comparisons':
       return {
         ...state,
@@ -322,8 +467,8 @@ function reducer(state: StudyState, action: Action): StudyState {
   }
 }
 
-function makeId(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+function makeId(_prefix: string): string {
+  return randomUUID();
 }
 
 function cleanOptionalText(value: string | null | undefined): string | undefined {
@@ -368,14 +513,35 @@ function resolveSessionBinding(
   data: StudyData,
   requestedSubjectId: string | undefined,
   requestedGoalId: string | null | undefined,
+  source: SessionSource,
 ): ResolvedSessionBinding | null {
   const goalId = cleanOptionalText(requestedGoalId);
   const explicitSubjectId = cleanOptionalText(requestedSubjectId);
   const goal = goalId
     ? data.goals.find((entry) => entry.id === goalId)
     : undefined;
+  const sharedGoal = goalId
+    ? data.challenges.find((entry) => entry.id === goalId)
+    : undefined;
 
-  if (goalId && (!goal || goal.status !== 'active' || goal.userId !== actorId(data))) {
+  if (
+    goalId &&
+    !goal &&
+    (
+      !sharedGoal ||
+      sharedGoal.status !== 'active' ||
+      !sharedGoal.participants.some(
+        (participant) => participant.userId === actorId(data) && participant.status === 'accepted',
+      )
+    )
+  ) {
+    return null;
+  }
+
+  if (goal && (goal.status !== 'active' || goal.userId !== actorId(data))) {
+    return null;
+  }
+  if ((goal ?? sharedGoal)?.sourcePolicy === 'timer_only' && source !== 'timer') {
     return null;
   }
 
@@ -392,9 +558,11 @@ function resolveSessionBinding(
   if (!subject) return null;
 
   return {
-    goalId: goal?.id ?? null,
+    goalId: goal?.id ?? sharedGoal?.id ?? null,
     subjectId: subject.id,
-    goalTitleSnapshot: goal ? getGoalTitle(goal, data.subjects) : undefined,
+    goalTitleSnapshot: goal
+      ? getGoalTitle(goal, data.subjects)
+      : sharedGoal?.title,
     subjectNameSnapshot: subject.name,
   };
 }
@@ -912,9 +1080,7 @@ function parseChallenge(value: unknown): StudyChallenge | null {
       (participant.status !== 'invited' &&
         participant.status !== 'accepted' &&
         participant.status !== 'declined' &&
-        participant.status !== 'withdrawn') ||
-      !isFiniteNumber(participant.contributionMinutes) ||
-      !isFiniteNumber(participant.timerSessionCount)
+        participant.status !== 'withdrawn')
     ) {
       return [];
     }
@@ -922,8 +1088,6 @@ function parseChallenge(value: unknown): StudyChallenge | null {
     return [{
       userId: participant.userId,
       status: participantStatus,
-      contributionMinutes: participant.contributionMinutes,
-      timerSessionCount: participant.timerSessionCount,
     }];
   });
   const mode: ChallengeMode = value.target.mode;
@@ -970,6 +1134,10 @@ function parsePrivacy(value: unknown): PrivacyPreferences {
       typeof value.shareAutomaticMinutes === 'boolean'
         ? value.shareAutomaticMinutes
         : defaultPrivacy.shareAutomaticMinutes,
+    shareManualMinutes:
+      typeof value.shareManualMinutes === 'boolean'
+        ? value.shareManualMinutes
+        : defaultPrivacy.shareManualMinutes,
     shareGoalProgress:
       typeof value.shareGoalProgress === 'boolean'
         ? value.shareGoalProgress
@@ -1111,6 +1279,114 @@ function readStoredState(storageScope: string): {
   }
 }
 
+function getDeviceFingerprint(): string {
+  try {
+    const existing = localStorage.getItem(DEVICE_FINGERPRINT_KEY)?.trim();
+    if (existing) return existing;
+    const created = randomUUID();
+    localStorage.setItem(DEVICE_FINGERPRINT_KEY, created);
+    return created;
+  } catch {
+    // The value is an idempotency aid, not an identity secret. A temporary
+    // fingerprint still allows the import UI to remain usable without storage.
+    return randomUUID();
+  }
+}
+
+function sameSnapshot(left: StudyStateSnapshot, right: StudyStateSnapshot): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function rebaseEntityList<T extends { id: string }>(
+  baseline: readonly T[],
+  current: readonly T[],
+  server: readonly T[],
+): readonly T[] {
+  const baselineById = new Map(baseline.map((entry) => [entry.id, entry]));
+  const currentById = new Map(current.map((entry) => [entry.id, entry]));
+  const merged = new Map(server.map((entry) => [entry.id, entry]));
+
+  for (const entry of baseline) {
+    if (!currentById.has(entry.id)) merged.delete(entry.id);
+  }
+  for (const entry of current) {
+    const previous = baselineById.get(entry.id);
+    if (!previous || !sameValue(previous, entry)) merged.set(entry.id, entry);
+  }
+
+  const orderedIds = [
+    ...current.map((entry) => entry.id),
+    ...server.map((entry) => entry.id).filter((id) => !currentById.has(id)),
+  ];
+  return orderedIds.flatMap((id) => {
+    const entry = merged.get(id);
+    return entry ? [entry] : [];
+  });
+}
+
+/**
+ * Rebases edits made while a sync request was in flight onto the freshly
+ * pulled server snapshot. This prevents a late response from replacing a
+ * newer timer/session edit while still retaining remote-device changes.
+ */
+function rebaseOptimisticState(
+  baseline: StudyStateSnapshot,
+  current: StudyStateSnapshot,
+  server: StudyStateSnapshot,
+): StudyStateSnapshot {
+  const currentUserChanged = !sameValue(baseline.data.currentUser, current.data.currentUser);
+  const privacyValue = <K extends keyof PrivacyPreferences>(key: K): PrivacyPreferences[K] => (
+    !sameValue(baseline.privacy[key], current.privacy[key])
+      ? current.privacy[key]
+      : server.privacy[key]
+  );
+
+  return {
+    privacy: {
+      friendComparisonsEnabled: current.privacy.friendComparisonsEnabled,
+      shareAutomaticMinutes: privacyValue('shareAutomaticMinutes'),
+      shareManualMinutes: privacyValue('shareManualMinutes'),
+      shareGoalProgress: privacyValue('shareGoalProgress'),
+      shareStreak: privacyValue('shareStreak'),
+    },
+    data: {
+      currentUser: currentUserChanged ? current.data.currentUser : server.data.currentUser,
+      subjects: rebaseEntityList(baseline.data.subjects, current.data.subjects, server.data.subjects),
+      sessions: rebaseEntityList(baseline.data.sessions, current.data.sessions, server.data.sessions),
+      grades: rebaseEntityList(baseline.data.grades, current.data.grades, server.data.grades),
+      goals: rebaseEntityList(baseline.data.goals, current.data.goals, server.data.goals),
+      friends: rebaseEntityList(baseline.data.friends, current.data.friends, server.data.friends),
+      challenges: rebaseEntityList(
+        baseline.data.challenges,
+        current.data.challenges,
+        server.data.challenges,
+      ),
+      activeTimer: current.data.activeTimer,
+    },
+  };
+}
+
+function localImportDecisionFingerprint(snapshot: StudyStateSnapshot): string {
+  return sha256Hex(stableStringify({
+    subjects: snapshot.data.subjects,
+    goals: snapshot.data.goals,
+    sessions: snapshot.data.sessions,
+    grades: snapshot.data.grades,
+    activeTimer: snapshot.data.activeTimer,
+  }));
+}
+
+const INITIAL_SYNC_STATUS: Readonly<SyncStatus> = {
+  phase: 'idle',
+  pendingMutationCount: 0,
+  lastSyncedAt: null,
+  lastError: null,
+};
+
 export function StudyStoreProvider({
   accountUserId,
   children,
@@ -1119,10 +1395,60 @@ export function StudyStoreProvider({
 }: StudyStoreProviderProps) {
   const [state, dispatch] = useReducer(reducer, undefined, createInitialStudyState);
   const [hydrated, setHydrated] = useState(false);
+  const [localImportPreview, setLocalImportPreview] = useState<LocalImportPreview | null>(null);
+  const [migrationStatus, setMigrationStatus] = useState<MigrationStatus>('idle');
+  const [migrationProgress, setMigrationProgress] = useState<ImportProgress | null>(null);
+  const [migrationError, setMigrationError] = useState<string | null>(null);
+  const [migrationReport, setMigrationReport] = useState<LocalImportReport | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(INITIAL_SYNC_STATUS);
+  const [socialLoading, setSocialLoading] = useState(false);
+  const [socialError, setSocialError] = useState<string | null>(null);
+  const [friendConnections, setFriendConnections] = useState<readonly FriendshipConnection[]>([]);
+  const [sharingPreferences, setSharingPreferences] = useState<StudySharingPreferences | null>(null);
+  const online = useNetworkStatus();
+  const stateRef = useRef(state);
+  const stateGenerationRef = useRef(0);
+  const persistenceTailRef = useRef<Promise<void>>(Promise.resolve());
   const storageKey = scopedStorageKey(storageScope);
+  const importDecisionKey = accountUserId
+    ? `${IMPORT_DECISION_KEY_PREFIX}.${accountUserId}`
+    : null;
+  const repository = useMemo<StudyRepository>(() => {
+    if (accountUserId && supabase) {
+      return createSupabaseStudyRepository({
+        accountId: accountUserId,
+        cacheSnapshotKey: storageKey,
+        cacheStoreSchemaVersion: CURRENT_SCHEMA_VERSION,
+        client: supabase,
+        storage: localStorage,
+      });
+    }
+    return createLocalStudyRepository({
+      externallyPersisted: true,
+      snapshotKey: storageKey,
+      storage: localStorage,
+      storageScope,
+      storeSchemaVersion: CURRENT_SCHEMA_VERSION,
+    });
+  }, [accountUserId, storageKey, storageScope]);
 
   useEffect(() => {
-    try {
+    stateRef.current = state;
+    stateGenerationRef.current += 1;
+  }, [state]);
+
+  useEffect(() => repository.subscribeSyncStatus(setSyncStatus), [repository]);
+
+  useEffect(() => () => {
+    void repository.dispose();
+  }, [repository]);
+
+  useEffect(() => {
+    let mounted = true;
+    const controller = new AbortController();
+
+    const hydrate = async () => {
+      try {
       const accountStorage = readStoredState(storageScope);
       let nextState = accountStorage.state;
 
@@ -1132,33 +1458,80 @@ export function StudyStoreProvider({
         importStorageScope !== storageScope
       ) {
         const localStorageState = readStoredState(importStorageScope);
+        const decisionFingerprint = localStorageState.state
+          ? localImportDecisionFingerprint(localStorageState.state)
+          : null;
+        const importCompleted = Boolean(
+          importDecisionKey &&
+          decisionFingerprint &&
+          localStorage.getItem(importDecisionKey) === decisionFingerprint,
+        );
 
-        if (localStorageState.state) {
-          nextState = mergeLocalStudyStateIntoAccount(
-            nextState,
-            localStorageState.state,
-            accountUserId,
-          );
-          const payload: PersistedStudyState = {
-            schemaVersion: CURRENT_SCHEMA_VERSION,
-            ...nextState,
+        if (localStorageState.state && !importCompleted) {
+          const localData = localStorageState.state.data;
+          const preview = {
+            subjects: localData.subjects.length,
+            sessions: localData.sessions.length,
+            goals: localData.goals.length,
+            grades: localData.grades.length,
+            hasActiveTimer: localData.activeTimer !== null,
           };
-          localStorage.setItem(storageKey, JSON.stringify(payload));
-        } else if (nextState) {
+          if (
+            preview.subjects > 0 ||
+            preview.sessions > 0 ||
+            preview.goals > 0 ||
+            preview.grades > 0 ||
+            preview.hasActiveTimer
+          ) {
+            let warnings: readonly string[] = [];
+            try {
+              warnings = createLocalImportManifest(
+                localStorageState.state,
+                getDeviceFingerprint(),
+              ).warnings;
+            } catch {
+              // The confirmation step repeats full validation and shows any
+              // actionable import error without blocking this safe preview.
+            }
+            if (mounted) {
+              setLocalImportPreview({ ...preview, warnings });
+              setMigrationStatus('preview');
+            }
+          }
+        }
+
+        if (nextState) {
           nextState = assignStudyStateToAccount(nextState, accountUserId);
         }
       }
 
-      if (nextState) {
+      const repositorySnapshot = await repository.loadSnapshot(controller.signal);
+      if (!nextState && repositorySnapshot) {
+        nextState = accountUserId
+          ? assignStudyStateToAccount(repositorySnapshot, accountUserId)
+          : repositorySnapshot;
+      }
+
+      if (nextState && mounted) {
         dispatch({ type: 'hydrate', payload: nextState });
       }
-    } catch {
+    } catch (error) {
+      if ((error as { name?: string }).name === 'AbortError') return;
       // Corrupt or unavailable storage must never prevent an empty app start.
     } finally {
-      setHydrated(true);
-      console.log('[BOOT] Study store hydrated');
+      if (mounted) {
+        setHydrated(true);
+        console.log('[BOOT] Study store hydrated');
+      }
     }
-  }, [accountUserId, importStorageScope, storageKey, storageScope]);
+    };
+
+    void hydrate();
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [accountUserId, importDecisionKey, importStorageScope, repository, storageKey, storageScope]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1173,6 +1546,132 @@ export function StudyStoreProvider({
       // In-memory usage remains available when storage is temporarily unavailable.
     }
   }, [hydrated, state, storageKey, storageScope]);
+
+  const applyRepositorySnapshot = useCallback((snapshot: StudyStateSnapshot | null) => {
+    if (!snapshot || sameSnapshot(stateRef.current, snapshot)) return;
+    dispatch({ type: 'hydrate', payload: snapshot });
+  }, []);
+
+  const retrySync = useCallback(async (): Promise<void> => {
+    if (repository.mode !== 'supabase' || !online) return;
+    const baseline = stateRef.current;
+    const generation = stateGenerationRef.current;
+    const run = async () => {
+      try {
+        const result = await repository.sync();
+        if (!result.snapshot) return;
+        const snapshot = generation === stateGenerationRef.current
+          ? result.snapshot
+          : rebaseOptimisticState(baseline, stateRef.current, result.snapshot);
+        applyRepositorySnapshot(snapshot);
+      } catch {
+        // Repository status contains the typed, user-facing retry information.
+      }
+    };
+    const task = persistenceTailRef.current.then(run, run);
+    persistenceTailRef.current = task.then(() => undefined, () => undefined);
+    await task;
+  }, [applyRepositorySnapshot, online, repository]);
+
+  const runSocialOperation = useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
+    setSocialLoading(true);
+    setSocialError(null);
+    try {
+      return await operation();
+    } catch (error) {
+      const normalized = asRepositoryError(error);
+      setSocialError(normalized.message);
+      throw normalized;
+    } finally {
+      setSocialLoading(false);
+    }
+  }, []);
+
+  const refreshSocial = useCallback(async (): Promise<void> => {
+    if (repository.mode !== 'supabase') return;
+    setSocialLoading(true);
+    setSocialError(null);
+    try {
+      const [profile, sharing, connections] = await Promise.all([
+        repository.social.getMyProfile(),
+        repository.social.getSharingPreferences(),
+        repository.social.listFriendConnections(),
+      ]);
+      setSharingPreferences(sharing);
+      setFriendConnections(connections);
+      dispatch({ type: 'apply-account-profile', payload: { profile, sharing } });
+    } catch (error) {
+      setSocialError(asRepositoryError(error).message);
+    } finally {
+      setSocialLoading(false);
+    }
+  }, [repository]);
+
+  const getFriendProfileStatsCommand = useCallback(
+    (friendId: string) => runSocialOperation(
+      () => repository.social.getFriendProfileStats(friendId),
+    ),
+    [repository, runSocialOperation],
+  );
+
+  const getSharedGoalDetailsCommand = useCallback(async (goalId: string) => {
+    try {
+      const challenge = await runSocialOperation(
+        () => repository.social.getSharedGoalDetails(goalId),
+      );
+      dispatch({ type: 'upsert-challenge', payload: challenge });
+      return challenge;
+    } catch {
+      return null;
+    }
+  }, [repository, runSocialOperation]);
+
+  const getSharedGoalProgressCommand = useCallback(async (goalId: string) => {
+    try {
+      return await runSocialOperation(
+        () => repository.social.getSharedGoalProgress(goalId),
+      );
+    } catch {
+      return null;
+    }
+  }, [repository, runSocialOperation]);
+
+  const subscribeSharedGoalProgressCommand = useCallback<StudyRepository['subscribeSharedGoalProgress']>(
+    (goalId, listener, signal) => repository.subscribeSharedGoalProgress(goalId, listener, signal),
+    [repository],
+  );
+
+  useEffect(() => {
+    if (!hydrated || repository.mode !== 'supabase') return;
+    const timeout = setTimeout(() => {
+      void retrySync();
+      void refreshSocial();
+    }, 0);
+    return () => clearTimeout(timeout);
+  }, [hydrated, refreshSocial, repository.mode, retrySync]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const generation = stateGenerationRef.current;
+    const baseline = state;
+    persistenceTailRef.current = persistenceTailRef.current.then(async () => {
+      try {
+        await repository.saveSnapshot(baseline);
+        if (repository.mode === 'supabase' && online) {
+          const result = await repository.sync();
+          if (result.snapshot) {
+            const snapshot = generation === stateGenerationRef.current
+              ? result.snapshot
+              : rebaseOptimisticState(baseline, stateRef.current, result.snapshot);
+            applyRepositorySnapshot(snapshot);
+          }
+        }
+      } catch {
+        // The repository publishes errors through syncStatus and retains
+        // queued operations for a later retry.
+      }
+    });
+  }, [applyRepositorySnapshot, hydrated, online, repository, state]);
 
   const value = useMemo<StudyStoreValue>(() => {
     const currentActorId = accountUserId?.trim() || actorId(state.data);
@@ -1226,6 +1725,7 @@ export function StudyStoreProvider({
         state.data,
         options.subjectId,
         options.goalId,
+        'timer',
       );
       if (!binding) return null;
       if (
@@ -1295,6 +1795,7 @@ export function StudyStoreProvider({
         state.data,
         entry.subjectId,
         entry.goalId,
+        'manual',
       );
       if (!binding) return null;
       const requestedStart = new Date(`${entry.studiedOn}T12:00:00`);
@@ -1401,6 +1902,30 @@ export function StudyStoreProvider({
     };
 
     const clearAllData = () => {
+      if (repository.mode === 'supabase' && accountUserId) {
+        // Account data remains canonical in Supabase. Only this device's
+        // projection is refreshed; pending outbox mutations are retained.
+        try {
+          // Keep the current snapshot until the full pull succeeds so an
+          // active local timer survives offline errors and process exits.
+          localStorage.removeItem(`lernzeit.repository.v1.account-${accountUserId}`);
+          localStorage.removeItem(`lernzeit.sync-cursor.v1.account-${accountUserId}`);
+        } catch {
+          // A network refresh below can still restore the projection.
+        }
+        void repository.refresh().then((snapshot) => {
+          if (!snapshot) return;
+          dispatch({
+            type: 'hydrate',
+            payload: {
+              ...snapshot,
+              data: { ...snapshot.data, activeTimer: state.data.activeTimer },
+            },
+          });
+        }).catch(() => undefined);
+        return;
+      }
+
       try {
         localStorage.removeItem(storageKey);
         if (storageScope === 'local') localStorage.removeItem(LEGACY_STORAGE_KEY);
@@ -1410,9 +1935,214 @@ export function StudyStoreProvider({
       dispatch({ type: 'reset' });
     };
 
+    const confirmLocalImport = async (): Promise<StudyState | null> => {
+      if (!accountUserId || !importStorageScope || importStorageScope === storageScope) {
+        return null;
+      }
+      const localState = readStoredState(importStorageScope).state;
+      if (!localState) return null;
+
+      setMigrationStatus('importing');
+      setMigrationProgress(null);
+      setMigrationError(null);
+      setMigrationReport(null);
+
+      try {
+        const assignedLocal = assignStudyStateToAccount(localState, accountUserId);
+        const imported = mergeLocalStudyStateIntoAccount(state, localState, accountUserId);
+        let merged: StudyState = {
+          ...imported,
+          privacy: {
+            ...state.privacy,
+            friendComparisonsEnabled: localState.privacy.friendComparisonsEnabled,
+          },
+        };
+        let completedStatus: MigrationStatus = 'completed';
+
+        if (repository.mode === 'supabase') {
+          const manifest = createLocalImportManifest(assignedLocal, getDeviceFingerprint());
+          const report = await new ImportCoordinator(repository.imports).execute(
+            manifest,
+            setMigrationProgress,
+          );
+          if (report.state === 'staging') {
+            throw new Error('Der Import wurde noch nicht serverseitig finalisiert.');
+          }
+          completedStatus = report.state;
+          setMigrationReport(report);
+          const refreshed = await repository.refresh();
+          if (refreshed) {
+            merged = {
+              ...refreshed,
+              privacy: {
+                ...refreshed.privacy,
+                friendComparisonsEnabled: localState.privacy.friendComparisonsEnabled,
+              },
+              data: {
+                ...refreshed.data,
+                activeTimer: assignedLocal.data.activeTimer ?? refreshed.data.activeTimer,
+              },
+            };
+          }
+          await repository.saveSnapshot(merged);
+        }
+
+        dispatch({ type: 'hydrate', payload: merged });
+        if (importDecisionKey) {
+          try {
+            localStorage.setItem(
+              importDecisionKey,
+              localImportDecisionFingerprint(localState),
+            );
+          } catch {
+            // Server finalization remains idempotent if the local receipt fails.
+          }
+        }
+        if (repository.mode !== 'supabase') setLocalImportPreview(null);
+        setMigrationStatus(completedStatus);
+        return merged;
+      } catch (error) {
+        const normalized = asRepositoryError(error);
+        setMigrationStatus('error');
+        setMigrationError(normalized.message);
+        return null;
+      }
+    };
+
+    const enqueueSoftDelete = (
+      name: 'soft_delete_session' | 'soft_delete_grade' | 'soft_delete_personal_goal',
+      entityType: 'session' | 'grade' | 'goal',
+      entityId: string,
+      expectedRevision: number | undefined,
+    ) => {
+      if (repository.mode !== 'supabase') return;
+      void repository.enqueueMutation({
+        operationId: randomUUID(),
+        name,
+        entityType,
+        entityId,
+        expectedRevision,
+        payload: {},
+      }).then(() => {
+        if (online) void retrySync();
+      }).catch(() => undefined);
+    };
+
     return {
       ...state,
       hydrated,
+      localImportPreview,
+      migrationStatus,
+      migrationProgress,
+      migrationError,
+      migrationReport,
+      confirmLocalImport,
+      acknowledgeLocalImportReport: () => {
+        setLocalImportPreview(null);
+        setMigrationReport(null);
+        setMigrationProgress(null);
+        setMigrationError(null);
+        setMigrationStatus('idle');
+      },
+      deferLocalImport: () => {
+        setLocalImportPreview(null);
+        setMigrationReport(null);
+        setMigrationStatus('idle');
+        setMigrationError(null);
+      },
+      syncStatus: repository.mode === 'supabase' && !online
+        ? { ...syncStatus, phase: 'offline' }
+        : syncStatus,
+      pendingMutationCount: syncStatus.pendingMutationCount,
+      lastSyncError: syncStatus.lastError?.message ?? null,
+      retrySync,
+      socialLoading,
+      socialError,
+      friendConnections,
+      sharingPreferences,
+      refreshSocial,
+      updateAccountProfile: async (profile) => {
+        if (repository.mode !== 'supabase') return null;
+        const current = state.data.currentUser as Partial<AccountStudyUser> | null;
+        try {
+          const updated = await runSocialOperation(
+            () => repository.social.updateMyProfile({
+              username: profile.username,
+              displayName: profile.displayName,
+              avatarUrl: profile.avatarUrl?.trim() || null,
+              timeZone: profile.timeZone
+                ?? current?.timeZone
+                ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+                ?? 'UTC',
+              expectedRevision: current?.revision ?? 1,
+            }),
+          );
+          const sharing = sharingPreferences ?? {
+            shareTimerStats: state.privacy.shareAutomaticMinutes,
+            shareManualStats: state.privacy.shareManualMinutes,
+            shareGoalProgress: state.privacy.shareGoalProgress,
+            shareStreak: state.privacy.shareStreak,
+            revision: 1,
+            updatedAt: new Date().toISOString(),
+          };
+          dispatch({ type: 'apply-account-profile', payload: { profile: updated, sharing } });
+          return updated;
+        } catch {
+          return null;
+        }
+      },
+      findFriendByUsername: (username) => runSocialOperation(
+        () => repository.social.findProfileByExactUsername(username),
+      ),
+      sendFriendRequest: async (username) => {
+        await runSocialOperation(() => repository.social.sendFriendRequest(username));
+        await refreshSocial();
+      },
+      acceptFriendRequest: async (friendshipId) => {
+        await runSocialOperation(() => repository.social.acceptFriendRequest(friendshipId));
+        await refreshSocial();
+      },
+      declineFriendRequest: async (friendshipId) => {
+        await runSocialOperation(() => repository.social.declineFriendRequest(friendshipId));
+        await refreshSocial();
+      },
+      removeFriendship: async (friendshipId) => {
+        await runSocialOperation(() => repository.social.removeFriendship(friendshipId));
+        await refreshSocial();
+      },
+      getFriendProfileStats: getFriendProfileStatsCommand,
+      createSharedGoal: async (input) => {
+        try {
+          const challenge = await runSocialOperation(
+            () => repository.social.createSharedGoal(input),
+          );
+          dispatch({ type: 'upsert-challenge', payload: challenge });
+          return challenge;
+        } catch {
+          return null;
+        }
+      },
+      respondSharedGoalInvitation: async (goalId, accept) => {
+        try {
+          const challenge = await runSocialOperation(
+            () => repository.social.respondSharedGoalInvitation(goalId, accept),
+          );
+          dispatch({ type: 'upsert-challenge', payload: challenge });
+          return challenge;
+        } catch {
+          return null;
+        }
+      },
+      withdrawFromSharedGoal: async (goalId) => {
+        await runSocialOperation(() => repository.social.withdrawFromSharedGoal(goalId));
+        dispatch({
+          type: 'withdraw-from-challenge',
+          payload: { goalId, userId: currentActorId },
+        });
+      },
+      getSharedGoalDetails: getSharedGoalDetailsCommand,
+      getSharedGoalProgress: getSharedGoalProgressCommand,
+      subscribeSharedGoalProgress: subscribeSharedGoalProgressCommand,
       addSubject,
       updateLocalProfile,
       clearLocalProfile: () => dispatch({ type: 'set-current-user', payload: null }),
@@ -1426,12 +2156,14 @@ export function StudyStoreProvider({
       deleteGrade: (gradeId) => {
         const grade = state.data.grades.find((entry) => entry.id === gradeId);
         if (!grade || grade.userId !== currentActorId) return false;
+        enqueueSoftDelete('soft_delete_grade', 'grade', grade.id, grade.revision);
         dispatch({ type: 'delete-grade', payload: gradeId });
         return true;
       },
       deleteSession: (sessionId) => {
         const session = state.data.sessions.find((entry) => entry.id === sessionId);
         if (!session || session.userId !== currentActorId) return false;
+        enqueueSoftDelete('soft_delete_session', 'session', session.id, session.revision);
         dispatch({ type: 'delete-session', payload: sessionId });
         return true;
       },
@@ -1442,14 +2174,83 @@ export function StudyStoreProvider({
       resumeGoal: (goalId) => setGoalStatus(goalId, 'active'),
       completeGoal: (goalId) => setGoalStatus(goalId, 'completed'),
       archiveGoal: (goalId) => setGoalStatus(goalId, 'archived'),
-      deleteGoal: (goalId) => dispatch({ type: 'delete-goal', payload: goalId }),
+      deleteGoal: (goalId) => {
+        const goal = state.data.goals.find((entry) => entry.id === goalId);
+        if (!goal || goal.userId !== currentActorId) return;
+        enqueueSoftDelete('soft_delete_personal_goal', 'goal', goal.id, goal.revision);
+        dispatch({ type: 'delete-goal', payload: goalId });
+      },
       setFriendComparisonsEnabled: (enabled) =>
         dispatch({ type: 'set-friend-comparisons', payload: enabled }),
-      setPrivacyPreference: (key, enabled) =>
-        dispatch({ type: 'set-privacy-preference', key, payload: enabled }),
+      setPrivacyPreference: (key, enabled) => {
+        if (repository.mode !== 'supabase') {
+          dispatch({ type: 'set-privacy-preference', key, payload: enabled });
+          return;
+        }
+        if (!online) {
+          setSocialError('Datenschutzfreigaben können nur mit einer aktiven Verbindung geändert werden.');
+          return;
+        }
+        if (!sharingPreferences) {
+          setSocialError('Die aktuellen Datenschutzfreigaben werden noch geladen.');
+          void refreshSocial();
+          return;
+        }
+        const next = {
+          shareTimerStats: key === 'shareAutomaticMinutes'
+            ? enabled
+            : state.privacy.shareAutomaticMinutes,
+          shareManualStats: key === 'shareManualMinutes'
+            ? enabled
+            : state.privacy.shareManualMinutes,
+          shareGoalProgress: key === 'shareGoalProgress'
+            ? enabled
+            : state.privacy.shareGoalProgress,
+          shareStreak: key === 'shareStreak'
+            ? enabled
+            : state.privacy.shareStreak,
+          expectedRevision: sharingPreferences.revision,
+        };
+        void runSocialOperation(
+          () => repository.social.updateSharingPreferences(next),
+        ).then((sharing) => {
+          setSharingPreferences(sharing);
+          const profile = stateRef.current.data.currentUser;
+          if (profile) {
+            dispatch({ type: 'apply-account-profile', payload: { profile, sharing } });
+          }
+        }).catch(() => undefined);
+      },
       clearAllData,
     };
-  }, [accountUserId, hydrated, state, storageKey, storageScope]);
+  }, [
+    accountUserId,
+    friendConnections,
+    getFriendProfileStatsCommand,
+    getSharedGoalDetailsCommand,
+    getSharedGoalProgressCommand,
+    hydrated,
+    importDecisionKey,
+    importStorageScope,
+    localImportPreview,
+    migrationError,
+    migrationProgress,
+    migrationReport,
+    migrationStatus,
+    online,
+    refreshSocial,
+    repository,
+    retrySync,
+    runSocialOperation,
+    sharingPreferences,
+    socialError,
+    socialLoading,
+    state,
+    storageKey,
+    storageScope,
+    syncStatus,
+    subscribeSharedGoalProgressCommand,
+  ]);
 
   return <StudyStoreContext value={value}>{children}</StudyStoreContext>;
 }

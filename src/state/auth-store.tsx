@@ -320,6 +320,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     setNotice(null);
 
     try {
+      const resolvedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: input.email.trim().toLowerCase(),
         password: input.password,
@@ -327,6 +328,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
           data: {
             display_name: input.displayName.trim(),
             username: input.username.trim().toLowerCase(),
+            time_zone: resolvedTimeZone,
           },
         },
       });

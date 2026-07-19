@@ -91,6 +91,7 @@ function setGuestStores(isConfigured = true) {
     privacy: {
       friendComparisonsEnabled: false,
       shareAutomaticMinutes: false,
+      shareManualMinutes: false,
       shareGoalProgress: false,
       shareStreak: false,
     },

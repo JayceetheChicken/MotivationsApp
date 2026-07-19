@@ -37,12 +37,44 @@ export default function SessionScreen() {
   } = useStudyStore();
   const now = useCurrentDate();
   const availableSubjects = data.subjects.filter((subject) => !subject.archived);
-  const requestedGoal = data.goals.find((goal) => goal.id === requestedGoalId && goal.status === 'active');
+  const timerGoals = [
+    ...data.goals.flatMap((goal) => {
+      const subjectId = getGoalSubjectId(goal);
+      return goal.status === 'active'
+        && Boolean(subjectId)
+        && availableSubjects.some((subject) => subject.id === subjectId)
+        ? [{ id: goal.id, title: getGoalTitle(goal, data.subjects), kind: 'personal' as const, subjectId: subjectId! }]
+        : [];
+    }),
+    ...(data.challenges ?? []).flatMap((goal) => (
+      goal.status === 'active'
+      && goal.participants.some(
+        (participant) => participant.userId === data.currentUser?.id && participant.status === 'accepted',
+      )
+        ? [{ id: goal.id, title: goal.title, kind: 'shared' as const, subjectId: undefined }]
+        : []
+    )),
+  ];
+  const initialRequestedGoalId = typeof requestedGoalId === 'string'
+    && timerGoals.some((goal) => goal.id === requestedGoalId)
+    ? requestedGoalId
+    : null;
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(
+    () => data.activeTimer?.goalId ?? initialRequestedGoalId,
+  );
+  const selectedGoal = timerGoals.find((goal) => goal.id === selectedGoalId);
+  const requestedGoal = selectedGoal?.kind === 'personal'
+    ? data.goals.find((goal) => goal.id === selectedGoal.id)
+    : undefined;
+  const requestedSharedGoal = selectedGoal?.kind === 'shared'
+    ? (data.challenges ?? []).find((goal) => goal.id === selectedGoal.id)
+    : undefined;
   const requestedGoalSubject = requestedGoal ? getGoalSubjectId(requestedGoal) : null;
   const requestedGoalSubjectId = requestedGoalSubject
     && availableSubjects.some((subject) => subject.id === requestedGoalSubject)
     ? requestedGoalSubject
     : undefined;
+  const requestedGoalIdForSession = selectedGoal?.id ?? null;
   const [selectedSubjectId, setSelectedSubjectId] = useState(
     () => data.activeTimer?.subjectId ?? requestedGoalSubjectId ?? availableSubjects[0]?.id ?? '',
   );
@@ -102,7 +134,7 @@ export default function SessionScreen() {
     }
     const started = startTimer({
       subjectId: effectiveSelectedSubjectId,
-      goalId: requestedGoalSubjectId ? requestedGoal?.id : null,
+      goalId: selectedGoal?.id ?? null,
       plannedDurationMinutes: plannedDuration.trim() ? parsedPlannedDuration : undefined,
     });
     if (!started) {
@@ -272,24 +304,81 @@ export default function SessionScreen() {
         <View style={[styles.setupContent, { maxWidth: isTablet ? 760 : 560 }]}>
           <View style={styles.setupCopy}>
             <Text accessibilityRole="header" style={[styles.setupTitle, isTablet ? styles.setupTitleTablet : undefined, { color: foreground }]}>
-              {requestedGoalSubjectId ? 'Bereit für dein Lernziel?' : 'Woran möchtest du jetzt arbeiten?'}
+              {requestedGoalIdForSession ? 'Bereit für dein Lernziel?' : 'Woran möchtest du jetzt arbeiten?'}
             </Text>
             <Text style={[styles.setupDescription, { color: foregroundMuted }]}>
-              {requestedGoalSubjectId
+              {requestedGoal
                 ? 'Ziel und Fach werden fest mit dieser Session verbunden. Pausen zählen nicht zur Lernzeit.'
-                : 'Wähle ein Fach und starte ohne Umwege. Pausen zählen nicht zur Lernzeit.'}
+                : requestedSharedGoal
+                  ? 'Das gemeinsame Ziel wird fest verbunden; dein Fach bleibt frei wählbar. Pausen zählen nicht zur Lernzeit.'
+                  : 'Wähle ein Fach und starte ohne Umwege. Pausen zählen nicht zur Lernzeit.'}
             </Text>
           </View>
 
-          {requestedGoalSubjectId && requestedGoal ? (
+          <View style={styles.goalSelection}>
+            <Text style={[styles.detailLabel, { color: foregroundMuted }]}>LERNZIEL · OPTIONAL</Text>
+            <Text style={[theme.typography.caption, { color: foregroundMuted }]}>Persönliche Ziele legen das Fach fest; bei gemeinsamen Zielen bleibt es frei.</Text>
+            <View accessibilityRole="radiogroup" style={styles.goalChoices}>
+              <Pressable
+                accessibilityLabel="Freie Lernzeit"
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selectedGoalId === null }}
+                onPress={() => { setSelectedGoalId(null); setStartError(null); }}
+                style={({ pressed }) => [
+                  styles.goalChoice,
+                  {
+                    backgroundColor: selectedGoalId === null ? theme.colors.focusSurfaceStrong : theme.colors.focusSurface,
+                    borderColor: selectedGoalId === null ? theme.colors.focusAccent : theme.colors.focusBorder,
+                  },
+                  pressed ? styles.pressed : undefined,
+                ]}>
+                <Text style={[theme.typography.bodyMedium, { color: foreground }]}>Freie Lernzeit</Text>
+                <Text style={[theme.typography.caption, { color: foregroundMuted }]}>Keinem Ziel zuordnen</Text>
+              </Pressable>
+              {timerGoals.map((goal) => {
+                const selected = goal.id === selectedGoalId;
+                return (
+                  <Pressable
+                    accessibilityLabel={`Lernziel ${goal.title}`}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
+                    key={goal.id}
+                    onPress={() => {
+                      setSelectedGoalId(goal.id);
+                      if (goal.subjectId) setSelectedSubjectId(goal.subjectId);
+                      setStartError(null);
+                    }}
+                    style={({ pressed }) => [
+                      styles.goalChoice,
+                      {
+                        backgroundColor: selected ? theme.colors.focusSurfaceStrong : theme.colors.focusSurface,
+                        borderColor: selected ? theme.colors.focusAccent : theme.colors.focusBorder,
+                      },
+                      pressed ? styles.pressed : undefined,
+                    ]}>
+                    <Text style={[theme.typography.bodyMedium, { color: foreground }]}>{goal.title}</Text>
+                    <Text style={[theme.typography.caption, { color: foregroundMuted }]}>
+                      {goal.kind === 'shared' ? 'Gemeinsames Ziel · Fach frei' : 'Persönliches Ziel · Fach gebunden'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          {requestedGoalIdForSession ? (
             <View style={[styles.goalBindingCard, { backgroundColor: theme.colors.focusSurfaceStrong, borderColor: theme.colors.focusAccent }]}>
               <Text style={[styles.goalBindingEyebrow, { color: theme.colors.focusAccent }]}>AUSGEWÄHLTES LERNZIEL</Text>
-              <Text style={[styles.goalBindingTitle, { color: foreground }]}>{getGoalTitle(requestedGoal, data.subjects)}</Text>
+              <Text style={[styles.goalBindingTitle, { color: foreground }]}>
+                {requestedGoal ? getGoalTitle(requestedGoal, data.subjects) : requestedSharedGoal?.title}
+              </Text>
               <Text style={[styles.goalBindingMeta, { color: foregroundMuted }]}>
-                {availableSubjects.find((subject) => subject.id === requestedGoalSubjectId)?.name} · Wird exakt diesem Ziel angerechnet
+                {requestedGoal
+                  ? `${availableSubjects.find((subject) => subject.id === requestedGoalSubjectId)?.name} · Fach durch Ziel festgelegt`
+                  : 'Gemeinsames Ziel · Fach frei wählbar'} · Wird exakt diesem Ziel angerechnet
               </Text>
             </View>
-          ) : requestedGoalId ? (
+          ) : requestedGoalId && !timerGoals.some((goal) => goal.id === requestedGoalId) ? (
             <View accessibilityLiveRegion="polite" style={[styles.goalBindingCard, { backgroundColor: theme.colors.focusSurface, borderColor: theme.colors.focusBorderStrong }]}>
               <Text style={[styles.goalBindingTitle, { color: foreground }]}>Ziel nicht verfügbar</Text>
               <Text style={[styles.goalBindingMeta, { color: foregroundMuted }]}>Das Ziel ist nicht mehr aktiv oder besitzt keine eindeutige Fachzuordnung. Du kannst stattdessen eine freie Session starten.</Text>
@@ -338,7 +427,7 @@ export default function SessionScreen() {
             <AppButton
               disabled={!effectiveSelectedSubjectId || !plannedDurationIsValid}
               fullWidth
-              label={requestedGoalSubjectId ? 'Ziel-Session starten' : 'Session starten'}
+              label={requestedGoalIdForSession ? 'Ziel-Session starten' : 'Session starten'}
               onPress={beginSession}
               size="large"
               style={[styles.lightButton, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}
@@ -391,6 +480,18 @@ const styles = StyleSheet.create({
   setupTitleTablet: { fontSize: 50, lineHeight: 56 },
   setupDescription: { maxWidth: 520, fontSize: 17, lineHeight: 25 },
   goalBindingCard: { width: '100%', gap: 5, padding: 18, borderRadius: 14, borderWidth: 1 },
+  goalSelection: { width: '100%', gap: 10 },
+  goalChoices: { width: '100%', gap: 9 },
+  goalChoice: {
+    width: '100%',
+    minHeight: 62,
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
   goalBindingEyebrow: { fontSize: 10, lineHeight: 15, fontWeight: '800', letterSpacing: 1.1 },
   goalBindingTitle: { fontSize: 20, lineHeight: 27, fontWeight: '700' },
   goalBindingMeta: { fontSize: 13, lineHeight: 19 },

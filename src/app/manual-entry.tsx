@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SubjectSelector } from '@/components/subject-selector';
@@ -23,7 +23,9 @@ function isValidDateInput(value: string): boolean {
 
 export default function ManualEntryScreen() {
   const theme = useAppTheme();
+  const { goalId: requestedGoalId } = useLocalSearchParams<{ goalId?: string }>();
   const { data, addManualEntry, addSubject } = useStudyStore();
+  const requestedGoalApplied = useRef(false);
   const [subjectId, setSubjectId] = useState(() => data.subjects[0]?.id ?? '');
   const [goalId, setGoalId] = useState<string | null>(null);
   const [duration, setDuration] = useState('30');
@@ -46,20 +48,47 @@ export default function ManualEntryScreen() {
     [],
   );
   const availableSubjects = data.subjects.filter((subject) => !subject.archived);
-  const assignableGoals = data.goals.filter((goal) => {
-    const goalSubjectId = getGoalSubjectId(goal);
-    return goal.status === 'active'
+  const assignableGoals = [
+    ...data.goals.flatMap((goal) => {
+      const goalSubjectId = getGoalSubjectId(goal);
+      return goal.status === 'active'
+        && goal.sourcePolicy === 'all'
+        && Boolean(goalSubjectId)
+        && availableSubjects.some((subject) => subject.id === goalSubjectId)
+        ? [{
+            id: goal.id,
+            title: goal.title || 'Lernziel',
+            kind: 'personal' as const,
+            subjectId: goalSubjectId ?? undefined,
+          }]
+        : [];
+    }),
+    ...(data.challenges ?? []).flatMap((goal) => (
+      goal.status === 'active'
       && goal.sourcePolicy === 'all'
-      && Boolean(goalSubjectId)
-      && availableSubjects.some((subject) => subject.id === goalSubjectId);
-  });
+      && goal.participants.some(
+        (participant) => participant.userId === data.currentUser?.id && participant.status === 'accepted',
+      )
+        ? [{ id: goal.id, title: goal.title, kind: 'shared' as const, subjectId: undefined }]
+        : []
+    )),
+  ];
   const selectedGoal = assignableGoals.find((goal) => goal.id === goalId);
+
+  useEffect(() => {
+    if (!requestedGoalId || requestedGoalApplied.current) return;
+    const requested = assignableGoals.find((goal) => goal.id === requestedGoalId);
+    if (!requested) return;
+    requestedGoalApplied.current = true;
+    setGoalId(requested.id);
+    if (requested.subjectId) setSubjectId(requested.subjectId);
+  }, [assignableGoals, requestedGoalId]);
 
   const selectGoal = (nextGoalId: string | null) => {
     setGoalId(nextGoalId);
     setError(null);
     const goal = assignableGoals.find((candidate) => candidate.id === nextGoalId);
-    const goalSubjectId = goal ? getGoalSubjectId(goal) : null;
+    const goalSubjectId = goal?.subjectId;
     if (goalSubjectId) setSubjectId(goalSubjectId);
   };
 
@@ -128,7 +157,7 @@ export default function ManualEntryScreen() {
           </Pressable>
           {assignableGoals.map((goal) => {
             const selected = goal.id === goalId;
-            const subject = availableSubjects.find((candidate) => candidate.id === getGoalSubjectId(goal));
+            const subject = availableSubjects.find((candidate) => candidate.id === goal.subjectId);
             return (
               <Pressable
                 accessibilityRole="radio"
@@ -145,7 +174,9 @@ export default function ManualEntryScreen() {
                   pressed ? styles.pressed : undefined,
                 ]}>
                 <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>{goal.title || 'Lernziel'}</Text>
-                <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{subject?.name ?? 'Fach nicht verfügbar'}</Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                  {goal.kind === 'shared' ? 'Gemeinsames Ziel · Fach frei wählbar' : subject?.name ?? 'Fach nicht verfügbar'}
+                </Text>
               </Pressable>
             );
           })}
@@ -159,7 +190,7 @@ export default function ManualEntryScreen() {
 
       <View style={styles.fieldGroup}>
         <Text accessibilityRole="header" style={[theme.typography.subheading, { color: theme.colors.text }]}>Fach</Text>
-        {selectedGoal ? (
+        {selectedGoal?.kind === 'personal' ? (
           <AppCard style={styles.lockedSubject} variant="subtle">
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Durch das Lernziel festgelegt</Text>
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
@@ -169,7 +200,11 @@ export default function ManualEntryScreen() {
         ) : (
           <SubjectSelector
             onCreateSubject={addSubject}
-            onSelectSubject={(subject) => { setSubjectId(subject.id); setGoalId(null); setError(null); }}
+            onSelectSubject={(subject) => {
+              setSubjectId(subject.id);
+              if (selectedGoal?.kind !== 'shared') setGoalId(null);
+              setError(null);
+            }}
             selectedSubjectId={subjectId}
             subjects={data.subjects}
           />

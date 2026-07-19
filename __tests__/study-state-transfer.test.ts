@@ -10,6 +10,7 @@ function localState(): StudyStateSnapshot {
     privacy: {
       friendComparisonsEnabled: true,
       shareAutomaticMinutes: false,
+      shareManualMinutes: false,
       shareGoalProgress: true,
       shareStreak: false,
     },
@@ -120,6 +121,7 @@ describe('local study-state account transfer', () => {
     account.privacy = {
       friendComparisonsEnabled: false,
       shareAutomaticMinutes: false,
+      shareManualMinutes: false,
       shareGoalProgress: false,
       shareStreak: false,
     };
