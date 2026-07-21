@@ -930,8 +930,6 @@ create trigger goals_broadcast_shared_goal
 after update on public.goals
 for each row execute function private.broadcast_shared_goal_update();
 
-alter table realtime.messages enable row level security;
-drop policy if exists shared_goal_participants_can_receive on realtime.messages;
 create policy shared_goal_participants_can_receive
 on realtime.messages for select to authenticated
 using (
