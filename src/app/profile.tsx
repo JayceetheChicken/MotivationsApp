@@ -1,59 +1,30 @@
 import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { displayNameError, usernameError } from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Avatar } from '@/components/ui/avatar';
 import { Screen } from '@/components/ui/screen';
 import { SectionHeader } from '@/components/ui/section-header';
-import { SourceBadge } from '@/components/ui/source-badge';
 import { useAuthStore } from '@/state/auth-store';
-import { type PrivacyPreferences, useStudyStore } from '@/state/study-store';
+import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
 import type { AccountStudyUser } from '@/types/study';
-
-interface PreferenceRowProps {
-  label: string;
-  description: string;
-  value: boolean;
-  onValueChange: (value: boolean) => void;
-  disabled?: boolean;
-}
-
-function PreferenceRow({ label, description, value, onValueChange, disabled = false }: PreferenceRowProps) {
-  const theme = useAppTheme();
-  return (
-    <View style={[styles.preferenceRow, { borderBottomColor: theme.colors.divider }]}>
-      <View style={styles.preferenceCopy}>
-        <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>{label}</Text>
-        <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{description}</Text>
-      </View>
-      <Switch
-        accessibilityLabel={label}
-        disabled={disabled}
-        onValueChange={onValueChange}
-        thumbColor={value ? theme.colors.primary : theme.colors.textSubtle}
-        trackColor={{ false: theme.colors.track, true: theme.colors.primaryMuted }}
-        value={value}
-      />
-    </View>
-  );
-}
 
 export default function ProfileScreen() {
   const theme = useAppTheme();
   const auth = useAuthStore();
   const {
     data,
-    privacy,
-    setFriendComparisonsEnabled,
-    setPrivacyPreference,
     clearAllData,
     lastSyncError = null,
     pendingMutationCount = 0,
     retrySync = async () => undefined,
-    sharingPreferences = null,
+    updateAccountProfile,
+    uploadAvatar,
     socialError = null,
     socialLoading = false,
     syncStatus = {
@@ -63,51 +34,140 @@ export default function ProfileScreen() {
       lastError: null,
     },
   } = useStudyStore();
-  const [confirmation, setConfirmation] = useState<'data' | 'local-profile' | null>(null);
+
   const isGuest = auth.activeMode === 'none';
-  const accountProfile = auth.activeMode === 'supabase'
-    ? data.currentUser as AccountStudyUser | null
+  const isAccount = auth.activeMode === 'supabase';
+  const isLocal = auth.activeMode === 'local';
+  const canEditProfile = isAccount || isLocal;
+  const accountProfile = isAccount
+    ? (data.currentUser as AccountStudyUser | null)
     : null;
-  const displayName = isGuest
+
+  const initialDisplayName = isGuest
     ? 'Gast'
     : data.currentUser?.displayName
       ?? auth.localProfile?.displayName
-      ?? (auth.activeMode === 'supabase' ? 'Online-Profil' : 'Lernprofil');
-  const username = data.currentUser?.username
+      ?? (isAccount ? 'Online-Profil' : 'Lernprofil');
+  const initialUsername = data.currentUser?.username
     ?? auth.localProfile?.username
-    ?? (auth.activeMode === 'supabase' ? 'profil-wird-geladen' : 'profil');
+    ?? (isAccount ? 'profil-wird-geladen' : 'profil');
   const avatarUrl = isGuest ? undefined : data.currentUser?.avatarUrl ?? auth.localProfile?.avatarUri;
   const modeLabel = {
     none: 'Ohne Konto',
     local: 'Lokales Profil',
     supabase: 'Online-Konto',
   }[auth.activeMode];
-  const preferenceRows: {
-    key: Exclude<keyof PrivacyPreferences, 'friendComparisonsEnabled'>;
-    label: string;
-    description: string;
-  }[] = [
-    {
-      key: 'shareAutomaticMinutes',
-      label: 'Gemessene Minuten',
-      description: 'Freunde sehen die mit dem Timer erfasste Wochenzeit.',
-    },
-    {
-      key: 'shareManualMinutes',
-      label: 'Manuell eingetragene Zeit',
-      description: 'Freunde sehen manuelle Einträge getrennt von der Timer-Zeit.',
-    },
-    {
-      key: 'shareGoalProgress',
-      label: 'Zielstatus',
-      description: 'Zeigt, ob dein persönliches Wochenziel erreicht ist – nicht dessen Höhe.',
-    },
-    {
-      key: 'shareStreak',
-      label: 'Aktuelle Lernserie',
-      description: 'Teilt die Anzahl aufeinanderfolgender Lerntage.',
-    },
-  ];
+
+  const [confirmation, setConfirmation] = useState<'data' | 'local-profile' | null>(null);
+  const [displayName, setDisplayName] = useState(initialDisplayName);
+  const [username, setUsername] = useState(initialUsername);
+  const [fieldErrors, setFieldErrors] = useState<{ displayName?: string; username?: string }>({});
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  // Keep the editable fields aligned with the persisted profile (e.g. after a
+  // completed background sync) without a syncing effect: React supports
+  // adjusting state during render when a derived-from value changes.
+  const [syncedDisplayName, setSyncedDisplayName] = useState(initialDisplayName);
+  const [syncedUsername, setSyncedUsername] = useState(initialUsername);
+  if (initialDisplayName !== syncedDisplayName || initialUsername !== syncedUsername) {
+    setSyncedDisplayName(initialDisplayName);
+    setSyncedUsername(initialUsername);
+    setDisplayName(initialDisplayName);
+    setUsername(initialUsername);
+  }
+
+  const clearProfileFeedback = () => {
+    if (profileError) setProfileError(null);
+    if (profileNotice) setProfileNotice(null);
+  };
+
+  const saveProfile = async () => {
+    const nextErrors = {
+      displayName: displayNameError(displayName),
+      username: usernameError(username),
+    };
+    setFieldErrors(nextErrors);
+    if (nextErrors.displayName || nextErrors.username) return;
+
+    setProfileSaving(true);
+    setProfileError(null);
+    setProfileNotice(null);
+    try {
+      if (isAccount) {
+        const updated = await updateAccountProfile({
+          displayName: displayName.trim(),
+          username: username.trim().toLowerCase(),
+          avatarUrl: accountProfile?.avatarUrl ?? undefined,
+        });
+        if (updated) {
+          setProfileNotice('Dein Profil wurde gespeichert.');
+        } else {
+          setProfileError(socialError ?? 'Das Profil konnte nicht gespeichert werden.');
+        }
+        return;
+      }
+
+      const result = await auth.saveLocalProfile({
+        displayName: displayName.trim(),
+        username: username.trim().toLowerCase(),
+        avatarUri: auth.localProfile?.avatarUri,
+      });
+      setProfileNotice(result.ok ? 'Dein Profil wurde gespeichert.' : null);
+      setProfileError(result.ok ? null : result.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const pickAndUploadAvatar = async () => {
+    setAvatarError(null);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setAvatarError('Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen.');
+      return;
+    }
+
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (picked.canceled) return;
+
+    const asset = picked.assets[0];
+    if (!asset) return;
+
+    setAvatarUploading(true);
+    setAvatarError(null);
+    try {
+      const url = await uploadAvatar({
+        uri: asset.uri,
+        mimeType: asset.mimeType,
+        fileName: asset.fileName,
+      });
+      if (!url) {
+        setAvatarError(socialError ?? 'Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
+        return;
+      }
+      const updated = await updateAccountProfile({
+        displayName: displayName.trim() || initialDisplayName,
+        username: (username.trim() || initialUsername).toLowerCase(),
+        avatarUrl: url,
+      });
+      if (updated) {
+        setProfileError(null);
+        setProfileNotice('Dein neues Profilbild wurde gespeichert.');
+      } else {
+        setAvatarError('Das Profilbild wurde hochgeladen, aber nicht gespeichert.');
+      }
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
 
   const signOut = async () => {
     const result = await auth.signOut();
@@ -131,27 +191,127 @@ export default function ProfileScreen() {
             boxShadow: `0 10px 24px ${theme.colors.shadow}`,
           },
         ]}>
-        <Avatar name={displayName} size="xl" source={avatarUrl ? { uri: avatarUrl } : undefined} />
-        <View style={styles.profileCopy}>
-          <Text accessibilityRole="header" style={[theme.typography.heading, { color: theme.colors.text }]}>{displayName}</Text>
-          <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>{isGuest ? 'Direkt und ohne Anmeldung' : `@${username}`}</Text>
-          <View style={[styles.modePill, { backgroundColor: theme.colors.accentMustardMuted }]}>
-            <View style={[styles.modeDot, { backgroundColor: theme.colors.accentMustard }]} />
-            <Text style={[theme.typography.caption, { color: theme.colors.text }]}>{modeLabel}</Text>
+        <View style={styles.identity}>
+          {isAccount ? (
+            <Pressable
+              accessibilityHint="Öffnet die Fotoauswahl für ein neues Profilbild"
+              accessibilityLabel="Profilbild antippen zum Ändern"
+              accessibilityRole="button"
+              disabled={avatarUploading}
+              onPress={() => void pickAndUploadAvatar()}
+              style={styles.avatarButton}>
+              <Avatar name={displayName} size="xl" source={avatarUrl ? { uri: avatarUrl } : undefined} />
+              <View style={[styles.avatarBadge, { backgroundColor: theme.colors.primary, borderColor: theme.colors.accentPeachMuted }]}>
+                {avatarUploading ? (
+                  <ActivityIndicator color={theme.colors.onPrimary} size="small" />
+                ) : (
+                  <Text style={[styles.avatarBadgeIcon, { color: theme.colors.onPrimary }]}>✎</Text>
+                )}
+              </View>
+            </Pressable>
+          ) : (
+            <Avatar name={displayName} size="xl" source={avatarUrl ? { uri: avatarUrl } : undefined} />
+          )}
+          <View style={styles.profileCopy}>
+            <Text accessibilityRole="header" style={[theme.typography.heading, { color: theme.colors.text }]}>{displayName}</Text>
+            {isGuest ? (
+              <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Direkt und ohne Anmeldung</Text>
+            ) : (
+              <View style={[styles.usernamePill, { backgroundColor: theme.colors.surface, borderColor: theme.colors.accentBrownMuted }]}>
+                <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.primaryText }]}>@{username}</Text>
+              </View>
+            )}
+            <View style={[styles.modePill, { backgroundColor: theme.colors.accentMustardMuted }]}>
+              <View style={[styles.modeDot, { backgroundColor: theme.colors.accentMustard }]} />
+              <Text style={[theme.typography.caption, { color: theme.colors.text }]}>{modeLabel}</Text>
+            </View>
           </View>
         </View>
+        {isAccount ? (
+          <View style={styles.avatarActionRow}>
+            <AppButton
+              label={avatarUploading ? 'Bild wird hochgeladen…' : 'Profilbild ändern'}
+              loading={avatarUploading}
+              onPress={() => void pickAndUploadAvatar()}
+              size="compact"
+              variant="outline"
+            />
+          </View>
+        ) : null}
+        {isAccount && avatarError ? (
+          <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.danger }]}>{avatarError}</Text>
+        ) : null}
       </AppCard>
 
-      {accountProfile?.usernameNeedsReview ? (
-        <AppCard style={styles.reviewCard} variant="outlined">
-          <Text accessibilityRole="alert" style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Benutzername noch nicht bestätigt</Text>
-          <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Bitte wähle einen eindeutigen Benutzernamen. Erst danach kannst du andere Personen finden und Social-Funktionen zuverlässig nutzen.</Text>
-          <AppButton
-            fullWidth
-            label="Benutzernamen jetzt bestätigen"
-            onPress={() => router.push('/local-profile')}
+      {canEditProfile ? (
+        <View style={styles.section}>
+          <SectionHeader
+            description={isAccount
+              ? 'Anzeigename und eindeutiger Benutzername gelten für dein verbundenes Konto und die Freundessuche.'
+              : 'Name und Benutzername bleiben ausschließlich auf diesem Gerät.'}
+            eyebrow="Dein Profil"
+            title="Profil bearbeiten"
           />
-        </AppCard>
+          <AppCard style={styles.editCard} variant="subtle">
+            {isAccount && accountProfile?.usernameNeedsReview ? (
+              <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.warning }]}>
+                Bitte bestätige einen eindeutigen Benutzernamen, damit dich andere finden können.
+              </Text>
+            ) : null}
+            <View style={styles.field}>
+              <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>Anzeigename</Text>
+              <TextInput
+                accessibilityLabel="Anzeigename"
+                autoCapitalize="words"
+                onChangeText={(value) => {
+                  setDisplayName(value);
+                  if (fieldErrors.displayName) setFieldErrors((current) => ({ ...current, displayName: undefined }));
+                  clearProfileFeedback();
+                }}
+                placeholder="Wie sollen wir dich nennen?"
+                placeholderTextColor={theme.colors.textSubtle}
+                style={[styles.input, theme.typography.body, { backgroundColor: theme.colors.surface, borderColor: fieldErrors.displayName ? theme.colors.danger : theme.colors.border, color: theme.colors.text }]}
+                value={displayName}
+              />
+              {fieldErrors.displayName ? (
+                <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.danger }]}>{fieldErrors.displayName}</Text>
+              ) : null}
+            </View>
+            <View style={styles.field}>
+              <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>Benutzername</Text>
+              <TextInput
+                accessibilityLabel="Benutzername"
+                autoCapitalize="none"
+                onChangeText={(value) => {
+                  setUsername(value.toLowerCase());
+                  if (fieldErrors.username) setFieldErrors((current) => ({ ...current, username: undefined }));
+                  clearProfileFeedback();
+                }}
+                placeholder="dein.name"
+                placeholderTextColor={theme.colors.textSubtle}
+                style={[styles.input, theme.typography.body, { backgroundColor: theme.colors.surface, borderColor: fieldErrors.username ? theme.colors.danger : theme.colors.border, color: theme.colors.text }]}
+                value={username}
+              />
+              <Text style={[theme.typography.caption, { color: theme.colors.textSubtle }]}>3–30 Zeichen, nur Kleinbuchstaben, Zahlen, Punkt, Unterstrich oder Bindestrich.</Text>
+              {fieldErrors.username ? (
+                <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.danger }]}>{fieldErrors.username}</Text>
+              ) : null}
+            </View>
+            {profileError ? (
+              <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.danger }]}>{profileError}</Text>
+            ) : null}
+            {profileNotice ? (
+              <Text accessibilityLiveRegion="polite" style={[theme.typography.caption, { color: theme.colors.success }]}>{profileNotice}</Text>
+            ) : null}
+            <AppButton
+              disabled={isAccount ? socialLoading || !accountProfile : auth.pendingAction === 'save-local-profile'}
+              fullWidth
+              label="Profil speichern"
+              loading={profileSaving || (isAccount ? socialLoading : auth.pendingAction === 'save-local-profile')}
+              onPress={() => void saveProfile()}
+            />
+          </AppCard>
+        </View>
       ) : null}
 
       <View style={styles.section}>
@@ -161,7 +321,7 @@ export default function ProfileScreen() {
           title="Konto & Synchronisierung"
         />
         <AppCard style={styles.accountActions} variant="subtle">
-          {auth.activeMode === 'supabase' ? (
+          {isAccount ? (
             <>
               <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
                 {syncStatus.phase === 'offline'
@@ -185,12 +345,6 @@ export default function ProfileScreen() {
                   variant="outline"
                 />
               ) : null}
-              <AppButton
-                fullWidth
-                label="Online-Profil bearbeiten"
-                onPress={() => router.push('/local-profile')}
-                variant="outline"
-              />
             </>
           ) : auth.configuration.isConfigured ? (
             <>
@@ -198,10 +352,10 @@ export default function ProfileScreen() {
               <AppButton fullWidth label="Online-Konto erstellen" onPress={() => router.push('/register')} variant="outline" />
             </>
           ) : null}
-          {auth.activeMode !== 'supabase' ? (
+          {!isAccount && !auth.localProfile ? (
             <AppButton
               fullWidth
-              label={auth.localProfile ? 'Lokales Profil bearbeiten' : 'Lokales Profil erstellen'}
+              label="Lokales Profil erstellen"
               onPress={() => router.push('/local-profile')}
               variant={auth.configuration.isConfigured ? 'ghost' : 'outline'}
             />
@@ -211,75 +365,13 @@ export default function ProfileScreen() {
 
       <View style={styles.section}>
         <SectionHeader
-          description="Werte werden nur mit bestätigten Freunden und nur nach deiner Freigabe geteilt."
-          eyebrow="Du entscheidest"
-          title="Privatsphäre"
-        />
-        {auth.activeMode === 'supabase' ? (
-          <>
-            {socialError ? (
-              <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.danger }]}>{socialError}</Text>
-            ) : null}
-            <AppCard padding="none" style={styles.preferencesCard}>
-              <PreferenceRow
-                description="Blendet den gesamten sozialen Statistikvergleich auf diesem Gerät ein oder aus."
-                label="Freundesvergleiche"
-                onValueChange={setFriendComparisonsEnabled}
-                value={privacy.friendComparisonsEnabled}
-              />
-              {preferenceRows.map((row) => (
-                <PreferenceRow
-                  description={row.description}
-                  key={row.key}
-                  label={row.label}
-                  onValueChange={(value) => setPrivacyPreference(row.key, value)}
-                  disabled={socialLoading || sharingPreferences === null || syncStatus.phase === 'offline'}
-                  value={privacy[row.key]}
-                />
-              ))}
-            </AppCard>
-          </>
-        ) : (
-          <AppCard variant="subtle">
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
-              Freigaben für Freunde werden erst mit einem Online-Konto angeboten. Im lokalen Modus verlässt keine Statistik dieses Gerät.
-            </Text>
-          </AppCard>
-        )}
-      </View>
-
-      <View style={styles.section}>
-        <SectionHeader description="Für persönliche Statistiken zählen beide Quellen; im sozialen Vergleich bleiben sie getrennt." title="Nachvollziehbare Lernzeit" />
-        <AppCard
-          style={[
-            styles.sourcesCard,
-            {
-              backgroundColor: theme.colors.accentTurquoiseMuted,
-              borderLeftColor: theme.colors.accentTurquoise,
-              borderLeftWidth: 4,
-            },
-          ]}
-          variant="subtle">
-          <View style={styles.sourceRow}>
-            <SourceBadge source="timer" />
-            <Text style={[theme.typography.body, styles.sourceText, { color: theme.colors.textMuted }]}>Automatisch gemessen und für faire Vergleiche eindeutig ausgewiesen.</Text>
-          </View>
-          <View style={styles.sourceRow}>
-            <SourceBadge source="manual" />
-            <Text style={[theme.typography.body, styles.sourceText, { color: theme.colors.textMuted }]}>Nachträglich eingetragen und dauerhaft separat erkennbar.</Text>
-          </View>
-        </AppCard>
-      </View>
-
-      <View style={styles.section}>
-        <SectionHeader
-          description={auth.activeMode === 'supabase'
+          description={isAccount
             ? 'Cloud-Daten bleiben erhalten; der Gerätecache kann jederzeit neu aufgebaut werden.'
             : 'Das Löschen lokaler Daten lässt sich nicht rückgängig machen.'}
           title="Konto & lokale Daten"
         />
 
-        {auth.activeMode === 'supabase' ? (
+        {isAccount ? (
           <AppCard style={styles.confirmCard} variant="subtle">
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Gerätecache neu laden</Text>
             <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Die Cloud-Daten und ausstehenden Offline-Änderungen bleiben erhalten. Ein aktiver Timer bleibt auf diesem Gerät bestehen.</Text>
@@ -301,16 +393,16 @@ export default function ProfileScreen() {
           <AppButton fullWidth label="Alle lokalen Lerndaten löschen" onPress={() => setConfirmation('data')} variant="outline" />
         )}
 
-        {auth.activeMode === 'supabase' ? (
+        {isAccount ? (
           <AppButton fullWidth label="Abmelden" loading={auth.pendingAction === 'sign-out'} onPress={() => void signOut()} variant="outline" />
-        ) : auth.activeMode === 'local' && confirmation === 'local-profile' ? (
+        ) : isLocal && confirmation === 'local-profile' ? (
           <AppCard style={styles.confirmCard} variant="outlined">
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Lokales Profil und alle Daten löschen?</Text>
             <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Das Profil und sämtliche Lerninhalte auf diesem Gerät werden endgültig entfernt.</Text>
             <AppButton fullWidth label="Profil und Daten löschen" onPress={() => void removeLocalProfileAndData()} variant="danger" />
             <AppButton fullWidth label="Abbrechen" onPress={() => setConfirmation(null)} variant="ghost" />
           </AppCard>
-        ) : auth.activeMode === 'local' ? (
+        ) : isLocal ? (
           <AppButton fullWidth label="Lokales Profil und Daten löschen" onPress={() => setConfirmation('local-profile')} variant="danger" />
         ) : null}
       </View>
@@ -320,18 +412,20 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 30 },
-  profileCard: { flexDirection: 'row', alignItems: 'center', gap: 18 },
-  profileCopy: { flex: 1, minWidth: 0, gap: 3 },
-  modePill: { minHeight: 28, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 7, paddingHorizontal: 10, borderRadius: 999 },
+  profileCard: { gap: 16 },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  avatarButton: { position: 'relative' },
+  avatarBadge: { position: 'absolute', right: -2, bottom: -2, width: 30, height: 30, borderRadius: 15, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  avatarBadgeIcon: { fontSize: 15, lineHeight: 18, fontWeight: '700' },
+  avatarActionRow: { flexDirection: 'row' },
+  profileCopy: { flex: 1, minWidth: 0, gap: 6 },
+  usernamePill: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, borderWidth: 1 },
+  modePill: { minHeight: 28, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 999 },
   modeDot: { width: 7, height: 7, borderRadius: 4 },
   section: { gap: 14 },
+  editCard: { gap: 16 },
+  field: { gap: 6 },
+  input: { minHeight: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   accountActions: { gap: 10 },
-  reviewCard: { gap: 12 },
-  preferencesCard: { overflow: 'hidden' },
-  preferenceRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 18, paddingVertical: 13, borderBottomWidth: StyleSheet.hairlineWidth },
-  preferenceCopy: { flex: 1, minWidth: 0, gap: 2 },
-  sourcesCard: { gap: 18 },
-  sourceRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
-  sourceText: { flex: 1 },
   confirmCard: { gap: 12 },
 });

@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SubjectSelector } from '@/components/subject-selector';
@@ -25,7 +25,7 @@ export default function ManualEntryScreen() {
   const theme = useAppTheme();
   const { goalId: requestedGoalId } = useLocalSearchParams<{ goalId?: string }>();
   const { data, addManualEntry, addSubject } = useStudyStore();
-  const requestedGoalApplied = useRef(false);
+  const [appliedGoalId, setAppliedGoalId] = useState<string | null>(null);
   const [subjectId, setSubjectId] = useState(() => data.subjects[0]?.id ?? '');
   const [goalId, setGoalId] = useState<string | null>(null);
   const [duration, setDuration] = useState('30');
@@ -75,14 +75,18 @@ export default function ManualEntryScreen() {
   ];
   const selectedGoal = assignableGoals.find((goal) => goal.id === goalId);
 
-  useEffect(() => {
-    if (!requestedGoalId || requestedGoalApplied.current) return;
+  // Preselect the goal passed via route params exactly once, as soon as it is
+  // assignable. Adjusting state during render (tracked by appliedGoalId) is
+  // React's recommended alternative to a syncing effect and converges once the
+  // requested goal has been applied.
+  if (requestedGoalId && appliedGoalId !== requestedGoalId) {
     const requested = assignableGoals.find((goal) => goal.id === requestedGoalId);
-    if (!requested) return;
-    requestedGoalApplied.current = true;
-    setGoalId(requested.id);
-    if (requested.subjectId) setSubjectId(requested.subjectId);
-  }, [assignableGoals, requestedGoalId]);
+    if (requested) {
+      setAppliedGoalId(requestedGoalId);
+      setGoalId(requested.id);
+      if (requested.subjectId) setSubjectId(requested.subjectId);
+    }
+  }
 
   const selectGoal = (nextGoalId: string | null) => {
     setGoalId(nextGoalId);

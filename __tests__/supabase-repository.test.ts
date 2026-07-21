@@ -61,9 +61,17 @@ function fakeClient() {
   });
   const removeChannel = jest.fn(async () => 'ok');
   const channel = jest.fn();
+  const storageUpload = jest.fn(async (path: string) => ({ data: { path }, error: null as unknown }));
+  const storageGetPublicUrl = jest.fn((path: string) => ({
+    data: { publicUrl: `https://cdn.test/avatars/${path}` },
+  }));
+  const storageFrom = jest.fn(() => ({ upload: storageUpload, getPublicUrl: storageGetPublicUrl }));
   return {
-    client: { rpc, removeChannel, channel } as unknown as SupabaseClient<Database>,
+    client: { rpc, removeChannel, channel, storage: { from: storageFrom } } as unknown as SupabaseClient<Database>,
     rpc,
+    storageFrom,
+    storageUpload,
+    storageGetPublicUrl,
   };
 }
 
@@ -137,5 +145,46 @@ describe('SupabaseStudyRepository RPC contract', () => {
     expect(report).toMatchObject({
       importId: 'import-id', state: 'completed', imported: { subjects: 1 }, conflicts: [],
     });
+  });
+
+  it('uploads an avatar into the caller folder and returns the cache-busted public URL', async () => {
+    const { client, storageFrom, storageUpload } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    const url = await repository.social.uploadAvatar({
+      userId: 'account-id',
+      body: new Uint8Array([1, 2, 3]),
+      contentType: 'image/jpeg',
+      fileExtension: 'jpg',
+    });
+
+    expect(storageFrom).toHaveBeenCalledWith('avatars');
+    expect(storageUpload).toHaveBeenCalledWith(
+      'account-id/avatar.jpg',
+      expect.anything(),
+      expect.objectContaining({ contentType: 'image/jpeg', upsert: true }),
+    );
+    expect(url).toMatch(/^https:\/\/cdn\.test\/avatars\/account-id\/avatar\.jpg\?v=\d+$/);
+  });
+
+  it('surfaces a clear error when the avatar upload fails', async () => {
+    const { client, storageUpload } = fakeClient();
+    storageUpload.mockResolvedValueOnce({ data: null as never, error: { message: 'denied' } });
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    await expect(repository.social.uploadAvatar({
+      userId: 'account-id',
+      body: new Uint8Array([1]),
+      contentType: 'image/png',
+      fileExtension: 'png',
+    })).rejects.toThrow('Das Profilbild konnte nicht hochgeladen werden.');
   });
 });

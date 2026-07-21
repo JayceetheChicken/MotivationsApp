@@ -34,6 +34,7 @@ import type {
   SyncStatus,
   UpdateAccountProfileInput,
   UpdateSharingPreferencesInput,
+  UploadAvatarInput,
 } from '@/data/repositories/study-repository';
 import { PersistentOutbox, type KeyValueStorage } from '@/services/sync/outbox';
 import { diffStudySnapshots } from '@/services/sync/sync-engine';
@@ -336,6 +337,22 @@ export class SupabaseStudyRepository implements StudyRepository {
         p_time_zone: input.timeZone,
         p_expected_revision: input.expectedRevision,
       }, signal)),
+      uploadAvatar: async (input: UploadAvatarInput, signal) => {
+        throwIfAborted(signal);
+        const path = `${input.userId}/avatar.${input.fileExtension}`;
+        const { error } = await this.client.storage.from('avatars').upload(path, input.body, {
+          contentType: input.contentType,
+          upsert: true,
+        });
+        if (error) {
+          throw new StudyRepositoryError('server_error', 'Das Profilbild konnte nicht hochgeladen werden.', { cause: error });
+        }
+        throwIfAborted(signal);
+        const { data } = this.client.storage.from('avatars').getPublicUrl(path);
+        // The upsert path stays constant, so append a cache-buster to force
+        // clients (and friend views) to fetch the freshly uploaded image.
+        return `${data.publicUrl}?v=${Date.now()}`;
+      },
       getSharingPreferences: async (signal) => mapSharingPreferences(await this.rpc('get_my_profile', {}, signal)),
       updateSharingPreferences: async (input: UpdateSharingPreferencesInput, signal) => mapSharingPreferences(await this.rpc('update_privacy_settings', {
         p_share_timer_stats: input.shareTimerStats,

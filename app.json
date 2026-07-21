@@ -34,6 +34,12 @@
       ],
       "expo-secure-store",
       "expo-image",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen."
+        }
+      ],
       "expo-sqlite",
       "expo-status-bar",
       "expo-web-browser"

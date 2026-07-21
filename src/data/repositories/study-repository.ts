@@ -81,6 +81,13 @@ export interface UpdateSharingPreferencesInput {
   expectedRevision: number;
 }
 
+export interface UploadAvatarInput {
+  userId: string;
+  body: Blob | ArrayBuffer | Uint8Array;
+  contentType: string;
+  fileExtension: string;
+}
+
 export interface CreateSharedGoalInput {
   operationId: string;
   inviteeIds: readonly string[];
@@ -103,6 +110,7 @@ export interface CreateSharedGoalInput {
 export interface SocialRepository {
   getMyProfile(signal?: AbortSignal): Promise<AccountStudyUser>;
   updateMyProfile(input: UpdateAccountProfileInput, signal?: AbortSignal): Promise<AccountStudyUser>;
+  uploadAvatar(input: UploadAvatarInput, signal?: AbortSignal): Promise<string>;
   getSharingPreferences(signal?: AbortSignal): Promise<StudySharingPreferences>;
   updateSharingPreferences(
     input: UpdateSharingPreferencesInput,

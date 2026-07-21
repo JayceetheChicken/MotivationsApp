@@ -14,7 +14,7 @@ import { randomUUID } from 'expo-crypto';
 import { supabase } from '@/auth/supabase';
 import { createInitialData, subjectColorPalette } from '@/data/initial-data';
 import { createLocalStudyRepository } from '@/data/repositories/local-study-repository';
-import { asRepositoryError } from '@/data/repositories/repository-error';
+import { asRepositoryError, StudyRepositoryError } from '@/data/repositories/repository-error';
 import {
   type CreateSharedGoalInput,
   type LocalImportReport,
@@ -204,6 +204,12 @@ export interface AccountProfileUpdate {
   timeZone?: string;
 }
 
+export interface AvatarUploadAsset {
+  uri: string;
+  mimeType?: string | null;
+  fileName?: string | null;
+}
+
 export interface FinishTimerOptions {
   /** The UI must obtain explicit confirmation before setting this for <60 s. */
   allowShortSession?: boolean;
@@ -229,6 +235,7 @@ export interface StudyStoreValue extends StudyState {
   sharingPreferences: StudySharingPreferences | null;
   refreshSocial: () => Promise<void>;
   updateAccountProfile: (profile: AccountProfileUpdate) => Promise<AccountStudyUser | null>;
+  uploadAvatar: (asset: AvatarUploadAsset) => Promise<string | null>;
   findFriendByUsername: (username: string) => Promise<FriendSearchResult | null>;
   sendFriendRequest: (username: string) => Promise<void>;
   acceptFriendRequest: (friendshipId: string) => Promise<void>;
@@ -2087,6 +2094,32 @@ export function StudyStoreProvider({
           };
           dispatch({ type: 'apply-account-profile', payload: { profile: updated, sharing } });
           return updated;
+        } catch {
+          return null;
+        }
+      },
+      uploadAvatar: async (asset) => {
+        if (repository.mode !== 'supabase') return null;
+        const userId = state.data.currentUser?.id;
+        if (!userId) return null;
+        try {
+          return await runSocialOperation(async () => {
+            const response = await fetch(asset.uri);
+            if (!response.ok) {
+              throw new StudyRepositoryError('invalid_data', 'Das ausgewählte Bild konnte nicht gelesen werden.');
+            }
+            const body = await response.blob();
+            const contentType = asset.mimeType?.trim() || body.type || 'image/jpeg';
+            if (!contentType.startsWith('image/')) {
+              throw new StudyRepositoryError('invalid_data', 'Bitte wähle eine Bilddatei aus.');
+            }
+            const fileExtension = contentType === 'image/png'
+              ? 'png'
+              : contentType === 'image/webp'
+                ? 'webp'
+                : 'jpg';
+            return repository.social.uploadAvatar({ userId, body, contentType, fileExtension });
+          });
         } catch {
           return null;
         }

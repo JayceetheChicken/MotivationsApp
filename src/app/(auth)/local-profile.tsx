@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import {
@@ -70,13 +70,14 @@ export default function LocalProfileScreen() {
   const [accountRevision, setAccountRevision] = useState(accountProfile?.revision ?? null);
   const [errors, setErrors] = useState<LocalProfileErrors>({});
 
-  useEffect(() => {
-    if (!isOnlineProfile || !accountProfile || accountRevision === accountProfile.revision) return;
+  // Refresh the form when a newer account revision arrives. Adjusting state
+  // during render is React's recommended alternative to a syncing effect.
+  if (isOnlineProfile && accountProfile && accountRevision !== accountProfile.revision) {
     setAccountRevision(accountProfile.revision);
     setDisplayName(accountProfile.displayName);
     setUsername(accountProfile.username);
     setAvatarUri(accountProfile.avatarUrl ?? '');
-  }, [accountProfile, accountRevision, isOnlineProfile]);
+  }
 
   const updateField = (
     field: LocalProfileField,
