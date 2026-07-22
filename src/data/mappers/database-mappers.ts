@@ -441,8 +441,12 @@ export function mapFriendProfileStatistics(value: unknown): FriendProfileStatist
 
 function mapChallengeParticipant(value: unknown): ChallengeParticipant {
   const row = record(value, 'Zielteilnehmer');
+  const userId = requiredString(row, 'Zielteilnehmer', 'user_id', 'userId');
+  const userValue = optionalRecord(valueOf(row, 'user', 'profile'));
+  const user = userValue ? mapBasicUser(userValue) : null;
   return {
-    userId: requiredString(row, 'Zielteilnehmer', 'user_id', 'userId'),
+    userId,
+    ...(user?.id === userId ? { user } : {}),
     status: statusValue(valueOf(row, 'status'), ['invited', 'accepted', 'declined', 'withdrawn'] as const, 'invited'),
   };
 }

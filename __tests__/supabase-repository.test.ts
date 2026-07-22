@@ -7,7 +7,7 @@ import type { Database } from '@/types/database.generated';
 const now = '2026-07-18T10:00:00.000Z';
 
 function fakeClient() {
-  const rpc = jest.fn(async (name: string) => {
+  const rpc = jest.fn(async (name: string): Promise<{ data: unknown; error: unknown }> => {
     if (name === 'pull_my_study_changes') {
       return {
         data: {
@@ -144,6 +144,75 @@ describe('SupabaseStudyRepository RPC contract', () => {
     const report = await repository.imports.getStatus('import-id');
     expect(report).toMatchObject({
       importId: 'import-id', state: 'completed', imported: { subjects: 1 }, conflicts: [],
+    });
+  });
+
+  it('preserves public avatar URLs from every social RPC read model', async () => {
+    const { client, rpc } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+    const avatarUrl = 'https://cdn.test/avatars/friend/avatar.jpg?v=9';
+    const rawUser = {
+      id: 'friend', username: 'mia', display_name: 'Mia Muster', avatar_url: avatarUrl,
+    };
+
+    rpc.mockResolvedValueOnce({ data: { user: rawUser, connection: null }, error: null });
+    await expect(repository.social.findProfileByExactUsername('mia')).resolves.toMatchObject({
+      user: { avatarUrl },
+    });
+    expect(rpc).toHaveBeenLastCalledWith('find_profile_by_exact_username', { p_username: 'mia' });
+
+    rpc.mockResolvedValueOnce({
+      data: [{
+        id: 'friendship-id', requester_id: 'friend', addressee_id: 'account-id',
+        status: 'pending', direction: 'incoming', created_at: now, responded_at: null,
+        user: rawUser,
+      }],
+      error: null,
+    });
+    await expect(repository.social.listFriendConnections()).resolves.toEqual([
+      expect.objectContaining({ otherUser: expect.objectContaining({ avatarUrl }) }),
+    ]);
+
+    rpc.mockResolvedValueOnce({
+      data: { friend: rawUser, periods: [], permissions: {} },
+      error: null,
+    });
+    await expect(repository.social.getFriendProfileStats('friend')).resolves.toMatchObject({
+      friend: { avatarUrl },
+    });
+
+    rpc.mockResolvedValueOnce({
+      data: {
+        goal: {
+          id: 'shared-avatar', creator_id: 'account-id', title: 'Avatar-Team',
+          target_type: 'duration', target_value: 3600, source_policy: 'all',
+          starts_at: '2026-07-01T00:00:00.000Z', ends_at: '2026-08-01T00:00:00.000Z',
+          status: 'active', created_at: now,
+        },
+        details: { description: '', mode: 'shared' },
+        participants: [{ user_id: 'friend', status: 'accepted', user: rawUser }],
+      },
+      error: null,
+    });
+    await expect(repository.social.getSharedGoalDetails('shared-avatar')).resolves.toMatchObject({
+      participants: [{ user: { avatarUrl } }],
+    });
+
+    rpc.mockResolvedValueOnce({
+      data: {
+        goal_id: 'shared-avatar', type: 'duration', mode: 'shared', target: 60,
+        participants: [{
+          user_id: 'friend', status: 'accepted', contribution: 30, user: rawUser,
+        }],
+      },
+      error: null,
+    });
+    await expect(repository.social.getSharedGoalProgress('shared-avatar')).resolves.toMatchObject({
+      participants: [{ user: { avatarUrl } }],
     });
   });
 

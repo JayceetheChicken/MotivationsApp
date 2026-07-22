@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(31);
+select plan(40);
 
 insert into auth.users(
   id, aud, role, email, raw_user_meta_data, created_at, updated_at
@@ -9,7 +9,9 @@ insert into auth.users(
   ('11111111-1111-4111-8111-111111111111', 'authenticated', 'authenticated',
     'anna@example.test', '{"username":"anna","display_name":"Anna"}', now(), now()),
   ('22222222-2222-4222-8222-222222222222', 'authenticated', 'authenticated',
-    'ben@example.test', '{"username":"ben","display_name":"Ben"}', now(), now()),
+    'ben@example.test',
+    '{"username":"ben","display_name":"Ben","avatar_url":"https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg"}',
+    now(), now()),
   ('33333333-3333-4333-8333-333333333333', 'authenticated', 'authenticated',
     'cara@example.test', '{"username":"cara","display_name":"Cara"}', now(), now());
 
@@ -32,6 +34,22 @@ select is(
   'profile RPC returns the actor profile'
 );
 select is(
+  (public.update_my_profile(
+    'anna',
+    'Anna',
+    'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
+    'UTC',
+    1
+  ) ->> 'avatar_url'),
+  'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
+  'profile update persists the uploaded public avatar URL'
+);
+select is(
+  (public.get_my_profile() -> 'profile' ->> 'avatar_url'),
+  'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
+  'the updated avatar is immediately visible in the actor profile'
+);
+select is(
   (select count(*)::integer from public.profiles),
   1,
   'profile RLS hides other users'
@@ -43,9 +61,19 @@ select throws_ok(
   'profile updates cannot bypass optimistic concurrency with null'
 );
 select is(
+  (public.find_profile_by_exact_username('ben') -> 'user' ->> 'avatar_url'),
+  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
+  'exact username search projects the other user avatar URL'
+);
+select is(
   (public.send_friend_request('ben') ->> 'status'),
   'pending',
   'friend request is outgoing for requester'
+);
+select is(
+  (public.send_friend_request('ben') -> 'user' ->> 'avatar_url'),
+  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
+  'friend request response projects the addressee avatar URL'
 );
 
 select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
@@ -53,6 +81,11 @@ select is(
   (public.list_friend_connections() -> 'connections' -> 0 ->> 'status'),
   'pending',
   'friend request is incoming for addressee'
+);
+select is(
+  (public.list_friend_connections() -> 'connections' -> 0 -> 'user' ->> 'avatar_url'),
+  'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
+  'friend request list projects the requester avatar URL'
 );
 select is(
   (public.accept_friend_request(
@@ -172,6 +205,12 @@ select is(
 );
 select is(
   (public.get_friend_profile_stats('22222222-2222-4222-8222-222222222222')
+    -> 'friend' ->> 'avatar_url'),
+  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
+  'friend profile projects the friend avatar URL'
+);
+select is(
+  (public.get_friend_profile_stats('22222222-2222-4222-8222-222222222222')
     -> 'permissions' ->> 'manual')::boolean,
   false,
   'friend stats keep manual permission closed'
@@ -229,6 +268,12 @@ select lives_ok(
   )$$,
   'creator can invite a confirmed friend to a shared goal'
 );
+select is(
+  (public.get_shared_goal_details('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2')
+    -> 'participants' -> 0 -> 'user' ->> 'avatar_url'),
+  'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
+  'shared goal details project participant avatar URLs'
+);
 
 select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
 select is(
@@ -266,9 +311,21 @@ select is(
   'team target is not prematurely reached'
 );
 select is(
+  (public.get_shared_goal_progress('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2')
+    -> 'participants' -> 1 -> 'user' ->> 'avatar_url'),
+  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
+  'shared goal progress projects participant avatar URLs'
+);
+select is(
   (public.list_shared_goals() -> 'shared_goals' -> 0 -> 'goal' ->> 'id')::uuid,
   'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid,
   'shared invitations survive through secure list projection'
+);
+select is(
+  (public.list_shared_goals() -> 'shared_goals' -> 0
+    -> 'participants' -> 1 -> 'user' ->> 'avatar_url'),
+  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
+  'shared goal list projects participant avatar URLs'
 );
 
 select set_config('request.jwt.claim.sub', '33333333-3333-4333-8333-333333333333', true);

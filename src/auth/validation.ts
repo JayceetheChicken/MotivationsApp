@@ -44,11 +44,21 @@ export function avatarUriError(value: string): string | undefined {
 
   try {
     const parsedUrl = new URL(uri);
-    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-      return 'Verwende einen vollständigen Bildlink mit https:// oder http://.';
+    const supportedProtocols = new Set([
+      'https:',
+      'http:',
+      'file:',
+      'content:',
+      'ph:',
+      'assets-library:',
+      'blob:',
+      'data:',
+    ]);
+    if (!supportedProtocols.has(parsedUrl.protocol)) {
+      return 'Bitte wähle eine Bilddatei aus oder verwende einen vollständigen Bildlink.';
     }
   } catch {
-    return 'Bitte gib einen gültigen Bildlink ein.';
+    return 'Bitte wähle eine gültige Bilddatei aus.';
   }
 
   return undefined;

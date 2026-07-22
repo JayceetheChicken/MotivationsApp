@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -53,20 +54,25 @@ export default function LocalProfileScreen() {
     socialError,
     socialLoading,
     updateAccountProfile,
+    uploadAvatar,
   } = useStudyStore();
   const isOnlineProfile = auth.activeMode === 'supabase';
   const accountProfile = isOnlineProfile
     ? data.currentUser as AccountStudyUser | null
     : null;
+  const initialAvatarUri = isOnlineProfile
+    ? accountProfile?.avatarUrl ?? ''
+    : localProfile?.avatarUri ?? '';
   const [displayName, setDisplayName] = useState(
     accountProfile?.displayName ?? localProfile?.displayName ?? '',
   );
   const [username, setUsername] = useState(
     accountProfile?.username ?? localProfile?.username ?? '',
   );
-  const [avatarUri, setAvatarUri] = useState(
-    accountProfile?.avatarUrl ?? localProfile?.avatarUri ?? '',
-  );
+  const [avatarUri, setAvatarUri] = useState(initialAvatarUri);
+  const [avatarPreviewUri, setAvatarPreviewUri] = useState(initialAvatarUri);
+  const [avatarPickerError, setAvatarPickerError] = useState<string | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const [accountRevision, setAccountRevision] = useState(accountProfile?.revision ?? null);
   const [errors, setErrors] = useState<LocalProfileErrors>({});
 
@@ -77,6 +83,7 @@ export default function LocalProfileScreen() {
     setDisplayName(accountProfile.displayName);
     setUsername(accountProfile.username);
     setAvatarUri(accountProfile.avatarUrl ?? '');
+    setAvatarPreviewUri(accountProfile.avatarUrl ?? '');
   }
 
   const updateField = (
@@ -114,10 +121,68 @@ export default function LocalProfileScreen() {
     if (result.ok) router.replace('/');
   };
 
+  const pickAvatar = async () => {
+    setAvatarPickerError(null);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setAvatarPickerError('Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen.');
+        return;
+      }
+
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (picked.canceled) return;
+
+      const asset = picked.assets[0];
+      if (!asset) {
+        setAvatarPickerError('Das ausgewählte Bild konnte nicht übernommen werden.');
+        return;
+      }
+
+      setAvatarPreviewUri(asset.uri);
+      if (!isOnlineProfile) {
+        // Local picker URIs are persisted as-is. This branch must never call
+        // Supabase Storage.
+        setAvatarUri(asset.uri);
+        if (errors.avatarUri) {
+          setErrors((current) => ({ ...current, avatarUri: undefined }));
+        }
+        return;
+      }
+
+      setAvatarBusy(true);
+      const publicUrl = await uploadAvatar({
+        uri: asset.uri,
+        mimeType: asset.mimeType,
+        fileName: asset.fileName,
+      });
+      if (!publicUrl) {
+        setAvatarPreviewUri(avatarUri);
+        setAvatarPickerError('Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
+        return;
+      }
+      setAvatarUri(publicUrl);
+    } catch (pickerError) {
+      setAvatarPreviewUri(avatarUri);
+      setAvatarPickerError(pickerError instanceof Error
+        ? pickerError.message
+        : isOnlineProfile
+          ? 'Das Profilbild konnte nicht hochgeladen werden.'
+          : 'Das Profilbild konnte nicht ausgewählt werden.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
   const currentAvatarError = isOnlineProfile
     ? onlineAvatarUrlError(avatarUri)
     : avatarUriError(avatarUri);
-  const previewUri = avatarUri && !currentAvatarError ? avatarUri.trim() : undefined;
+  const previewUri = avatarPreviewUri && !currentAvatarError ? avatarPreviewUri.trim() : undefined;
 
   return (
     <AuthScaffold
@@ -175,24 +240,23 @@ export default function LocalProfileScreen() {
           placeholder="dein.name"
           value={username}
         />
-        <AuthField
-          autoCapitalize="none"
-          autoComplete="url"
-          error={errors.avatarUri}
-          hint={isOnlineProfile
-            ? 'Optional: sicherer, vollständiger Link mit https://.'
-            : 'Optional: vollständiger Link zu einem Bild.'}
-          keyboardType="url"
-          label="Profilbild-Link"
-          onChangeText={(value) => updateField('avatarUri', setAvatarUri, value)}
-          onSubmitEditing={() => void submit()}
-          placeholder="https://…"
-          returnKeyType="done"
-          value={avatarUri}
+        <AppButton
+          disabled={avatarBusy}
+          fullWidth
+          label={avatarBusy
+            ? 'Bild wird hochgeladen…'
+            : avatarUri
+              ? 'Profilbild ändern'
+              : 'Profilbild auswählen'}
+          loading={avatarBusy}
+          onPress={() => void pickAvatar()}
+          variant="outline"
         />
+        {errors.avatarUri ? <AuthNotice tone="danger">{errors.avatarUri}</AuthNotice> : null}
+        {avatarPickerError ? <AuthNotice tone="danger">{avatarPickerError}</AuthNotice> : null}
 
         <AppButton
-          disabled={isOnlineProfile ? socialLoading || !accountProfile : pendingAction !== null}
+          disabled={avatarBusy || (isOnlineProfile ? socialLoading || !accountProfile : pendingAction !== null)}
           fullWidth
           label={isOnlineProfile
             ? 'Online-Profil speichern'

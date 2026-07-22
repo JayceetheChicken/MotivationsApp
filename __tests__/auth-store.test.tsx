@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from 'react';
-import { renderHook, waitFor } from '@testing-library/react-native';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 
@@ -8,6 +8,7 @@ const mockGetSession = jest.fn();
 const mockExchangeCodeForSession = jest.fn();
 const mockSetSession = jest.fn();
 const mockStorageGetItem = jest.fn<Promise<string | null>, [string]>();
+const mockStorageSetItem = jest.fn<Promise<void>, [string, string]>();
 
 const mockRecoverySession = {
   access_token: 'access',
@@ -31,7 +32,7 @@ jest.mock('@/auth/storage', () => ({
   authStorage: {
     getItem: (key: string) => mockStorageGetItem(key),
     removeItem: jest.fn(),
-    setItem: jest.fn(),
+    setItem: (key: string, value: string) => mockStorageSetItem(key, value),
   },
 }));
 
@@ -63,6 +64,7 @@ describe('AuthStoreProvider startup', () => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockStorageGetItem.mockResolvedValue(null);
+    mockStorageSetItem.mockResolvedValue();
     mockGetInitialURL.mockResolvedValue(null);
     mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
     mockExchangeCodeForSession.mockResolvedValue({ data: { session: null }, error: null });
@@ -113,6 +115,27 @@ describe('AuthStoreProvider startup', () => {
 
     // Settle the hanging request so its boot timeout timer is cleaned up.
     releaseSession({ data: { session: null }, error: null });
+  });
+
+  it('persists an image-picker URI only in the local profile', async () => {
+    const local = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(local.result.current.hydrated).toBe(true));
+
+    await act(async () => {
+      await local.result.current.saveLocalProfile({
+        displayName: 'Lea Lokal',
+        username: 'lea.lokal',
+        avatarUri: 'content://media/picked-avatar.jpg',
+      });
+    });
+
+    expect(local.result.current.localProfile?.avatarUri).toBe('content://media/picked-avatar.jpg');
+    expect(local.result.current.activeMode).toBe('local');
+    expect(mockStorageSetItem).toHaveBeenCalledWith(
+      'lernzeit.local-profile.v1',
+      expect.stringContaining('content://media/picked-avatar.jpg'),
+    );
+    await local.unmount();
   });
 
   it('hydrates as a guest when secure storage is corrupt or unavailable', async () => {

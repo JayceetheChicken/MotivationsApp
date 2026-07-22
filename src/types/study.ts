@@ -286,6 +286,8 @@ export type ChallengeTarget =
 
 export interface ChallengeParticipant {
   userId: string;
+  /** Server-authorized participant profile included by shared-goal read models. */
+  user?: StudyUser;
   status: 'invited' | 'accepted' | 'declined' | 'withdrawn';
 }
 

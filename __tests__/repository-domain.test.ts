@@ -4,6 +4,7 @@ import type { CoreMutation } from '@/data/repositories/study-repository';
 import {
   mapFriendProfileStatistics,
   mapFriendSearchResult,
+  mapFriendshipConnection,
   mapPullStudyChanges,
   mapSharedGoalProgress,
   mapStudyChallenge,
@@ -292,6 +293,64 @@ describe('repository domain infrastructure', () => {
       details: { description: '', mode: 'shared' },
       participants: [],
     }).status).toBe('completed');
+  });
+
+  it('maps avatar URLs through every server-backed social projection', () => {
+    const avatarUrl = 'https://cdn.example.com/avatars/friend/avatar.jpg?v=7';
+    const rawUser = {
+      id: 'friend',
+      username: 'mia',
+      display_name: 'Mia Muster',
+      avatar_url: avatarUrl,
+    };
+
+    expect(mapFriendSearchResult({ user: rawUser, connection: null })).toMatchObject({
+      user: { id: 'friend', avatarUrl },
+    });
+
+    expect(mapFriendshipConnection({
+      id: 'friendship-id',
+      requester_id: 'account-id',
+      addressee_id: 'friend',
+      status: 'accepted',
+      direction: 'outgoing',
+      created_at: now,
+      responded_at: now,
+      user: rawUser,
+    })).toMatchObject({
+      otherUser: { id: 'friend', avatarUrl },
+    });
+
+    expect(mapFriendProfileStatistics({
+      friend: rawUser,
+      periods: [],
+      permissions: {},
+    })).toMatchObject({
+      friend: { id: 'friend', avatarUrl },
+    });
+
+    expect(mapStudyChallenge({
+      goal: {
+        id: 'shared-avatar', creator_id: 'account-id', title: 'Avatar-Team',
+        target_type: 'duration', target_value: 3600, source_policy: 'all',
+        starts_at: '2026-07-01T00:00:00.000Z', ends_at: '2026-08-01T00:00:00.000Z',
+        status: 'active', created_at: now,
+      },
+      details: { description: '', mode: 'shared' },
+      participants: [{ user_id: 'friend', status: 'accepted', user: rawUser }],
+    }).participants[0]).toMatchObject({
+      userId: 'friend',
+      user: { id: 'friend', avatarUrl },
+    });
+
+    expect(mapSharedGoalProgress({
+      goal_id: 'shared-avatar', type: 'duration', mode: 'shared', target: 60,
+      participants: [{
+        user_id: 'friend', status: 'accepted', contribution: 30, user: rawUser,
+      }],
+    }).participants[0]).toMatchObject({
+      user: { id: 'friend', avatarUrl },
+    });
   });
 
   it('preserves privacy redaction and maps server-computed shared progress', () => {

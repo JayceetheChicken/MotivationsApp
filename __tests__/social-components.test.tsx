@@ -22,10 +22,24 @@ function setWindowWidth(width: number) {
   Dimensions.set({ window: dimensions, screen: dimensions });
 }
 
+function containsImageUri(node: unknown, uri: string | undefined): boolean {
+  if (!uri || !node || typeof node !== 'object') return false;
+  const candidate = node as {
+    props?: { source?: { uri?: string } | readonly { uri?: string }[] };
+    children?: readonly unknown[];
+  };
+  const source = candidate.props?.source;
+  return (Array.isArray(source)
+    ? source.some((entry) => entry.uri === uri)
+    : (source as { uri?: string } | undefined)?.uri === uri) ||
+    candidate.children?.some((child) => containsImageUri(child, uri)) === true;
+}
+
 const alice: SocialUserSummary = {
   id: 'alice-id',
   username: 'alice',
   displayName: 'Alice Beispiel',
+  avatarUrl: 'https://cdn.example.com/avatars/alice/avatar.jpg?v=3',
 };
 
 const bob: SocialUserSummary = {
@@ -98,6 +112,11 @@ describe('Social UI components', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onResultAction).toHaveBeenCalledTimes(1);
     expect(rendered.getByText('@alice · Noch nicht verbunden')).toBeTruthy();
+    expect(containsImageUri(
+      rendered.getByLabelText('Profilbild von Alice Beispiel'),
+      alice.avatarUrl,
+    )).toBe(true);
+    expect(rendered.queryByText('AB')).toBeNull();
     await rendered.unmount();
   });
 
@@ -123,6 +142,11 @@ describe('Social UI components', () => {
     expect(onAccept).toHaveBeenCalledWith(incoming);
     expect(onDecline).toHaveBeenCalledWith(incoming);
     expect(onRemove).toHaveBeenCalledWith(accepted);
+    expect(containsImageUri(
+      rendered.getByLabelText('Profilbild von Alice Beispiel'),
+      alice.avatarUrl,
+    )).toBe(true);
+    expect(rendered.getByText('BB')).toBeTruthy();
     await rendered.unmount();
   });
 
@@ -208,6 +232,10 @@ describe('Social UI components', () => {
     expect(rendered.getByText('2 Std. 40 Min.')).toBeTruthy();
     expect(rendered.getByText('1 Std. 30 Min.')).toBeTruthy();
     expect(rendered.getByText('50 Min.')).toBeTruthy();
+    expect(containsImageUri(
+      rendered.getByLabelText('Profilbild von Alice Beispiel'),
+      alice.avatarUrl,
+    )).toBe(true);
     await rendered.unmount();
   });
 
@@ -263,6 +291,11 @@ describe('Social UI components', () => {
     expect(
       rendered.getByRole('checkbox', { name: 'Alice Beispiel einladen' }).props.accessibilityState,
     ).toMatchObject({ checked: true });
+    expect(containsImageUri(
+      rendered.getByRole('checkbox', { name: 'Alice Beispiel einladen' }),
+      alice.avatarUrl,
+    )).toBe(true);
+    expect(rendered.getByText('BB')).toBeTruthy();
     await rendered.unmount();
   });
 });

@@ -714,6 +714,61 @@ describe('persisted goal-bound session migration', () => {
     expect(migrated?.data.grades).toEqual([gradeWithoutOptionalFields]);
   });
 
+  it('keeps authorized shared-goal participant avatars during hydration', () => {
+    const avatarUrl = 'https://cdn.example.com/avatars/friend/avatar.jpg?v=4';
+    const migrated = migratePersistedStudyState({
+      schemaVersion: 3,
+      privacy: {},
+      data: {
+        ...baseData,
+        sessions: [],
+        grades: [],
+        activeTimer: null,
+        challenges: [{
+          id: 'shared-avatar',
+          creatorId: 'local-user',
+          title: 'Avatar-Team',
+          description: '',
+          target: { type: 'duration', mode: 'shared', targetMinutes: 60 },
+          sourcePolicy: 'all',
+          startsAt: '2026-07-01T00:00:00.000Z',
+          endsAt: '2026-08-01T00:00:00.000Z',
+          status: 'active',
+          participants: [
+            {
+              userId: 'friend',
+              status: 'accepted',
+              user: {
+                id: 'friend',
+                username: 'mia',
+                displayName: 'Mia Muster',
+                avatarUrl,
+              },
+            },
+            {
+              userId: 'other-friend',
+              status: 'invited',
+              user: {
+                id: 'unexpected-user',
+                username: 'unexpected',
+                displayName: 'Falsches Profil',
+                avatarUrl: 'https://cdn.example.com/avatars/unexpected/avatar.jpg',
+              },
+            },
+          ],
+        }],
+      },
+    });
+
+    expect(migrated?.data.challenges[0].participants).toEqual([
+      expect.objectContaining({
+        userId: 'friend',
+        user: expect.objectContaining({ avatarUrl }),
+      }),
+      { userId: 'other-friend', status: 'invited' },
+    ]);
+  });
+
   it('restores an unfinished timer with its exact goal binding', () => {
     const migrated = migratePersistedStudyState({
       schemaVersion: 2,

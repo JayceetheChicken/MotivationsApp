@@ -25,6 +25,7 @@ import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
 import type {
+  ChallengeParticipant,
   ChallengeParticipantProgress,
   FriendshipConnection,
   SharedGoalProgress,
@@ -53,14 +54,15 @@ function toSocialUser(user: StudyUser): SocialUserSummary {
 }
 
 function fallbackUser(
-  userId: string,
+  participant: ChallengeParticipant,
   currentUser: StudyUser | null,
   connections: readonly FriendshipConnection[],
 ): SocialUserSummary {
-  if (currentUser?.id === userId) return toSocialUser(currentUser);
-  const connection = connections.find((item) => item.otherUser.id === userId);
+  if (currentUser?.id === participant.userId) return toSocialUser(currentUser);
+  if (participant.user) return toSocialUser(participant.user);
+  const connection = connections.find((item) => item.otherUser.id === participant.userId);
   if (connection) return toSocialUser(connection.otherUser);
-  return { id: userId, username: 'mitglied', displayName: 'Teilnehmer' };
+  return { id: participant.userId, username: 'mitglied', displayName: 'Teilnehmer' };
 }
 
 function mapParticipantProgress(
@@ -77,7 +79,7 @@ function mapParticipantProgress(
   return {
     user: participant.user
       ? toSocialUser(participant.user)
-      : fallbackUser(participant.userId, currentUser, connections),
+      : fallbackUser({ userId: participant.userId, status: participant.status }, currentUser, connections),
     status: participant.status,
     contribution: participant.contribution,
     progress: hasIndividualProgress
@@ -214,7 +216,7 @@ export default function SharedGoalDetailsScreen() {
     }
     if (!goal) return [];
     return goal.participants.map((participant) => ({
-      user: fallbackUser(participant.userId, data.currentUser, friendConnections),
+      user: fallbackUser(participant, data.currentUser, friendConnections),
       status: participant.status,
       contribution: null,
     }));

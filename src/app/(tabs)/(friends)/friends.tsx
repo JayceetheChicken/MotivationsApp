@@ -28,6 +28,7 @@ import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
 import type {
+  ChallengeParticipant,
   FriendSearchResult,
   FriendshipConnection,
   StudyChallenge,
@@ -87,14 +88,15 @@ function formatGoalPeriod(challenge: StudyChallenge): string {
 }
 
 function participantUser(
-  userId: string,
+  participant: ChallengeParticipant,
   currentUser: StudyUser | null,
   connections: readonly FriendshipConnection[],
 ): SocialUserSummary {
-  if (currentUser?.id === userId) return toSocialUser(currentUser);
-  const connection = connections.find((item) => item.otherUser.id === userId);
+  if (currentUser?.id === participant.userId) return toSocialUser(currentUser);
+  const connection = connections.find((item) => item.otherUser.id === participant.userId);
   if (connection) return toSocialUser(connection.otherUser);
-  return { id: userId, username: 'mitglied', displayName: 'Teilnehmer' };
+  if (participant.user) return toSocialUser(participant.user);
+  return { id: participant.userId, username: 'mitglied', displayName: 'Teilnehmer' };
 }
 
 function challengeParticipants(
@@ -103,7 +105,7 @@ function challengeParticipants(
   connections: readonly FriendshipConnection[],
 ): readonly SharedGoalParticipantProgress[] {
   return challenge.participants.map((participant) => ({
-    user: participantUser(participant.userId, currentUser, connections),
+    user: participantUser(participant, currentUser, connections),
     status: participant.status,
     // Contributions are never read from the mutable challenge projection.
     // The detail route replaces this placeholder with the progress RPC result.

@@ -1093,8 +1093,10 @@ function parseChallenge(value: unknown): StudyChallenge | null {
       return [];
     }
     const participantStatus: ChallengeParticipant['status'] = participant.status;
+    const participantUser = parseUser(participant.user);
     return [{
       userId: participant.userId,
+      ...(participantUser?.id === participant.userId ? { user: participantUser } : {}),
       status: participantStatus,
     }];
   });

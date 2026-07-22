@@ -51,7 +51,11 @@ export default function ProfileScreen() {
   const initialUsername = data.currentUser?.username
     ?? auth.localProfile?.username
     ?? (isAccount ? 'profil-wird-geladen' : 'profil');
-  const avatarUrl = isGuest ? undefined : data.currentUser?.avatarUrl ?? auth.localProfile?.avatarUri;
+  const persistedAvatarUrl = isGuest
+    ? undefined
+    : isLocal
+      ? auth.localProfile?.avatarUri
+      : data.currentUser?.avatarUrl;
   const modeLabel = {
     none: 'Ohne Konto',
     local: 'Lokales Profil',
@@ -67,6 +71,13 @@ export default function ProfileScreen() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarPreviewUri, setAvatarPreviewUri] = useState<string | null>(null);
+  const [avatarPreviewBase, setAvatarPreviewBase] = useState(persistedAvatarUrl);
+  const avatarUrl = avatarPreviewUri ?? persistedAvatarUrl;
+  if (avatarPreviewBase !== persistedAvatarUrl) {
+    setAvatarPreviewBase(persistedAvatarUrl);
+    setAvatarPreviewUri(null);
+  }
   // Keep the editable fields aligned with the persisted profile (e.g. after a
   // completed background sync) without a syncing effect: React supports
   // adjusting state during render when a derived-from value changes.
@@ -122,54 +133,94 @@ export default function ProfileScreen() {
     }
   };
 
-  const pickAndUploadAvatar = async () => {
-    setAvatarError(null);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setAvatarError('Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen.');
-      return;
-    }
-
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.85,
-    });
-    if (picked.canceled) return;
-
-    const asset = picked.assets[0];
-    if (!asset) return;
-
-    setAvatarUploading(true);
+  const pickAndSaveAvatar = async () => {
     setAvatarError(null);
     try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setAvatarError('Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen.');
+        return;
+      }
+
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (picked.canceled) return;
+
+      const asset = picked.assets[0];
+      if (!asset) {
+        setAvatarError('Das ausgewählte Bild konnte nicht übernommen werden.');
+        return;
+      }
+
+      setAvatarPreviewUri(asset.uri);
+      setAvatarUploading(true);
+
+      if (isLocal) {
+        const localProfile = auth.localProfile;
+        if (!localProfile) {
+          setAvatarPreviewUri(null);
+          setAvatarError('Das lokale Profil konnte nicht geladen werden.');
+          return;
+        }
+
+        const result = await auth.saveLocalProfile({
+          displayName: localProfile.displayName,
+          username: localProfile.username,
+          avatarUri: asset.uri,
+        });
+        if (!result.ok) {
+          setAvatarPreviewUri(null);
+          setAvatarError(result.message || 'Das Profilbild konnte nicht lokal gespeichert werden.');
+          return;
+        }
+
+        setProfileError(null);
+        setProfileNotice('Dein neues Profilbild wurde lokal gespeichert.');
+        return;
+      }
+
+      if (!isAccount || !accountProfile) {
+        setAvatarPreviewUri(null);
+        setAvatarError('Das Online-Profil konnte nicht geladen werden.');
+        return;
+      }
+
       const url = await uploadAvatar({
         uri: asset.uri,
         mimeType: asset.mimeType,
         fileName: asset.fileName,
       });
       if (!url) {
+        setAvatarPreviewUri(null);
         setAvatarError('Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
         return;
       }
       const updated = await updateAccountProfile({
-        displayName: displayName.trim() || initialDisplayName,
-        username: (username.trim() || initialUsername).toLowerCase(),
+        displayName: accountProfile.displayName,
+        username: accountProfile.username,
         avatarUrl: url,
       });
       if (updated) {
+        setAvatarPreviewUri(updated.avatarUrl ?? url);
         setProfileError(null);
         setProfileNotice('Dein neues Profilbild wurde gespeichert.');
       } else {
+        setAvatarPreviewUri(null);
         setAvatarError(socialError ?? 'Das Bild wurde hochgeladen, aber die Profil-URL konnte nicht gespeichert werden.');
       }
-    } catch (uploadError) {
+    } catch (avatarChangeError) {
+      setAvatarPreviewUri(null);
       // Surface the concrete reason (image read, missing bucket/policy, or a
       // rejected upload) instead of swallowing it.
-      setAvatarError(uploadError instanceof Error
-        ? uploadError.message
-        : 'Das Profilbild konnte nicht hochgeladen werden.');
+      setAvatarError(avatarChangeError instanceof Error
+        ? avatarChangeError.message
+        : isLocal
+          ? 'Das Profilbild konnte nicht lokal gespeichert werden.'
+          : 'Das Profilbild konnte nicht hochgeladen werden.');
     } finally {
       setAvatarUploading(false);
     }
@@ -198,13 +249,13 @@ export default function ProfileScreen() {
           },
         ]}>
         <View style={styles.identity}>
-          {isAccount ? (
+          {canEditProfile ? (
             <Pressable
               accessibilityHint="Öffnet die Fotoauswahl für ein neues Profilbild"
               accessibilityLabel="Profilbild antippen zum Ändern"
               accessibilityRole="button"
               disabled={avatarUploading}
-              onPress={() => void pickAndUploadAvatar()}
+              onPress={() => void pickAndSaveAvatar()}
               style={styles.avatarButton}>
               <Avatar name={displayName} size="xl" source={avatarUrl ? { uri: avatarUrl } : undefined} />
               <View style={[styles.avatarBadge, { backgroundColor: theme.colors.primary, borderColor: theme.colors.accentPeachMuted }]}>
@@ -233,18 +284,22 @@ export default function ProfileScreen() {
             </View>
           </View>
         </View>
-        {isAccount ? (
+        {canEditProfile ? (
           <View style={styles.avatarActionRow}>
             <AppButton
-              label={avatarUploading ? 'Bild wird hochgeladen…' : 'Profilbild ändern'}
+              label={avatarUploading
+                ? isLocal
+                  ? 'Bild wird gespeichert…'
+                  : 'Bild wird hochgeladen…'
+                : 'Profilbild ändern'}
               loading={avatarUploading}
-              onPress={() => void pickAndUploadAvatar()}
+              onPress={() => void pickAndSaveAvatar()}
               size="compact"
               variant="outline"
             />
           </View>
         ) : null}
-        {isAccount && avatarError ? (
+        {canEditProfile && avatarError ? (
           <Text accessibilityRole="alert" style={[theme.typography.caption, { color: theme.colors.danger }]}>{avatarError}</Text>
         ) : null}
       </AppCard>

@@ -60,6 +60,19 @@ jest.mock('@/state/study-store', () => ({
 const mockedUseAuthStore = jest.mocked(useAuthStore);
 const mockedUseStudyStore = jest.mocked(useStudyStore);
 
+function containsImageUri(node: unknown, uri: string | undefined): boolean {
+  if (!uri || !node || typeof node !== 'object') return false;
+  const candidate = node as {
+    props?: { source?: { uri?: string } | readonly { uri?: string }[] };
+    children?: readonly unknown[];
+  };
+  const source = candidate.props?.source;
+  return (Array.isArray(source)
+    ? source.some((entry) => entry.uri === uri)
+    : (source as { uri?: string } | undefined)?.uri === uri) ||
+    candidate.children?.some((child) => containsImageUri(child, uri)) === true;
+}
+
 const currentUser: StudyUser = {
   id: 'account-alice',
   username: 'alice',
@@ -70,6 +83,7 @@ const friendUser: StudyUser = {
   id: 'account-berta',
   username: 'berta',
   displayName: 'Berta Beispiel',
+  avatarUrl: 'https://cdn.example.com/avatars/account-berta/avatar.jpg?v=11',
 };
 
 const acceptedConnection: FriendshipConnection = {
@@ -329,6 +343,10 @@ describe('Social routes', () => {
       expect(mockFindFriendByUsername).toHaveBeenCalledWith('berta');
       expect(rendered.getByText('@berta · Noch nicht verbunden')).toBeTruthy();
     });
+    expect(containsImageUri(
+      rendered.getByLabelText('Profilbild von Berta Beispiel'),
+      friendUser.avatarUrl,
+    )).toBe(true);
 
     await fireEvent.press(rendered.getByRole('button', { name: 'Anfragen' }));
 
@@ -337,6 +355,20 @@ describe('Social routes', () => {
       expect(mockFindFriendByUsername).toHaveBeenNthCalledWith(2, 'berta');
       expect(rendered.getByText('@berta · Anfrage gesendet')).toBeTruthy();
     });
+    await rendered.unmount();
+  });
+
+  it('keeps avatar URLs when store connections become friend-list rows', async () => {
+    setStudyStore({ friendConnections: [acceptedConnection] });
+    const rendered = await render(<FriendsScreen />);
+
+    await waitFor(() => {
+      expect(rendered.getByTestId(`social-connection-${acceptedConnection.id}`)).toBeTruthy();
+    });
+    expect(containsImageUri(
+      rendered.getByLabelText('Profil von Berta Beispiel öffnen'),
+      friendUser.avatarUrl,
+    )).toBe(true);
     await rendered.unmount();
   });
 
@@ -353,6 +385,10 @@ describe('Social routes', () => {
       expect(rendered.getAllByLabelText('Manuell: nicht freigegeben')).toHaveLength(6);
       expect(rendered.getAllByLabelText('Gesamt: nicht freigegeben')).toHaveLength(6);
     });
+    expect(containsImageUri(
+      rendered.getByLabelText('Profilbild von Berta Beispiel'),
+      friendUser.avatarUrl,
+    )).toBe(true);
 
     for (const label of [
       'Heute',
@@ -420,6 +456,31 @@ describe('Social routes', () => {
     },
   );
 
+  it('uses participant avatars from shared-goal details before progress is available', async () => {
+    const invitedGoal: StudyChallenge = {
+      ...teamGoal,
+      participants: [
+        { userId: currentUser.id, user: currentUser, status: 'invited' },
+        { userId: friendUser.id, user: friendUser, status: 'accepted' },
+      ],
+    };
+    mockLocalSearchParams = { 'goal-id': invitedGoal.id };
+    mockGetSharedGoalDetails.mockResolvedValue(invitedGoal);
+    setStudyStore({ data: { ...emptyData, challenges: [] }, friendConnections: [] });
+
+    const rendered = await render(<SharedGoalDetailsScreen />);
+
+    await waitFor(() => {
+      expect(rendered.getByLabelText(/Berta Beispiel, Nimmt teil, Beitrag/)).toBeTruthy();
+    });
+    expect(containsImageUri(
+      rendered.getByLabelText('Profil von Berta Beispiel öffnen'),
+      friendUser.avatarUrl,
+    )).toBe(true);
+    expect(mockGetSharedGoalProgress).not.toHaveBeenCalled();
+    await rendered.unmount();
+  });
+
   it('renders team facts once, binds both session actions and cleans up its live subscription', async () => {
     mockLocalSearchParams = { 'goal-id': teamGoal.id };
     mockGetSharedGoalDetails.mockResolvedValue(teamGoal);
@@ -441,6 +502,10 @@ describe('Social routes', () => {
     expect(rendered.getAllByText('Über Ziel')).toHaveLength(1);
     expect(rendered.getByLabelText(/Alice Beispiel, Nimmt teil, Beitrag/)).toBeTruthy();
     expect(rendered.getByLabelText(/Berta Beispiel, Nimmt teil, Beitrag/)).toBeTruthy();
+    expect(containsImageUri(
+      rendered.getByLabelText('Profil von Berta Beispiel öffnen'),
+      friendUser.avatarUrl,
+    )).toBe(true);
 
     mockPush.mockClear();
     await fireEvent.press(rendered.getByRole('button', { name: 'Timer starten' }));
