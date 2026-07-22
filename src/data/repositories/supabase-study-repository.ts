@@ -57,6 +57,46 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/**
+ * Maps a Supabase Storage error to a user-facing message without leaking
+ * secrets or tokens. Distinguishes a missing bucket/policy from a generic
+ * rejection so the UI can guide the person accordingly.
+ */
+function describeAvatarUploadError(error: unknown): StudyRepositoryError {
+  const rawMessage = typeof error === 'object' && error && 'message' in error
+    ? String((error as { message?: unknown }).message ?? '')
+    : '';
+  const message = rawMessage.toLowerCase();
+
+  if (message.includes('bucket not found') || message.includes('not found')) {
+    return new StudyRepositoryError(
+      'not_found',
+      'Der Speicher für Profilbilder fehlt (Bucket „avatars"). Bitte richte den öffentlichen Bucket samt Policies ein.',
+      { cause: error },
+    );
+  }
+
+  if (
+    message.includes('row-level security')
+    || message.includes('policy')
+    || message.includes('unauthorized')
+    || message.includes('forbidden')
+    || message.includes('permission')
+  ) {
+    return new StudyRepositoryError(
+      'forbidden',
+      'Für Profilbilder fehlt die Storage-Freigabe (Bucket oder Policy).',
+      { cause: error },
+    );
+  }
+
+  return new StudyRepositoryError(
+    'server_error',
+    'Der Upload wurde von Supabase abgelehnt.',
+    { cause: error },
+  );
+}
+
 function readString(row: Record<string, unknown>, ...keys: string[]): string | null {
   for (const key of keys) {
     if (typeof row[key] === 'string') return row[key] as string;
@@ -345,7 +385,7 @@ export class SupabaseStudyRepository implements StudyRepository {
           upsert: true,
         });
         if (error) {
-          throw new StudyRepositoryError('server_error', 'Das Profilbild konnte nicht hochgeladen werden.', { cause: error });
+          throw describeAvatarUploadError(error);
         }
         throwIfAborted(signal);
         const { data } = this.client.storage.from('avatars').getPublicUrl(path);

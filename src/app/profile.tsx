@@ -150,7 +150,7 @@ export default function ProfileScreen() {
         fileName: asset.fileName,
       });
       if (!url) {
-        setAvatarError(socialError ?? 'Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
+        setAvatarError('Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
         return;
       }
       const updated = await updateAccountProfile({
@@ -162,8 +162,14 @@ export default function ProfileScreen() {
         setProfileError(null);
         setProfileNotice('Dein neues Profilbild wurde gespeichert.');
       } else {
-        setAvatarError('Das Profilbild wurde hochgeladen, aber nicht gespeichert.');
+        setAvatarError(socialError ?? 'Das Bild wurde hochgeladen, aber die Profil-URL konnte nicht gespeichert werden.');
       }
+    } catch (uploadError) {
+      // Surface the concrete reason (image read, missing bucket/policy, or a
+      // rejected upload) instead of swallowing it.
+      setAvatarError(uploadError instanceof Error
+        ? uploadError.message
+        : 'Das Profilbild konnte nicht hochgeladen werden.');
     } finally {
       setAvatarUploading(false);
     }

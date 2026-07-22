@@ -83,7 +83,7 @@ export interface UpdateSharingPreferencesInput {
 
 export interface UploadAvatarInput {
   userId: string;
-  body: Blob | ArrayBuffer | Uint8Array;
+  body: ArrayBuffer;
   contentType: string;
   fileExtension: string;
 }

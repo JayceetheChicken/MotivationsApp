@@ -61,7 +61,7 @@ function fakeClient() {
   });
   const removeChannel = jest.fn(async () => 'ok');
   const channel = jest.fn();
-  const storageUpload = jest.fn(async (path: string) => ({ data: { path }, error: null as unknown }));
+  const storageUpload = jest.fn(async (path: string, _body?: unknown, _options?: unknown) => ({ data: { path }, error: null as unknown }));
   const storageGetPublicUrl = jest.fn((path: string) => ({
     data: { publicUrl: `https://cdn.test/avatars/${path}` },
   }));
@@ -147,7 +147,7 @@ describe('SupabaseStudyRepository RPC contract', () => {
     });
   });
 
-  it('uploads an avatar into the caller folder and returns the cache-busted public URL', async () => {
+  it('uploads an ArrayBuffer into the caller folder and returns the cache-busted public URL', async () => {
     const { client, storageFrom, storageUpload } = fakeClient();
     const repository = createSupabaseStudyRepository({
       client,
@@ -155,9 +155,10 @@ describe('SupabaseStudyRepository RPC contract', () => {
       storage: new MemoryKeyValueStorage(),
     });
 
+    const body = new Uint8Array([1, 2, 3]).buffer;
     const url = await repository.social.uploadAvatar({
       userId: 'account-id',
-      body: new Uint8Array([1, 2, 3]),
+      body,
       contentType: 'image/jpeg',
       fileExtension: 'jpg',
     });
@@ -165,15 +166,41 @@ describe('SupabaseStudyRepository RPC contract', () => {
     expect(storageFrom).toHaveBeenCalledWith('avatars');
     expect(storageUpload).toHaveBeenCalledWith(
       'account-id/avatar.jpg',
-      expect.anything(),
+      body,
       expect.objectContaining({ contentType: 'image/jpeg', upsert: true }),
     );
+    expect(storageUpload.mock.calls[0][1]).toBeInstanceOf(ArrayBuffer);
     expect(url).toMatch(/^https:\/\/cdn\.test\/avatars\/account-id\/avatar\.jpg\?v=\d+$/);
   });
 
-  it('surfaces a clear error when the avatar upload fails', async () => {
+  it('reports a missing bucket or policy distinctly from a rejected upload', async () => {
     const { client, storageUpload } = fakeClient();
-    storageUpload.mockResolvedValueOnce({ data: null as never, error: { message: 'denied' } });
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    storageUpload.mockResolvedValueOnce({ data: null as never, error: { message: 'Bucket not found' } });
+    await expect(repository.social.uploadAvatar({
+      userId: 'account-id',
+      body: new ArrayBuffer(1),
+      contentType: 'image/png',
+      fileExtension: 'png',
+    })).rejects.toThrow(/Bucket „avatars"/);
+
+    storageUpload.mockResolvedValueOnce({ data: null as never, error: { message: 'new row violates row-level security policy' } });
+    await expect(repository.social.uploadAvatar({
+      userId: 'account-id',
+      body: new ArrayBuffer(1),
+      contentType: 'image/png',
+      fileExtension: 'png',
+    })).rejects.toThrow(/Storage-Freigabe/);
+  });
+
+  it('surfaces a rejected avatar upload with a clear message', async () => {
+    const { client, storageUpload } = fakeClient();
+    storageUpload.mockResolvedValueOnce({ data: null as never, error: { message: 'exceeded the maximum allowed size' } });
     const repository = createSupabaseStudyRepository({
       client,
       accountId: 'account-id',
@@ -182,9 +209,9 @@ describe('SupabaseStudyRepository RPC contract', () => {
 
     await expect(repository.social.uploadAvatar({
       userId: 'account-id',
-      body: new Uint8Array([1]),
+      body: new ArrayBuffer(1),
       contentType: 'image/png',
       fileExtension: 'png',
-    })).rejects.toThrow('Das Profilbild konnte nicht hochgeladen werden.');
+    })).rejects.toThrow('Der Upload wurde von Supabase abgelehnt.');
   });
 });

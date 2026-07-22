@@ -190,4 +190,43 @@ describe('online account profile screen', () => {
     expect(mockUploadAvatar).not.toHaveBeenCalled();
     await rendered.unmount();
   });
+
+  it('keeps a rejected storage upload visible and ends the loading state', async () => {
+    mockedRequestPermission.mockResolvedValue({ granted: true } as never);
+    mockedLaunchLibrary.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///tmp/pic.jpg', mimeType: 'image/jpeg', fileName: 'pic.jpg' }],
+    } as never);
+    mockUploadAvatar.mockRejectedValue(new Error('Der Upload wurde von Supabase abgelehnt.'));
+
+    const rendered = await render(<ProfileScreen />);
+    await fireEvent.press(rendered.getByRole('button', { name: 'Profilbild ändern' }));
+
+    await waitFor(() => {
+      expect(rendered.getByText('Der Upload wurde von Supabase abgelehnt.')).toBeTruthy();
+    });
+    // Loading state ended: the button returns to its idle label and is pressable again.
+    expect(mockUpdateAccountProfile).not.toHaveBeenCalled();
+    expect(rendered.getByRole('button', { name: 'Profilbild ändern' })).toBeTruthy();
+    expect(rendered.queryByRole('button', { name: 'Bild wird hochgeladen…' })).toBeNull();
+    await rendered.unmount();
+  });
+
+  it('reports when the uploaded image URL cannot be persisted', async () => {
+    mockedRequestPermission.mockResolvedValue({ granted: true } as never);
+    mockedLaunchLibrary.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///tmp/pic.jpg', mimeType: 'image/jpeg', fileName: 'pic.jpg' }],
+    } as never);
+    mockUploadAvatar.mockResolvedValue('https://cdn.example.com/avatars/account-1/avatar.jpg?v=7');
+    mockUpdateAccountProfile.mockResolvedValue(null);
+
+    const rendered = await render(<ProfileScreen />);
+    await fireEvent.press(rendered.getByRole('button', { name: 'Profilbild ändern' }));
+
+    await waitFor(() => {
+      expect(rendered.getByText(/Profil-URL konnte nicht gespeichert werden/)).toBeTruthy();
+    });
+    await rendered.unmount();
+  });
 });

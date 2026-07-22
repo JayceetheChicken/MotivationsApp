@@ -14,7 +14,7 @@ import { randomUUID } from 'expo-crypto';
 import { supabase } from '@/auth/supabase';
 import { createInitialData, subjectColorPalette } from '@/data/initial-data';
 import { createLocalStudyRepository } from '@/data/repositories/local-study-repository';
-import { asRepositoryError, StudyRepositoryError } from '@/data/repositories/repository-error';
+import { asRepositoryError } from '@/data/repositories/repository-error';
 import {
   type CreateSharedGoalInput,
   type LocalImportReport,
@@ -25,6 +25,7 @@ import { createSupabaseStudyRepository } from '@/data/repositories/supabase-stud
 import { useNetworkStatus } from '@/hooks/use-network-status';
 import '@/lib/local-storage';
 import { isValidGradeDate } from '@/lib/grades';
+import { prepareAvatarUpload } from '@/lib/avatar-upload';
 import { getGoalSubjectId, getGoalTitle } from '@/lib/goals';
 import {
   assignStudyStateToAccount,
@@ -2102,27 +2103,13 @@ export function StudyStoreProvider({
         if (repository.mode !== 'supabase') return null;
         const userId = state.data.currentUser?.id;
         if (!userId) return null;
-        try {
-          return await runSocialOperation(async () => {
-            const response = await fetch(asset.uri);
-            if (!response.ok) {
-              throw new StudyRepositoryError('invalid_data', 'Das ausgewählte Bild konnte nicht gelesen werden.');
-            }
-            const body = await response.blob();
-            const contentType = asset.mimeType?.trim() || body.type || 'image/jpeg';
-            if (!contentType.startsWith('image/')) {
-              throw new StudyRepositoryError('invalid_data', 'Bitte wähle eine Bilddatei aus.');
-            }
-            const fileExtension = contentType === 'image/png'
-              ? 'png'
-              : contentType === 'image/webp'
-                ? 'webp'
-                : 'jpg';
-            return repository.social.uploadAvatar({ userId, body, contentType, fileExtension });
-          });
-        } catch {
-          return null;
-        }
+        // Errors intentionally propagate: runSocialOperation records the concrete
+        // message in socialError and rethrows so the UI can show exactly why the
+        // upload failed instead of a silent null.
+        return runSocialOperation(async () => {
+          const { body, contentType, fileExtension } = await prepareAvatarUpload(asset);
+          return repository.social.uploadAvatar({ userId, body, contentType, fileExtension });
+        });
       },
       findFriendByUsername: (username) => runSocialOperation(
         () => repository.social.findProfileByExactUsername(username),
