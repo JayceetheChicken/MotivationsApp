@@ -267,7 +267,7 @@ describe('SupabaseStudyRepository RPC contract', () => {
     })).rejects.toThrow(/Storage-Freigabe/);
   });
 
-  it('surfaces a rejected avatar upload with a clear message', async () => {
+  it('surfaces concrete size, authentication and network upload errors', async () => {
     const { client, storageUpload } = fakeClient();
     storageUpload.mockResolvedValueOnce({ data: null as never, error: { message: 'exceeded the maximum allowed size' } });
     const repository = createSupabaseStudyRepository({
@@ -276,11 +276,31 @@ describe('SupabaseStudyRepository RPC contract', () => {
       storage: new MemoryKeyValueStorage(),
     });
 
-    await expect(repository.social.uploadAvatar({
+    const input = {
       userId: 'account-id',
       body: new ArrayBuffer(1),
       contentType: 'image/png',
       fileExtension: 'png',
-    })).rejects.toThrow('Der Upload wurde von Supabase abgelehnt.');
+    };
+
+    await expect(repository.social.uploadAvatar(input)).rejects.toThrow(
+      'Das ausgewählte Profilbild ist für den Supabase-Upload zu groß.',
+    );
+
+    storageUpload.mockResolvedValueOnce({
+      data: null as never,
+      error: { message: 'Invalid JWT', statusCode: 401 },
+    });
+    await expect(repository.social.uploadAvatar(input)).rejects.toThrow(
+      'Deine Supabase-Anmeldung ist abgelaufen.',
+    );
+
+    storageUpload.mockResolvedValueOnce({
+      data: null as never,
+      error: { message: 'fetch failed: network request failed' },
+    });
+    await expect(repository.social.uploadAvatar(input)).rejects.toThrow(
+      'Der Profilbild-Upload konnte Supabase nicht erreichen.',
+    );
   });
 });

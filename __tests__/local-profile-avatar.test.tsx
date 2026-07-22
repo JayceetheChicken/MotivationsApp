@@ -25,6 +25,7 @@ jest.mock('expo-router', () => ({
 jest.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: jest.fn(),
   launchImageLibraryAsync: jest.fn(),
+  getPendingResultAsync: jest.fn(),
 }));
 
 jest.mock('@/state/auth-store', () => ({

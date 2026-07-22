@@ -97,7 +97,6 @@ function setGuestStores(isConfigured = true) {
     },
     setFriendComparisonsEnabled: jest.fn(),
     setPrivacyPreference: jest.fn(),
-    clearAllData: jest.fn(),
   } as unknown as ReturnType<typeof useStudyStore>);
 }
 
@@ -128,6 +127,8 @@ describe('guest mode', () => {
     expect(rendered.getByRole('button', { name: 'Online-Konto anmelden' })).toBeTruthy();
     expect(rendered.getByRole('button', { name: 'Online-Konto erstellen' })).toBeTruthy();
     expect(rendered.getByRole('button', { name: 'Lokales Profil erstellen' })).toBeTruthy();
+    expect(rendered.queryByText('Konto & lokale Daten')).toBeNull();
+    expect(rendered.queryByRole('button', { name: 'Gerätecache neu laden' })).toBeNull();
     expect(rendered.queryByText('Lokales Profil und Daten löschen')).toBeNull();
 
     await fireEvent.press(rendered.getByRole('button', { name: 'Online-Konto anmelden' }));

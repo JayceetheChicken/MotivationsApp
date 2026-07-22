@@ -1597,6 +1597,21 @@ export function StudyStoreProvider({
     }
   }, []);
 
+  const applyAccountProfile = useCallback((
+    profile: AccountStudyUser,
+    sharing: StudySharingPreferences,
+  ) => {
+    const action: Action = {
+      type: 'apply-account-profile',
+      payload: { profile, sharing },
+    };
+
+    // Make a successful profile mutation immediately visible to commands that
+    // resume from an older async render (for example after Android's picker).
+    stateRef.current = reducer(stateRef.current, action);
+    dispatch(action);
+  }, []);
+
   const refreshSocial = useCallback(async (): Promise<void> => {
     if (repository.mode !== 'supabase') return;
     setSocialLoading(true);
@@ -1609,13 +1624,13 @@ export function StudyStoreProvider({
       ]);
       setSharingPreferences(sharing);
       setFriendConnections(connections);
-      dispatch({ type: 'apply-account-profile', payload: { profile, sharing } });
+      applyAccountProfile(profile, sharing);
     } catch (error) {
       setSocialError(asRepositoryError(error).message);
     } finally {
       setSocialLoading(false);
     }
-  }, [repository]);
+  }, [applyAccountProfile, repository]);
 
   const getFriendProfileStatsCommand = useCallback(
     (friendId: string) => runSocialOperation(
@@ -2073,42 +2088,44 @@ export function StudyStoreProvider({
       refreshSocial,
       updateAccountProfile: async (profile) => {
         if (repository.mode !== 'supabase') return null;
-        const current = state.data.currentUser as Partial<AccountStudyUser> | null;
-        try {
-          const updated = await runSocialOperation(
-            () => repository.social.updateMyProfile({
-              username: profile.username,
-              displayName: profile.displayName,
-              avatarUrl: profile.avatarUrl?.trim() || null,
-              timeZone: profile.timeZone
-                ?? current?.timeZone
-                ?? Intl.DateTimeFormat().resolvedOptions().timeZone
-                ?? 'UTC',
-              expectedRevision: current?.revision ?? 1,
-            }),
-          );
-          const sharing = sharingPreferences ?? {
-            shareTimerStats: state.privacy.shareAutomaticMinutes,
-            shareManualStats: state.privacy.shareManualMinutes,
-            shareGoalProgress: state.privacy.shareGoalProgress,
-            shareStreak: state.privacy.shareStreak,
-            revision: 1,
-            updatedAt: new Date().toISOString(),
-          };
-          dispatch({ type: 'apply-account-profile', payload: { profile: updated, sharing } });
-          return updated;
-        } catch {
-          return null;
-        }
+        const currentState = stateRef.current;
+        const current = currentState.data.currentUser as Partial<AccountStudyUser> | null;
+        const updated = await runSocialOperation(
+          () => repository.social.updateMyProfile({
+            username: profile.username,
+            displayName: profile.displayName,
+            avatarUrl: profile.avatarUrl?.trim() || null,
+            timeZone: profile.timeZone
+              ?? current?.timeZone
+              ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+              ?? 'UTC',
+            expectedRevision: current?.revision ?? 1,
+          }),
+        );
+        const latestState = stateRef.current;
+        const sharing = sharingPreferences ?? {
+          shareTimerStats: latestState.privacy.shareAutomaticMinutes,
+          shareManualStats: latestState.privacy.shareManualMinutes,
+          shareGoalProgress: latestState.privacy.shareGoalProgress,
+          shareStreak: latestState.privacy.shareStreak,
+          revision: 1,
+          updatedAt: new Date().toISOString(),
+        };
+        applyAccountProfile(updated, sharing);
+        return updated;
       },
       uploadAvatar: async (asset) => {
         if (repository.mode !== 'supabase') return null;
-        const userId = state.data.currentUser?.id;
-        if (!userId) return null;
         // Errors intentionally propagate: runSocialOperation records the concrete
         // message in socialError and rethrows so the UI can show exactly why the
         // upload failed instead of a silent null.
         return runSocialOperation(async () => {
+          const userId = accountUserId?.trim() || stateRef.current.data.currentUser?.id;
+          if (!userId) {
+            throw new Error(
+              'Das Online-Profil ist noch nicht geladen. Bitte versuche es gleich erneut.',
+            );
+          }
           const { body, contentType, fileExtension } = await prepareAvatarUpload(asset);
           return repository.social.uploadAvatar({ userId, body, contentType, fileExtension });
         });
@@ -2239,7 +2256,7 @@ export function StudyStoreProvider({
           setSharingPreferences(sharing);
           const profile = stateRef.current.data.currentUser;
           if (profile) {
-            dispatch({ type: 'apply-account-profile', payload: { profile, sharing } });
+            applyAccountProfile(profile as AccountStudyUser, sharing);
           }
         }).catch(() => undefined);
       },
@@ -2247,6 +2264,7 @@ export function StudyStoreProvider({
     };
   }, [
     accountUserId,
+    applyAccountProfile,
     friendConnections,
     getFriendProfileStatsCommand,
     getSharedGoalDetailsCommand,

@@ -37,7 +37,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen."
+          "photosPermission": "Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ],
       "expo-sqlite",

@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 
 import {
   AuthField,
@@ -73,6 +73,7 @@ export default function LocalProfileScreen() {
   const [avatarPreviewUri, setAvatarPreviewUri] = useState(initialAvatarUri);
   const [avatarPickerError, setAvatarPickerError] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarPickerInFlightRef = useRef(false);
   const [accountRevision, setAccountRevision] = useState(accountProfile?.revision ?? null);
   const [errors, setErrors] = useState<LocalProfileErrors>({});
 
@@ -108,12 +109,17 @@ export default function LocalProfileScreen() {
     if (Object.values(nextErrors).some(Boolean)) return;
 
     if (isOnlineProfile) {
-      const updated = await updateAccountProfile({
-        displayName: displayName.trim(),
-        username: username.trim().toLowerCase(),
-        avatarUrl: avatarUri.trim() || undefined,
-      });
-      if (updated) router.replace('/profile');
+      try {
+        const updated = await updateAccountProfile({
+          displayName: displayName.trim(),
+          username: username.trim().toLowerCase(),
+          avatarUrl: avatarUri.trim() || undefined,
+        });
+        if (updated) router.replace('/profile');
+      } catch {
+        // runSocialOperation already exposes the concrete repository error as
+        // socialError; keeping the user on the form makes that message visible.
+      }
       return;
     }
 
@@ -122,12 +128,15 @@ export default function LocalProfileScreen() {
   };
 
   const pickAvatar = async () => {
+    if (avatarPickerInFlightRef.current) return;
+    avatarPickerInFlightRef.current = true;
     setAvatarPickerError(null);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        setAvatarPickerError('Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen.');
-        return;
+      if (Platform.OS === 'ios') {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          throw new Error('Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen.');
+        }
       }
 
       const picked = await ImagePicker.launchImageLibraryAsync({
@@ -176,6 +185,7 @@ export default function LocalProfileScreen() {
           : 'Das Profilbild konnte nicht ausgewählt werden.');
     } finally {
       setAvatarBusy(false);
+      avatarPickerInFlightRef.current = false;
     }
   };
 

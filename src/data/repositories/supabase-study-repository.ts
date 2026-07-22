@@ -63,12 +63,14 @@ function asRecord(value: unknown): Record<string, unknown> {
  * rejection so the UI can guide the person accordingly.
  */
 function describeAvatarUploadError(error: unknown): StudyRepositoryError {
-  const rawMessage = typeof error === 'object' && error && 'message' in error
-    ? String((error as { message?: unknown }).message ?? '')
-    : '';
+  const details = asRecord(error);
+  const rawMessage = [details.message, details.error, details.code]
+    .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
+    .join(' ');
   const message = rawMessage.toLowerCase();
+  const numericStatus = Number(details.statusCode ?? details.status ?? 0);
 
-  if (message.includes('bucket not found') || message.includes('not found')) {
+  if (numericStatus === 404 || message.includes('bucket not found') || message.includes('no such bucket')) {
     return new StudyRepositoryError(
       'not_found',
       'Der Speicher für Profilbilder fehlt (Bucket „avatars"). Bitte richte den öffentlichen Bucket samt Policies ein.',
@@ -77,7 +79,21 @@ function describeAvatarUploadError(error: unknown): StudyRepositoryError {
   }
 
   if (
-    message.includes('row-level security')
+    numericStatus === 401
+    || message.includes('jwt')
+    || message.includes('token')
+    || message.includes('not authenticated')
+  ) {
+    return new StudyRepositoryError(
+      'unauthorized',
+      'Deine Supabase-Anmeldung ist abgelaufen. Melde dich erneut an und versuche den Upload noch einmal.',
+      { cause: error },
+    );
+  }
+
+  if (
+    numericStatus === 403
+    || message.includes('row-level security')
     || message.includes('policy')
     || message.includes('unauthorized')
     || message.includes('forbidden')
@@ -86,6 +102,44 @@ function describeAvatarUploadError(error: unknown): StudyRepositoryError {
     return new StudyRepositoryError(
       'forbidden',
       'Für Profilbilder fehlt die Storage-Freigabe (Bucket oder Policy).',
+      { cause: error },
+    );
+  }
+
+  if (
+    message.includes('maximum allowed size')
+    || message.includes('payload too large')
+    || numericStatus === 413
+  ) {
+    return new StudyRepositoryError(
+      'invalid_data',
+      'Das ausgewählte Profilbild ist für den Supabase-Upload zu groß.',
+      { cause: error },
+    );
+  }
+
+  if (
+    message.includes('mime')
+    || message.includes('content type')
+    || message.includes('unsupported media')
+    || numericStatus === 415
+  ) {
+    return new StudyRepositoryError(
+      'invalid_data',
+      'Dieses Bildformat wird vom Supabase-Bucket nicht akzeptiert.',
+      { cause: error },
+    );
+  }
+
+  if (
+    message.includes('network')
+    || message.includes('fetch failed')
+    || message.includes('failed to fetch')
+    || message.includes('timed out')
+  ) {
+    return new StudyRepositoryError(
+      'network_error',
+      'Der Profilbild-Upload konnte Supabase nicht erreichen. Prüfe deine Internetverbindung.',
       { cause: error },
     );
   }

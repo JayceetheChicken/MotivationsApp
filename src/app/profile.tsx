@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { displayNameError, usernameError } from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
@@ -14,12 +14,18 @@ import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
 import type { AccountStudyUser } from '@/types/study';
 
+function avatarActionError(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : fallback;
+}
+
 export default function ProfileScreen() {
   const theme = useAppTheme();
   const auth = useAuthStore();
+  const saveLocalProfile = auth.saveLocalProfile;
   const {
     data,
-    clearAllData,
     lastSyncError = null,
     pendingMutationCount = 0,
     retrySync = async () => undefined,
@@ -62,7 +68,6 @@ export default function ProfileScreen() {
     supabase: 'Online-Konto',
   }[auth.activeMode];
 
-  const [confirmation, setConfirmation] = useState<'data' | 'local-profile' | null>(null);
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [username, setUsername] = useState(initialUsername);
   const [fieldErrors, setFieldErrors] = useState<{ displayName?: string; username?: string }>({});
@@ -73,6 +78,14 @@ export default function ProfileScreen() {
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [avatarPreviewUri, setAvatarPreviewUri] = useState<string | null>(null);
   const [avatarPreviewBase, setAvatarPreviewBase] = useState(persistedAvatarUrl);
+  const avatarActionInFlightRef = useRef(false);
+  const pendingRecoveryModeRef = useRef<string | null>(null);
+  const accountProfileRef = useRef(accountProfile);
+  const localProfileRef = useRef(auth.localProfile);
+  useEffect(() => {
+    accountProfileRef.current = accountProfile;
+    localProfileRef.current = auth.localProfile;
+  }, [accountProfile, auth.localProfile]);
   const avatarUrl = avatarPreviewUri ?? persistedAvatarUrl;
   if (avatarPreviewBase !== persistedAvatarUrl) {
     setAvatarPreviewBase(persistedAvatarUrl);
@@ -128,18 +141,103 @@ export default function ProfileScreen() {
       });
       setProfileNotice(result.ok ? 'Dein Profil wurde gespeichert.' : null);
       setProfileError(result.ok ? null : result.message);
+    } catch (saveError) {
+      setProfileError(avatarActionError(saveError, 'Das Profil konnte nicht gespeichert werden.'));
     } finally {
       setProfileSaving(false);
     }
   };
 
+  const persistPickedAvatar = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
+    setAvatarPreviewUri(asset.uri);
+    setAvatarUploading(true);
+    try {
+      if (isLocal) {
+        const localProfile = localProfileRef.current;
+        if (!localProfile) {
+          throw new Error('Das lokale Profil konnte nicht geladen werden.');
+        }
+
+        const result = await saveLocalProfile({
+          displayName: localProfile.displayName,
+          username: localProfile.username,
+          avatarUri: asset.uri,
+        });
+        if (!result.ok) {
+          throw new Error(result.message || 'Das Profilbild konnte nicht lokal gespeichert werden.');
+        }
+
+        setProfileError(null);
+        setProfileNotice('Dein neues Profilbild wurde lokal gespeichert.');
+        return;
+      }
+
+      const latestAccountProfile = accountProfileRef.current;
+      if (!isAccount || !latestAccountProfile) {
+        throw new Error('Das Online-Profil konnte nicht geladen werden. Bitte versuche es gleich erneut.');
+      }
+
+      const url = await uploadAvatar({
+        uri: asset.uri,
+        mimeType: asset.mimeType,
+        fileName: asset.fileName,
+      });
+      if (!url) {
+        throw new Error('Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
+      }
+      const updated = await updateAccountProfile({
+        displayName: latestAccountProfile.displayName,
+        username: latestAccountProfile.username,
+        avatarUrl: url,
+      });
+      if (!updated) {
+        throw new Error('Das Bild wurde hochgeladen, aber die Profil-URL konnte nicht gespeichert werden.');
+      }
+
+      setAvatarPreviewUri(updated.avatarUrl ?? url);
+      setProfileError(null);
+      setProfileNotice('Dein neues Profilbild wurde gespeichert.');
+    } catch (error) {
+      setAvatarPreviewUri(null);
+      throw error;
+    } finally {
+      setAvatarUploading(false);
+    }
+  }, [isAccount, isLocal, saveLocalProfile, updateAccountProfile, uploadAvatar]);
+
+  const showAvatarActionError = useCallback((error: unknown) => {
+    setAvatarPreviewUri(null);
+    setAvatarError(avatarActionError(
+      error,
+      isLocal
+        ? 'Das Profilbild konnte nicht lokal gespeichert werden.'
+        : 'Das Profilbild konnte nicht hochgeladen werden.',
+    ));
+  }, [isLocal]);
+  const persistPickedAvatarRef = useRef(persistPickedAvatar);
+  const showAvatarActionErrorRef = useRef(showAvatarActionError);
+  useEffect(() => {
+    persistPickedAvatarRef.current = persistPickedAvatar;
+    showAvatarActionErrorRef.current = showAvatarActionError;
+  }, [persistPickedAvatar, showAvatarActionError]);
+  const pendingAvatarRecoveryMode = Platform.OS === 'android'
+    && (isLocal || (isAccount && Boolean(accountProfile)))
+    ? auth.activeMode
+    : null;
+
   const pickAndSaveAvatar = async () => {
+    if (avatarActionInFlightRef.current) return;
+    avatarActionInFlightRef.current = true;
     setAvatarError(null);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        setAvatarError('Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen.');
-        return;
+      // Android's system photo picker grants access to the selected file and
+      // does not need a broad media-library permission. Asking for it first
+      // can incorrectly block the picker on real devices.
+      if (Platform.OS === 'ios') {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          throw new Error('Erlaube den Zugriff auf deine Fotos, um ein Profilbild auszuwählen.');
+        }
       }
 
       const picked = await ImagePicker.launchImageLibraryAsync({
@@ -152,88 +250,55 @@ export default function ProfileScreen() {
 
       const asset = picked.assets[0];
       if (!asset) {
-        setAvatarError('Das ausgewählte Bild konnte nicht übernommen werden.');
-        return;
+        throw new Error('Das ausgewählte Bild konnte nicht übernommen werden.');
       }
 
-      setAvatarPreviewUri(asset.uri);
-      setAvatarUploading(true);
-
-      if (isLocal) {
-        const localProfile = auth.localProfile;
-        if (!localProfile) {
-          setAvatarPreviewUri(null);
-          setAvatarError('Das lokale Profil konnte nicht geladen werden.');
-          return;
-        }
-
-        const result = await auth.saveLocalProfile({
-          displayName: localProfile.displayName,
-          username: localProfile.username,
-          avatarUri: asset.uri,
-        });
-        if (!result.ok) {
-          setAvatarPreviewUri(null);
-          setAvatarError(result.message || 'Das Profilbild konnte nicht lokal gespeichert werden.');
-          return;
-        }
-
-        setProfileError(null);
-        setProfileNotice('Dein neues Profilbild wurde lokal gespeichert.');
-        return;
-      }
-
-      if (!isAccount || !accountProfile) {
-        setAvatarPreviewUri(null);
-        setAvatarError('Das Online-Profil konnte nicht geladen werden.');
-        return;
-      }
-
-      const url = await uploadAvatar({
-        uri: asset.uri,
-        mimeType: asset.mimeType,
-        fileName: asset.fileName,
-      });
-      if (!url) {
-        setAvatarPreviewUri(null);
-        setAvatarError('Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
-        return;
-      }
-      const updated = await updateAccountProfile({
-        displayName: accountProfile.displayName,
-        username: accountProfile.username,
-        avatarUrl: url,
-      });
-      if (updated) {
-        setAvatarPreviewUri(updated.avatarUrl ?? url);
-        setProfileError(null);
-        setProfileNotice('Dein neues Profilbild wurde gespeichert.');
-      } else {
-        setAvatarPreviewUri(null);
-        setAvatarError(socialError ?? 'Das Bild wurde hochgeladen, aber die Profil-URL konnte nicht gespeichert werden.');
-      }
-    } catch (avatarChangeError) {
-      setAvatarPreviewUri(null);
-      // Surface the concrete reason (image read, missing bucket/policy, or a
-      // rejected upload) instead of swallowing it.
-      setAvatarError(avatarChangeError instanceof Error
-        ? avatarChangeError.message
-        : isLocal
-          ? 'Das Profilbild konnte nicht lokal gespeichert werden.'
-          : 'Das Profilbild konnte nicht hochgeladen werden.');
+      await persistPickedAvatar(asset);
+    } catch (error) {
+      showAvatarActionError(error);
     } finally {
-      setAvatarUploading(false);
+      avatarActionInFlightRef.current = false;
     }
   };
 
+  useEffect(() => {
+    if (!pendingAvatarRecoveryMode
+      || pendingRecoveryModeRef.current === pendingAvatarRecoveryMode) return undefined;
+    pendingRecoveryModeRef.current = pendingAvatarRecoveryMode;
+
+    let active = true;
+    void ImagePicker.getPendingResultAsync()
+      .then(async (pendingResult) => {
+        if (!active || !pendingResult || avatarActionInFlightRef.current) return;
+        if ('code' in pendingResult) {
+          throw new Error(pendingResult.message || 'Die Fotoauswahl konnte nicht abgeschlossen werden.');
+        }
+        if (pendingResult.canceled) return;
+
+        const asset = pendingResult.assets[0];
+        if (!asset) {
+          throw new Error('Das ausgewählte Bild konnte nicht übernommen werden.');
+        }
+
+        avatarActionInFlightRef.current = true;
+        setAvatarError(null);
+        try {
+          await persistPickedAvatarRef.current(asset);
+        } finally {
+          avatarActionInFlightRef.current = false;
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) showAvatarActionErrorRef.current(error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [pendingAvatarRecoveryMode]);
+
   const signOut = async () => {
     const result = await auth.signOut();
-    if (result.ok) router.replace('/');
-  };
-
-  const removeLocalProfileAndData = async () => {
-    clearAllData();
-    const result = await auth.removeLocalProfile();
     if (result.ok) router.replace('/');
   };
 
@@ -254,7 +319,7 @@ export default function ProfileScreen() {
               accessibilityHint="Öffnet die Fotoauswahl für ein neues Profilbild"
               accessibilityLabel="Profilbild antippen zum Ändern"
               accessibilityRole="button"
-              disabled={avatarUploading}
+              disabled={avatarUploading || (isAccount && !accountProfile)}
               onPress={() => void pickAndSaveAvatar()}
               style={styles.avatarButton}>
               <Avatar name={displayName} size="xl" source={avatarUrl ? { uri: avatarUrl } : undefined} />
@@ -287,6 +352,7 @@ export default function ProfileScreen() {
         {canEditProfile ? (
           <View style={styles.avatarActionRow}>
             <AppButton
+              disabled={avatarUploading || (isAccount && !accountProfile)}
               label={avatarUploading
                 ? isLocal
                   ? 'Bild wird gespeichert…'
@@ -422,49 +488,8 @@ export default function ProfileScreen() {
             />
           ) : null}
         </AppCard>
-      </View>
-
-      <View style={styles.section}>
-        <SectionHeader
-          description={isAccount
-            ? 'Cloud-Daten bleiben erhalten; der Gerätecache kann jederzeit neu aufgebaut werden.'
-            : 'Das Löschen lokaler Daten lässt sich nicht rückgängig machen.'}
-          title="Konto & lokale Daten"
-        />
-
-        {isAccount ? (
-          <AppCard style={styles.confirmCard} variant="subtle">
-            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Gerätecache neu laden</Text>
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Die Cloud-Daten und ausstehenden Offline-Änderungen bleiben erhalten. Ein aktiver Timer bleibt auf diesem Gerät bestehen.</Text>
-            <AppButton fullWidth label="Gerätecache neu laden" onPress={clearAllData} variant="outline" />
-          </AppCard>
-        ) : confirmation === 'data' ? (
-          <AppCard style={styles.confirmCard} variant="outlined">
-            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Alle lokalen Lerndaten löschen?</Text>
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Sessions, Ziele, Fächer, Freunde, Challenges und ein laufender Timer werden entfernt. {isGuest ? 'Du kannst die App danach weiter ohne Anmeldung nutzen.' : 'Dein Profil bleibt bestehen.'}</Text>
-            <AppButton
-              fullWidth
-              label="Lerndaten endgültig löschen"
-              onPress={() => { clearAllData(); setConfirmation(null); }}
-              variant="danger"
-            />
-            <AppButton fullWidth label="Abbrechen" onPress={() => setConfirmation(null)} variant="ghost" />
-          </AppCard>
-        ) : (
-          <AppButton fullWidth label="Alle lokalen Lerndaten löschen" onPress={() => setConfirmation('data')} variant="outline" />
-        )}
-
         {isAccount ? (
           <AppButton fullWidth label="Abmelden" loading={auth.pendingAction === 'sign-out'} onPress={() => void signOut()} variant="outline" />
-        ) : isLocal && confirmation === 'local-profile' ? (
-          <AppCard style={styles.confirmCard} variant="outlined">
-            <Text style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Lokales Profil und alle Daten löschen?</Text>
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>Das Profil und sämtliche Lerninhalte auf diesem Gerät werden endgültig entfernt.</Text>
-            <AppButton fullWidth label="Profil und Daten löschen" onPress={() => void removeLocalProfileAndData()} variant="danger" />
-            <AppButton fullWidth label="Abbrechen" onPress={() => setConfirmation(null)} variant="ghost" />
-          </AppCard>
-        ) : isLocal ? (
-          <AppButton fullWidth label="Lokales Profil und Daten löschen" onPress={() => setConfirmation('local-profile')} variant="danger" />
         ) : null}
       </View>
     </Screen>
@@ -488,5 +513,4 @@ const styles = StyleSheet.create({
   field: { gap: 6 },
   input: { minHeight: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   accountActions: { gap: 10 },
-  confirmCard: { gap: 12 },
 });
