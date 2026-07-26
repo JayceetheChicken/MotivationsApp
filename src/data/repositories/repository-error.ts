@@ -83,6 +83,35 @@ export function asRepositoryError(error: unknown): StudyRepositoryError {
   const postgresCode = candidate?.code;
   const databaseMessage = candidate?.message ?? '';
 
+  if (/avatar_update_requires_storage/i.test(databaseMessage)) {
+    return new StudyRepositoryError(
+      'forbidden',
+      'Profilbilder können nur über den sicheren Supabase-Upload geändert werden.',
+      { cause: error, retryable: false },
+    );
+  }
+  if (/avatar_object_not_found/i.test(databaseMessage)) {
+    return new StudyRepositoryError(
+      'not_found',
+      'Der Profilbild-Upload konnte in Supabase nicht bestätigt werden.',
+      { cause: error, retryable: false },
+    );
+  }
+  if (/invalid_avatar_object|invalid_auth_issuer/i.test(databaseMessage)) {
+    return new StudyRepositoryError(
+      'invalid_data',
+      'Das Profilbild wurde wegen eines ungültigen Formats oder Speicherpfads abgelehnt.',
+      { cause: error, retryable: false },
+    );
+  }
+  if (/presence_device_limit/i.test(databaseMessage)) {
+    return new StudyRepositoryError(
+      'rate_limited',
+      'Der Onlinestatus ist bereits mit zu vielen Geräten verbunden.',
+      { cause: error },
+    );
+  }
+
   if (status === 401) return new StudyRepositoryError('unauthorized', 'Die Anmeldung ist abgelaufen.', { cause: error });
   if (status === 403 || postgresCode === '42501') return new StudyRepositoryError('forbidden', 'Für diese Aktion fehlt die Berechtigung.', { cause: error });
   if (status === 404 || (/_not_found$/i.test(databaseMessage) && !/revision_conflict/i.test(databaseMessage))) {

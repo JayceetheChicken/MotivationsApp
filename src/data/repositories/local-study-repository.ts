@@ -2,6 +2,7 @@ import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import type {
   ImportRepository,
   SharedGoalProgressListener,
+  SocialUpdatesListener,
   SocialRepository,
   StudyRepository,
   SyncResult,
@@ -137,6 +138,14 @@ export class LocalStudyRepository implements StudyRepository {
   async subscribeSharedGoalProgress(
     _goalId: string,
     _listener: SharedGoalProgressListener,
+    signal?: AbortSignal,
+  ): Promise<() => Promise<void>> {
+    throwIfAborted(signal);
+    throw accountRequired();
+  }
+
+  async subscribeSocialUpdates(
+    _listener: SocialUpdatesListener,
     signal?: AbortSignal,
   ): Promise<() => Promise<void>> {
     throwIfAborted(signal);

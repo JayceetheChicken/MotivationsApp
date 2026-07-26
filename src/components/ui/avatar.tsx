@@ -1,4 +1,5 @@
 import { Image, type ImageProps } from 'expo-image';
+import { useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -36,6 +37,18 @@ function getInitials(name: string): string {
     .toLocaleUpperCase('de-DE');
 }
 
+function imageSourceKey(source: ImageProps['source']): string | null {
+  if (!source) return null;
+  if (typeof source === 'string' || typeof source === 'number') return String(source);
+  if (Array.isArray(source)) return source.map(imageSourceKey).join('|');
+  if ('uri' in source && typeof source.uri === 'string') return source.uri;
+  try {
+    return JSON.stringify(source);
+  } catch {
+    return String(source);
+  }
+}
+
 export function Avatar({
   name,
   source,
@@ -45,6 +58,9 @@ export function Avatar({
   style,
 }: AvatarProps) {
   const theme = useAppTheme();
+  const sourceKey = imageSourceKey(source);
+  const [failedSourceKey, setFailedSourceKey] = useState<string | null>(null);
+  const showImage = Boolean(source && sourceKey !== failedSourceKey);
   const resolvedSize =
     typeof size === 'number'
       ? Math.max(24, size)
@@ -67,12 +83,14 @@ export function Avatar({
         },
         style,
       ]}>
-      {source ? (
+      {showImage ? (
         <Image
           accessible={false}
           contentFit="cover"
+          onError={() => setFailedSourceKey(sourceKey)}
           source={source}
           style={StyleSheet.absoluteFill}
+          testID="avatar-image"
         />
       ) : (
         <Text

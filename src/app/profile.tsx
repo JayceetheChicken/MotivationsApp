@@ -30,7 +30,7 @@ export default function ProfileScreen() {
     pendingMutationCount = 0,
     retrySync = async () => undefined,
     updateAccountProfile,
-    uploadAvatar,
+    replaceAccountAvatar,
     socialError = null,
     socialLoading = false,
     syncStatus = {
@@ -177,24 +177,17 @@ export default function ProfileScreen() {
         throw new Error('Das Online-Profil konnte nicht geladen werden. Bitte versuche es gleich erneut.');
       }
 
-      const url = await uploadAvatar({
+      const updated = await replaceAccountAvatar({
         uri: asset.uri,
         mimeType: asset.mimeType,
         fileName: asset.fileName,
-      });
-      if (!url) {
-        throw new Error('Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
-      }
-      const updated = await updateAccountProfile({
-        displayName: latestAccountProfile.displayName,
-        username: latestAccountProfile.username,
-        avatarUrl: url,
+        fileSize: asset.fileSize,
       });
       if (!updated) {
-        throw new Error('Das Bild wurde hochgeladen, aber die Profil-URL konnte nicht gespeichert werden.');
+        throw new Error('Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
       }
 
-      setAvatarPreviewUri(updated.avatarUrl ?? url);
+      setAvatarPreviewUri(updated.avatarUrl ?? null);
       setProfileError(null);
       setProfileNotice('Dein neues Profilbild wurde gespeichert.');
     } catch (error) {
@@ -203,7 +196,7 @@ export default function ProfileScreen() {
     } finally {
       setAvatarUploading(false);
     }
-  }, [isAccount, isLocal, saveLocalProfile, updateAccountProfile, uploadAvatar]);
+  }, [isAccount, isLocal, replaceAccountAvatar, saveLocalProfile]);
 
   const showAvatarActionError = useCallback((error: unknown) => {
     setAvatarPreviewUri(null);

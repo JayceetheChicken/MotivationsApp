@@ -28,7 +28,10 @@ function onlineAvatarUrlError(value: string): string | undefined {
   if (!url) return undefined;
 
   try {
-    if (new URL(url).protocol !== 'https:') {
+    const parsed = new URL(url);
+    const localDevelopmentUrl = parsed.protocol === 'http:'
+      && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost');
+    if (parsed.protocol !== 'https:' && !localDevelopmentUrl) {
       return 'Für Online-Profile ist nur ein sicherer Bildlink mit https:// erlaubt.';
     }
   } catch {
@@ -54,7 +57,7 @@ export default function LocalProfileScreen() {
     socialError,
     socialLoading,
     updateAccountProfile,
-    uploadAvatar,
+    replaceAccountAvatar,
   } = useStudyStore();
   const isOnlineProfile = auth.activeMode === 'supabase';
   const accountProfile = isOnlineProfile
@@ -165,17 +168,20 @@ export default function LocalProfileScreen() {
       }
 
       setAvatarBusy(true);
-      const publicUrl = await uploadAvatar({
+      const updated = await replaceAccountAvatar({
         uri: asset.uri,
         mimeType: asset.mimeType,
         fileName: asset.fileName,
+        fileSize: asset.fileSize,
       });
-      if (!publicUrl) {
+      if (!updated?.avatarUrl) {
         setAvatarPreviewUri(avatarUri);
         setAvatarPickerError('Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
         return;
       }
-      setAvatarUri(publicUrl);
+      setAccountRevision(updated.revision);
+      setAvatarUri(updated.avatarUrl);
+      setAvatarPreviewUri(updated.avatarUrl);
     } catch (pickerError) {
       setAvatarPreviewUri(avatarUri);
       setAvatarPickerError(pickerError instanceof Error

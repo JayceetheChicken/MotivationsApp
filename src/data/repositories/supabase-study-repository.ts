@@ -20,6 +20,7 @@ import {
   throwIfAborted,
 } from '@/data/repositories/repository-error';
 import { LocalStudyRepository } from '@/data/repositories/local-study-repository';
+import { avatarObjectPathFromUrl } from '@/lib/avatar-upload';
 import type {
   CoreMutation,
   CreateSharedGoalInput,
@@ -32,6 +33,8 @@ import type {
   LocalImportManifest,
   LocalImportReport,
   SharedGoalProgressListener,
+  SocialInvalidationKind,
+  SocialUpdatesListener,
   SharedStudySessionParticipantAction,
   SocialRepository,
   StudyRepository,
@@ -82,6 +85,26 @@ function isLifecycleTombstone(
     ['declined', 'left'].includes(status) &&
     idKeys.some((key) => typeof row[key] === 'string'),
   );
+}
+
+const SOCIAL_INVALIDATION_KINDS = new Set<SocialInvalidationKind>([
+  'presence',
+  'profile',
+  'friendship',
+  'shared_session',
+  'shared_session_progress',
+  'shared_goal',
+  'shared_goal_progress',
+  'study_group',
+  'social',
+]);
+
+function socialInvalidationKind(message: unknown): SocialInvalidationKind {
+  const payload = asRecord(asRecord(message).payload);
+  const kind = readString(payload, 'kind');
+  return kind && SOCIAL_INVALIDATION_KINDS.has(kind as SocialInvalidationKind)
+    ? kind as SocialInvalidationKind
+    : 'social';
 }
 
 /**
@@ -439,6 +462,47 @@ export class SupabaseStudyRepository implements StudyRepository {
     return trackedCleanup;
   }
 
+  async subscribeSocialUpdates(
+    listener: SocialUpdatesListener,
+    signal?: AbortSignal,
+  ): Promise<() => Promise<void>> {
+    this.ensureAvailable();
+    throwIfAborted(signal);
+    await this.client.realtime.setAuth();
+    throwIfAborted(signal);
+
+    let subscribedOnce = false;
+    let disposed = false;
+    const channel = this.client
+      .channel(`social:user:${this.accountId}`, { config: { private: true } })
+      .on('broadcast', { event: 'social_invalidated' }, (message) => {
+        if (!disposed) listener.onInvalidated(socialInvalidationKind(message));
+      });
+    channel.subscribe((status, error) => {
+      if (disposed) return;
+      if (status === 'SUBSCRIBED') {
+        if (subscribedOnce) listener.onInvalidated('social');
+        subscribedOnce = true;
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        listener.onError?.(asRepositoryError(error ?? new Error(`Realtime-Status: ${status}`)));
+      }
+    });
+
+    let cleaned = false;
+    const cleanup = async () => {
+      if (cleaned) return;
+      cleaned = true;
+      disposed = true;
+      signal?.removeEventListener('abort', abort);
+      this.realtimeCleanups.delete(cleanup);
+      await this.client.removeChannel(channel);
+    };
+    const abort = () => { void cleanup(); };
+    signal?.addEventListener('abort', abort, { once: true });
+    this.realtimeCleanups.add(cleanup);
+    return cleanup;
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -460,19 +524,108 @@ export class SupabaseStudyRepository implements StudyRepository {
       }, signal)),
       uploadAvatar: async (input: UploadAvatarInput, signal) => {
         throwIfAborted(signal);
-        const path = `${input.userId}/avatar.${input.fileExtension}`;
+        if (input.userId !== this.accountId) {
+          throw new StudyRepositoryError('forbidden', 'Profilbilder können nur im eigenen Konto gespeichert werden.');
+        }
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.objectId)) {
+          throw new StudyRepositoryError('invalid_data', 'Die Profilbild-ID ist ungültig.');
+        }
+        if (!['jpg', 'png', 'webp'].includes(input.fileExtension)) {
+          throw new StudyRepositoryError('invalid_data', 'Dieses Profilbildformat wird nicht unterstützt.');
+        }
+        const path = `${input.userId}/profile/${input.objectId}.${input.fileExtension}`;
         const { error } = await this.client.storage.from('avatars').upload(path, input.body, {
+          cacheControl: '31536000',
           contentType: input.contentType,
-          upsert: true,
+          upsert: false,
         });
         if (error) {
           throw describeAvatarUploadError(error);
         }
         throwIfAborted(signal);
-        const { data } = this.client.storage.from('avatars').getPublicUrl(path);
-        // The upsert path stays constant, so append a cache-buster to force
-        // clients (and friend views) to fetch the freshly uploaded image.
-        return `${data.publicUrl}?v=${Date.now()}`;
+        return { objectPath: path };
+      },
+      setMyAvatar: async (objectPath, signal) => {
+        const result = asRecord(await this.rpc(
+          'set_my_avatar',
+          { p_object_path: objectPath },
+          signal,
+        ));
+        return {
+          profile: mapAccountProfile(result),
+          previousAvatarUrl: readString(result, 'previous_avatar_url', 'previousAvatarUrl'),
+        };
+      },
+      deleteAvatarObject: async (userId, objectPath, signal) => {
+        throwIfAborted(signal);
+        if (userId !== this.accountId || !objectPath.startsWith(`${userId}/profile/`)) {
+          throw new StudyRepositoryError('forbidden', 'Profilbilder können nur im eigenen Konto gelöscht werden.');
+        }
+        const { error } = await this.client.storage.from('avatars').remove([objectPath]);
+        if (error) throw describeAvatarUploadError(error);
+        throwIfAborted(signal);
+      },
+      cleanupAvatarObjects: async (
+        userId,
+        keepObjectPath,
+        previousAvatarUrl,
+        signal,
+      ) => {
+        throwIfAborted(signal);
+        if (userId !== this.accountId || !keepObjectPath.startsWith(`${userId}/profile/`)) {
+          throw new StudyRepositoryError('forbidden', 'Profilbilder können nur im eigenen Konto bereinigt werden.');
+        }
+        const profile = mapAccountProfile(await this.rpc('get_my_profile', {}, signal));
+        const currentPath = avatarObjectPathFromUrl(profile.avatarUrl, userId);
+        const stalePaths = new Set<string>();
+        const previousPath = avatarObjectPathFromUrl(previousAvatarUrl, userId);
+        if (previousPath && previousPath !== currentPath && previousPath !== keepObjectPath) {
+          stalePaths.add(previousPath);
+        }
+
+        const serverCandidates = rpcRows(
+          await this.rpc('list_my_stale_avatar_objects', {}, signal),
+          'object_paths',
+        );
+        const canonicalPathPattern = new RegExp(
+          `^${userId}/profile/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.(jpg|png|webp)$`,
+          'i',
+        );
+        const legacyPathPattern = new RegExp(
+          `^${userId}/avatar\\.(jpg|jpeg|png|webp)$`,
+          'i',
+        );
+        for (const candidate of serverCandidates) {
+          if (typeof candidate !== 'string') continue;
+          if (
+            (canonicalPathPattern.test(candidate) || legacyPathPattern.test(candidate))
+            && candidate !== currentPath
+            && candidate !== keepObjectPath
+          ) {
+            stalePaths.add(candidate);
+          }
+        }
+
+        const storage = this.client.storage.from('avatars');
+        const failures: unknown[] = [];
+        for (const stalePath of stalePaths) {
+          throwIfAborted(signal);
+          const { error } = await storage.remove([stalePath]);
+          if (!error) continue;
+
+          // A second device may have made this object current after listing.
+          // The Storage policy rejects that race; confirm it before deciding
+          // whether this is an actual maintenance failure.
+          try {
+            const latest = mapAccountProfile(await this.rpc('get_my_profile', {}, signal));
+            if (avatarObjectPathFromUrl(latest.avatarUrl, userId) === stalePath) continue;
+          } catch {
+            // Preserve the original Storage error below.
+          }
+          failures.push(error);
+        }
+        if (failures.length > 0) throw describeAvatarUploadError(failures[0]);
+        throwIfAborted(signal);
       },
       getSharingPreferences: async (signal) => mapSharingPreferences(await this.rpc('get_my_profile', {}, signal)),
       updateSharingPreferences: async (input: UpdateSharingPreferencesInput, signal) => mapSharingPreferences(await this.rpc('update_privacy_settings', {
@@ -553,6 +706,11 @@ export class SupabaseStudyRepository implements StudyRepository {
         'progress',
         'goals',
       ).map(mapSharedGoalProgress),
+      listSharedGoals: async (signal) => rpcRows(
+        await this.rpc('list_shared_goals', {}, signal),
+        'shared_goals',
+        'goals',
+      ).map(mapStudyChallenge),
       listStudyGroups: async (signal) => rpcRows(
         await this.rpc('list_study_groups', {}, signal),
         'study_groups',
@@ -629,8 +787,9 @@ export class SupabaseStudyRepository implements StudyRepository {
         }, signal);
         return result == null ? null : mapSharedStudySession(result);
       },
-      updateLearningPresence: async (state, activeSince, signal) => {
+      updateLearningPresence: async (deviceId, state, activeSince, signal) => {
         await this.rpc('update_learning_presence', {
+          p_device_id: deviceId,
           p_state: state,
           p_active_since: activeSince,
         }, signal);

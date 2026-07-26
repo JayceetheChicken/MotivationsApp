@@ -25,6 +25,7 @@ import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
 import { SectionHeader } from '@/components/ui/section-header';
+import { useCurrentDate } from '@/hooks/use-current-date';
 import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
@@ -77,6 +78,7 @@ function remainingLabel(endsAt: string): string {
 export default function FriendProfileScreen() {
   const theme = useAppTheme();
   const auth = useAuthStore();
+  const now = useCurrentDate(15_000);
   const params = useLocalSearchParams();
   const friendId = singleParam(params['user-id'] as string | readonly string[] | undefined);
   const {
@@ -106,7 +108,7 @@ export default function FriendProfileScreen() {
     () => friendOverviews.find((entry) => entry.friend.id === friendId) ?? null,
     [friendId, friendOverviews],
   );
-  const currentOverview = overview ?? cachedOverview;
+  const currentOverview = connection ? (cachedOverview ?? overview) : null;
 
   const load = useCallback(async () => {
     if (auth.activeMode !== 'supabase' || !friendId) {
@@ -134,10 +136,10 @@ export default function FriendProfileScreen() {
   useEffect(() => {
     if (auth.activeMode !== 'supabase' || !friendId) return;
     const heartbeat = setInterval(() => {
-      void getFriendOverview(friendId).then((next) => {
-        if (next) setOverview(next);
-      });
-    }, 120_000);
+      void getFriendOverview(friendId)
+        .then(setOverview)
+        .catch(() => undefined);
+    }, 60_000);
     return () => clearInterval(heartbeat);
   }, [auth.activeMode, friendId, getFriendOverview]);
 
@@ -222,7 +224,9 @@ export default function FriendProfileScreen() {
     plannedDurationMinutes: session.plannedDurationMinutes,
     status: session.status,
     participants: session.participants
-      .filter((participant) => !['declined', 'left'].includes(participant.status))
+      .filter((participant) => ['joined', 'active', 'paused', 'finished'].includes(
+        participant.status,
+      ))
       .map((participant) => socialUser(participant.user)),
   }));
   const groupViews: readonly StudyGroupViewModel[] = commonGroups.map((group) => {
@@ -250,7 +254,7 @@ export default function FriendProfileScreen() {
 
       {currentOverview ? (
         <AppCard padding="none">
-          <FriendPresenceRow overview={currentOverview} />
+          <FriendPresenceRow now={now} overview={currentOverview} />
         </AppCard>
       ) : null}
 

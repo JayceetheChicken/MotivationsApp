@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,7 +21,7 @@ import { formatClock, formatMinutes } from '@/lib/format';
 import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
-import type { SharedStudySessionParticipant } from '@/types/study';
+import type { SharedStudySession, SharedStudySessionParticipant } from '@/types/study';
 
 type ParticipantAction = 'start' | 'pause' | 'resume' | 'finish' | 'leave';
 
@@ -52,11 +52,53 @@ function formatDateTime(value: string): string {
   }).format(date);
 }
 
-function participantElapsedMinutes(participant: SharedStudySessionParticipant, nowMs: number): number {
-  const runningMinutes = participant.status === 'active' && participant.activeSince
-    ? Math.max(0, nowMs - Date.parse(participant.activeSince)) / 60_000
+export function participantElapsedMinutes(
+  participant: SharedStudySessionParticipant,
+  calculatedAt: string | null,
+  nowMs: number,
+): number {
+  const baselineAt = calculatedAt ? Date.parse(calculatedAt) : Number.NaN;
+  const runningMinutes = participant.status === 'active' && Number.isFinite(baselineAt)
+    ? Math.max(0, nowMs - baselineAt) / 60_000
     : 0;
   return Math.max(0, participant.elapsedMinutes + runningMinutes);
+}
+
+function parsedTimestamp(value: string | null): number | null {
+  const timestamp = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+export function selectLatestSharedStudySession(
+  loadedSession: SharedStudySession | null,
+  cachedSession: SharedStudySession | null,
+): SharedStudySession | null {
+  if (!loadedSession) return cachedSession;
+  if (!cachedSession) return loadedSession;
+
+  const loadedCalculatedAt = parsedTimestamp(loadedSession.calculatedAt);
+  const cachedCalculatedAt = parsedTimestamp(cachedSession.calculatedAt);
+  if (loadedCalculatedAt !== cachedCalculatedAt) {
+    if (loadedCalculatedAt === null) return cachedSession;
+    if (cachedCalculatedAt === null) return loadedSession;
+    return cachedCalculatedAt > loadedCalculatedAt ? cachedSession : loadedSession;
+  }
+
+  const loadedUpdatedAt = parsedTimestamp(loadedSession.updatedAt);
+  const cachedUpdatedAt = parsedTimestamp(cachedSession.updatedAt);
+  if (loadedUpdatedAt !== cachedUpdatedAt) {
+    if (loadedUpdatedAt === null) return cachedSession;
+    if (cachedUpdatedAt === null) return loadedSession;
+    return cachedUpdatedAt > loadedUpdatedAt ? cachedSession : loadedSession;
+  }
+
+  // Preserve an immediately returned local action result on an exact tie.
+  return loadedSession;
+}
+
+function isSessionAccessLoss(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === 'forbidden' || code === 'not_found' || code === 'unauthorized';
 }
 
 export default function SharedStudySessionDetailsScreen() {
@@ -73,47 +115,63 @@ export default function SharedStudySessionDetailsScreen() {
     updateSharedStudySessionParticipant,
     cancelSharedStudySession,
   } = useStudyStore();
-  const [loadedSession, setLoadedSession] = useState<(typeof sharedStudySessions)[number] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
   const cachedSession = useMemo(
     () => sharedStudySessions.find((entry) => entry.id === sessionId) ?? null,
     [sessionId, sharedStudySessions],
   );
+  const [loadedSession, setLoadedSession] = useState<(typeof sharedStudySessions)[number] | null>(null);
+  const [cacheBackedSessionId, setCacheBackedSessionId] = useState<string | null>(
+    () => cachedSession?.id ?? null,
+  );
+  const [accessDeniedSessionId, setAccessDeniedSessionId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const loadGenerationRef = useRef(0);
+
+  const cacheAccessLost = cacheBackedSessionId === sessionId && !cachedSession;
   const session = useMemo(() => {
-    if (!loadedSession) return cachedSession;
-    if (!cachedSession) return loadedSession;
-    const loadedAt = Date.parse(loadedSession.updatedAt);
-    const cachedAt = Date.parse(cachedSession.updatedAt);
-    return Number.isFinite(cachedAt) && (!Number.isFinite(loadedAt) || cachedAt > loadedAt)
-      ? cachedSession
-      : loadedSession;
-  }, [cachedSession, loadedSession]);
+    if (accessDeniedSessionId === sessionId || cacheAccessLost) return null;
+    return selectLatestSharedStudySession(loadedSession, cachedSession);
+  }, [accessDeniedSessionId, cacheAccessLost, cachedSession, loadedSession, sessionId]);
   const currentParticipant = session?.participants.find(
     (participant) => participant.userId === data.currentUser?.id,
   );
 
+  useEffect(() => {
+    if (!cachedSession || cacheBackedSessionId === cachedSession.id) return;
+    const task = setTimeout(() => setCacheBackedSessionId(cachedSession.id), 0);
+    return () => clearTimeout(task);
+  }, [cacheBackedSessionId, cachedSession]);
+
   const load = useCallback(async (silent = false) => {
     if (auth.activeMode !== 'supabase' || !sessionId) {
+      loadGenerationRef.current += 1;
       setLoading(false);
       return;
     }
+    const generation = ++loadGenerationRef.current;
     if (!silent) setLoading(true);
     setError(null);
     try {
       const next = await getSharedStudySessionDetails(sessionId);
+      if (generation !== loadGenerationRef.current) return;
       setLoadedSession(next);
+      setAccessDeniedSessionId(next ? null : sessionId);
     } catch (loadError) {
+      if (generation !== loadGenerationRef.current) return;
+      if (isSessionAccessLoss(loadError)) {
+        setLoadedSession(null);
+        setAccessDeniedSessionId(sessionId);
+      }
       if (!silent) {
         setError(loadError instanceof Error
           ? loadError.message
           : 'Die gemeinsame Lern-Session konnte nicht geladen werden.');
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && generation === loadGenerationRef.current) setLoading(false);
     }
   }, [auth.activeMode, getSharedStudySessionDetails, sessionId]);
 
@@ -136,8 +194,10 @@ export default function SharedStudySessionDetailsScreen() {
     if (!sessionId) return;
     setPendingAction(accept ? 'accept' : 'decline');
     setError(null);
+    loadGenerationRef.current += 1;
     try {
       const next = await respondSharedStudySessionInvitation(sessionId, accept);
+      loadGenerationRef.current += 1;
       if (next) setLoadedSession(next);
       if (!accept) router.replace('/friends');
     } catch (respondError) {
@@ -153,8 +213,10 @@ export default function SharedStudySessionDetailsScreen() {
     if (!sessionId) return;
     setPendingAction(action);
     setError(null);
+    loadGenerationRef.current += 1;
     try {
       const next = await updateSharedStudySessionParticipant(sessionId, action);
+      loadGenerationRef.current += 1;
       if (next) setLoadedSession(next);
       if (action === 'leave') router.replace('/friends');
     } catch (actionError) {
@@ -178,8 +240,12 @@ export default function SharedStudySessionDetailsScreen() {
           style: 'destructive',
           onPress: () => {
             setPendingAction('cancel');
+            loadGenerationRef.current += 1;
             void cancelSharedStudySession(sessionId)
-              .then((next) => { if (next) setLoadedSession(next); })
+              .then((next) => {
+                loadGenerationRef.current += 1;
+                if (next) setLoadedSession(next);
+              })
               .catch((cancelError: unknown) => setError(
                 cancelError instanceof Error ? cancelError.message : 'Die Session konnte nicht abgesagt werden.',
               ))
@@ -224,11 +290,15 @@ export default function SharedStudySessionDetailsScreen() {
   const invited = currentParticipant?.status === 'invited';
   const participating = currentParticipant && ['joined', 'active', 'paused', 'finished'].includes(currentParticipant.status);
   const visibleParticipants = session.participants.filter(
-    (participant) => !['declined', 'left'].includes(participant.status),
+    (participant) => ['joined', 'active', 'paused', 'finished'].includes(participant.status),
   );
   const elapsedByParticipant = visibleParticipants.map((participant) => ({
     participant,
-    minutes: participantElapsedMinutes(participant, nowMs),
+    minutes: participantElapsedMinutes(
+      participant,
+      session.receivedAt ?? session.calculatedAt,
+      nowMs,
+    ),
   }));
   const progressPercent = elapsedByParticipant.length > 0
     ? elapsedByParticipant.reduce(
@@ -237,7 +307,11 @@ export default function SharedStudySessionDetailsScreen() {
       ) / elapsedByParticipant.length
     : 0;
   const currentElapsed = currentParticipant
-    ? participantElapsedMinutes(currentParticipant, nowMs)
+    ? participantElapsedMinutes(
+        currentParticipant,
+        session.receivedAt ?? session.calculatedAt,
+        nowMs,
+      )
     : 0;
   const hasLinkedPrivateTimer = data.activeTimer?.sharedSessionId === session.id;
   const hasOtherActiveTimer = Boolean(
@@ -281,7 +355,9 @@ export default function SharedStudySessionDetailsScreen() {
           </View>
         ) : null}
 
-        <ProgressBar label="Gemeinsamer Session-Fortschritt" max={100} showValue value={progressPercent} />
+        {elapsedByParticipant.length > 0 ? (
+          <ProgressBar label="Gemeinsamer Session-Fortschritt" max={100} showValue value={progressPercent} />
+        ) : null}
       </AppCard>
 
       {invited ? (

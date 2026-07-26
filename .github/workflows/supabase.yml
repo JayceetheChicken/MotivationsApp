@@ -4,11 +4,17 @@ on:
   pull_request:
     paths:
       - 'supabase/**'
+      - 'scripts/supabase-local-e2e.mjs'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/supabase.yml'
   push:
     branches: [main]
     paths:
       - 'supabase/**'
+      - 'scripts/supabase-local-e2e.mjs'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/supabase.yml'
 
 permissions:
@@ -20,6 +26,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
 
       - uses: supabase/setup-cli@v1
         with:
@@ -36,3 +50,11 @@ jobs:
 
       - name: Run pgTAP tests
         run: supabase test db
+
+      - name: Run local Supabase API E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          eval "$(supabase status -o env)"
+          export API_URL ANON_KEY SERVICE_ROLE_KEY
+          npm run test:supabase:e2e

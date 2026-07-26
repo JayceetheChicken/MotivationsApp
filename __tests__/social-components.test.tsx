@@ -8,20 +8,18 @@ import {
   FriendSearch,
   ParticipantAvatarStack,
   PlannedSessionCard,
-  PrivacySourceToggles,
   SharedGoalCard,
   SharedGoalFormFields,
   SharedGoalSummaryCard,
   SocialPrivacyNote,
   StudyGroupCard,
   type PlannedSessionViewModel,
-  type PrivacySourceKey,
-  type PrivacySourceValues,
   type SharedGoalFormValue,
   type SharedGoalSummaryViewModel,
   type SocialUserSummary,
   type StudyGroupViewModel,
 } from '@/components/social';
+import { Avatar } from '@/components/ui/avatar';
 
 function setWindowWidth(width: number) {
   const dimensions = { width, height: 900, scale: 1, fontScale: 1 };
@@ -70,6 +68,18 @@ const initialFormValue: SharedGoalFormValue = {
 };
 
 describe('Social UI components', () => {
+  it('falls back to initials when a remote avatar cannot be loaded', async () => {
+    const rendered = await render(
+      <Avatar name="Alice Beispiel" source={{ uri: 'https://invalid.test/avatar.jpg' }} />,
+    );
+    expect(rendered.queryByText('AB')).toBeNull();
+    await fireEvent(rendered.getByTestId('avatar-image'), 'error', {
+      nativeEvent: { error: 'network failure' },
+    });
+    expect(rendered.getByText('AB')).toBeTruthy();
+    await rendered.unmount();
+  });
+
   it('offers account actions without accessing auth or study stores', async () => {
     const onSignIn = jest.fn();
     const onRegister = jest.fn();
@@ -142,6 +152,8 @@ describe('Social UI components', () => {
           },
           presenceStatus: 'online',
           lastActiveAt: '2026-07-22T08:40:00.000Z',
+          presenceExpiresAt: '2026-07-22T08:45:00.000Z',
+          onlineExpiresAt: '2026-07-22T08:45:00.000Z',
         }}
       />,
     );
@@ -158,24 +170,24 @@ describe('Social UI components', () => {
     await rendered.unmount();
   });
 
-  it('keeps timer and manual privacy consent separate and explains total redaction', async () => {
-    const onChange = jest.fn<void, [PrivacySourceKey, boolean]>();
-    const values: PrivacySourceValues = {
-      shareTimerStats: false,
-      shareManualStats: false,
-      shareGoalProgress: false,
-      shareStreak: false,
+  it('downgrades expired learning and online presence without waiting for a refetch', async () => {
+    const overview = {
+      friend: alice,
+      presenceStatus: 'learning' as const,
+      lastActiveAt: '2026-07-22T08:40:00.000Z',
+      presenceExpiresAt: '2026-07-22T08:41:00.000Z',
+      onlineExpiresAt: '2026-07-22T08:45:00.000Z',
     };
     const rendered = await render(
-      <PrivacySourceToggles onChange={onChange} values={values} />,
+      <FriendPresenceRow now={Date.parse('2026-07-22T08:42:00.000Z')} overview={overview} />,
     );
+    expect(rendered.getByText('Online')).toBeTruthy();
 
-    await fireEvent(rendered.getByLabelText('Timer-Statistiken'), 'valueChange', true);
-    await fireEvent(rendered.getByLabelText('Manuelle Einträge'), 'valueChange', true);
-
-    expect(onChange).toHaveBeenNthCalledWith(1, 'shareTimerStats', true);
-    expect(onChange).toHaveBeenNthCalledWith(2, 'shareManualStats', true);
-    expect(rendered.getByText(/Gesamtwert wird Freunden nur angezeigt/)).toBeTruthy();
+    await rendered.rerender(
+      <FriendPresenceRow now={Date.parse('2026-07-22T08:46:00.000Z')} overview={overview} />,
+    );
+    expect(rendered.getByText('Offline')).toBeTruthy();
+    expect(rendered.queryByText('Lernt gerade')).toBeNull();
     await rendered.unmount();
   });
 

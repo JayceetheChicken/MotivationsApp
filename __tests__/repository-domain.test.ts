@@ -409,6 +409,8 @@ describe('repository domain infrastructure', () => {
       },
       presenceStatus: 'learning',
       lastActiveAt: '2026-07-18T09:45:00.000Z',
+      presenceExpiresAt: null,
+      onlineExpiresAt: null,
       sharedGoalIds: ['goal-1'],
       sharedSessionIds: ['shared-session-1'],
       groupIds: ['group-1'],
@@ -496,6 +498,36 @@ describe('repository domain infrastructure', () => {
     }).participants).toEqual([
       expect.objectContaining({ userId: 'friend', status: 'invited', elapsedMinutes: 0 }),
     ]);
+  });
+
+  it('aligns presence expiry to the receiving device clock', () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(
+      Date.parse('2031-01-01T12:00:00.000Z'),
+    );
+    try {
+      const overview = mapFriendOverview({
+        friend: { id: 'friend', username: 'mia', display_name: 'Mia' },
+        presence_status: 'learning',
+        server_observed_at: '2026-07-18T10:00:00.000Z',
+        presence_expires_at: '2026-07-18T10:02:00.000Z',
+        online_expires_at: '2026-07-18T10:03:00.000Z',
+      });
+      expect(overview.presenceExpiresAt).toBe('2031-01-01T12:02:00.000Z');
+      expect(overview.onlineExpiresAt).toBe('2031-01-01T12:03:00.000Z');
+      const mappedSession = mapSharedStudySession({
+        session: {
+          id: 'shared-session-clock', creator_id: 'account-id', group_id: null,
+          title: 'Clock safe', starts_at: now, planned_duration_seconds: 1800,
+          status: 'active', created_at: now, updated_at: now,
+        },
+        participants: [],
+        calculated_at: '2026-07-18T10:00:00.000Z',
+      });
+      expect(mappedSession.calculatedAt).toBe('2026-07-18T10:00:00.000Z');
+      expect(mappedSession.receivedAt).toBe('2031-01-01T12:00:00.000Z');
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('round-trips a private session shared-session binding without exposing its details', () => {

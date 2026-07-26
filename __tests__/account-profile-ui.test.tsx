@@ -10,7 +10,7 @@ import type { AccountStudyUser, StudyData } from '@/types/study';
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockUpdateAccountProfile = jest.fn();
-const mockUploadAvatar = jest.fn();
+const mockReplaceAccountAvatar = jest.fn();
 
 jest.mock('expo-router', () => ({
   router: {
@@ -96,7 +96,7 @@ function configureAccountStores(profileOverrides: Partial<AccountStudyUser> | nu
     socialError: null,
     socialLoading: false,
     updateAccountProfile: mockUpdateAccountProfile,
-    uploadAvatar: mockUploadAvatar,
+    replaceAccountAvatar: mockReplaceAccountAvatar,
     syncStatus: { phase: 'idle', pendingMutationCount: 0, lastSyncedAt: null, lastError: null },
   } as unknown as ReturnType<typeof useStudyStore>);
 }
@@ -108,7 +108,7 @@ describe('online account profile screen', () => {
     mockedRequestPermission.mockReset();
     mockedLaunchLibrary.mockReset();
     mockedGetPendingResult.mockReset();
-    mockUploadAvatar.mockReset();
+    mockReplaceAccountAvatar.mockReset();
     mockUpdateAccountProfile.mockReset();
     mockedGetPendingResult.mockResolvedValue(null);
     configureAccountStores();
@@ -188,8 +188,10 @@ describe('online account profile screen', () => {
       canceled: false,
       assets: [{ uri: 'file:///tmp/pic.jpg', mimeType: 'image/jpeg', fileName: 'pic.jpg' }],
     } as never);
-    mockUploadAvatar.mockResolvedValue('https://cdn.example.com/avatars/account-1/avatar.jpg?v=42');
-    mockUpdateAccountProfile.mockResolvedValue({ ...accountProfile, avatarUrl: 'https://cdn.example.com/avatars/account-1/avatar.jpg?v=42' });
+    mockReplaceAccountAvatar.mockResolvedValue({
+      ...accountProfile,
+      avatarUrl: 'https://cdn.example.com/avatars/account-1/profile/avatar.jpg?v=42',
+    });
 
     const rendered = await render(<ProfileScreen />);
     await fireEvent.press(rendered.getByRole('button', { name: 'Profilbild ändern' }));
@@ -201,14 +203,13 @@ describe('online account profile screen', () => {
         aspect: [1, 1],
         quality: 0.85,
       });
-      expect(mockUploadAvatar).toHaveBeenCalledWith({
+      expect(mockReplaceAccountAvatar).toHaveBeenCalledWith({
         uri: 'file:///tmp/pic.jpg',
         mimeType: 'image/jpeg',
         fileName: 'pic.jpg',
+        fileSize: undefined,
       });
-      expect(mockUpdateAccountProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ avatarUrl: 'https://cdn.example.com/avatars/account-1/avatar.jpg?v=42' }),
-      );
+      expect(mockUpdateAccountProfile).not.toHaveBeenCalled();
       expect(rendered.getByText('Dein neues Profilbild wurde gespeichert.')).toBeTruthy();
     });
     await rendered.unmount();
@@ -224,7 +225,7 @@ describe('online account profile screen', () => {
     await waitFor(() => {
       expect(rendered.getByText('Die Android-Galerie konnte nicht geöffnet werden.')).toBeTruthy();
     });
-    expect(mockUploadAvatar).not.toHaveBeenCalled();
+    expect(mockReplaceAccountAvatar).not.toHaveBeenCalled();
     await rendered.unmount();
   });
 
@@ -246,10 +247,9 @@ describe('online account profile screen', () => {
       canceled: false,
       assets: [{ uri: 'content://media/recovered.jpg', mimeType: 'image/jpeg', fileName: 'recovered.jpg' }],
     } as never);
-    mockUploadAvatar.mockResolvedValue('https://cdn.example.com/avatars/account-1/avatar.jpg?v=84');
-    mockUpdateAccountProfile.mockResolvedValue({
+    mockReplaceAccountAvatar.mockResolvedValue({
       ...accountProfile,
-      avatarUrl: 'https://cdn.example.com/avatars/account-1/avatar.jpg?v=84',
+      avatarUrl: 'https://cdn.example.com/avatars/account-1/profile/avatar.jpg?v=84',
     });
     configureAccountStores(null);
 
@@ -261,10 +261,10 @@ describe('online account profile screen', () => {
 
     await waitFor(() => {
       expect(mockedGetPendingResult).toHaveBeenCalledTimes(1);
-      expect(mockUploadAvatar).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockReplaceAccountAvatar).toHaveBeenCalledWith(expect.objectContaining({
         uri: 'content://media/recovered.jpg',
       }));
-      expect(mockUpdateAccountProfile).toHaveBeenCalledTimes(1);
+      expect(mockUpdateAccountProfile).not.toHaveBeenCalled();
       expect(rendered.getByText('Dein neues Profilbild wurde gespeichert.')).toBeTruthy();
     });
     await rendered.unmount();
@@ -276,22 +276,26 @@ describe('online account profile screen', () => {
       canceled: false,
       assets: [{ uri: 'file:///tmp/pic.jpg', mimeType: 'image/jpeg', fileName: 'pic.jpg' }],
     } as never);
-    let resolveUpload!: (url: string) => void;
-    mockUploadAvatar.mockReturnValue(new Promise<string>((resolve) => { resolveUpload = resolve; }));
-    mockUpdateAccountProfile.mockResolvedValue(accountProfile);
+    let resolveUpload!: (profile: AccountStudyUser) => void;
+    mockReplaceAccountAvatar.mockReturnValue(new Promise<AccountStudyUser>((resolve) => {
+      resolveUpload = resolve;
+    }));
 
     const rendered = await render(<ProfileScreen />);
     const button = rendered.getByRole('button', { name: 'Profilbild ändern' });
     await fireEvent.press(button);
     await fireEvent.press(button);
 
-    await waitFor(() => expect(mockUploadAvatar).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockReplaceAccountAvatar).toHaveBeenCalledTimes(1));
     await act(async () => {
-      resolveUpload('https://cdn.example.com/avatars/account-1/avatar.jpg?v=99');
+      resolveUpload({
+        ...accountProfile,
+        avatarUrl: 'https://cdn.example.com/avatars/account-1/profile/avatar.jpg?v=99',
+      });
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(mockUpdateAccountProfile).toHaveBeenCalledTimes(1);
+      expect(mockUpdateAccountProfile).not.toHaveBeenCalled();
       expect(rendered.getByText('Dein neues Profilbild wurde gespeichert.')).toBeTruthy();
     });
     await rendered.unmount();
@@ -307,7 +311,7 @@ describe('online account profile screen', () => {
       expect(rendered.getByText(/Erlaube den Zugriff auf deine Fotos/)).toBeTruthy();
     });
     expect(mockedLaunchLibrary).not.toHaveBeenCalled();
-    expect(mockUploadAvatar).not.toHaveBeenCalled();
+    expect(mockReplaceAccountAvatar).not.toHaveBeenCalled();
     await rendered.unmount();
   });
 
@@ -317,7 +321,7 @@ describe('online account profile screen', () => {
       canceled: false,
       assets: [{ uri: 'file:///tmp/pic.jpg', mimeType: 'image/jpeg', fileName: 'pic.jpg' }],
     } as never);
-    mockUploadAvatar.mockRejectedValue(new Error('Der Upload wurde von Supabase abgelehnt.'));
+    mockReplaceAccountAvatar.mockRejectedValue(new Error('Der Upload wurde von Supabase abgelehnt.'));
 
     const rendered = await render(<ProfileScreen />);
     await fireEvent.press(rendered.getByRole('button', { name: 'Profilbild ändern' }));
@@ -338,8 +342,7 @@ describe('online account profile screen', () => {
       canceled: false,
       assets: [{ uri: 'file:///tmp/pic.jpg', mimeType: 'image/jpeg', fileName: 'pic.jpg' }],
     } as never);
-    mockUploadAvatar.mockResolvedValue('https://cdn.example.com/avatars/account-1/avatar.jpg?v=7');
-    mockUpdateAccountProfile.mockRejectedValue(
+    mockReplaceAccountAvatar.mockRejectedValue(
       new Error('Die Profil-URL konnte wegen eines Revisionskonflikts nicht gespeichert werden.'),
     );
 

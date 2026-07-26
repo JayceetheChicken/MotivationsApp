@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(40);
+select plan(43);
 
 insert into auth.users(
   id, aud, role, email, raw_user_meta_data, created_at, updated_at
@@ -23,6 +23,25 @@ select is(
   3,
   'privacy starts closed'
 );
+select is(
+  (select avatar_url from public.profiles
+   where id = '22222222-2222-4222-8222-222222222222'),
+  null,
+  'untrusted signup avatar metadata is not copied into the profile'
+);
+
+insert into storage.objects(bucket_id, name, metadata)
+values
+  (
+    'avatars',
+    '11111111-1111-4111-8111-111111111111/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg',
+    '{"mimetype":"image/jpeg","size":128}'::jsonb
+  ),
+  (
+    'avatars',
+    '22222222-2222-4222-8222-222222222222/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp',
+    '{"mimetype":"image/webp","size":256}'::jsonb
+  );
 
 select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
 select set_config('request.jwt.claim.role', 'authenticated', true);
@@ -33,21 +52,27 @@ select is(
   'anna',
   'profile RPC returns the actor profile'
 );
-select is(
-  (public.update_my_profile(
-    'anna',
-    'Anna',
-    'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
-    'UTC',
-    1
-  ) ->> 'avatar_url'),
-  'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
-  'profile update persists the uploaded public avatar URL'
+select set_config('request.jwt.claim.iss', 'https://project.supabase.co/not-auth', true);
+select throws_ok(
+  $$select public.set_my_avatar(
+    '11111111-1111-4111-8111-111111111111/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg'
+  )$$,
+  '22023',
+  'invalid_auth_issuer',
+  'avatar URLs cannot be derived from a non-auth JWT issuer'
 );
-select is(
-  (public.get_my_profile() -> 'profile' ->> 'avatar_url'),
-  'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
-  'the updated avatar is immediately visible in the actor profile'
+select set_config('request.jwt.claim.iss', 'http://127.0.0.1:54321/auth/v1', true);
+select ok(
+  (public.set_my_avatar(
+    '11111111-1111-4111-8111-111111111111/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg'
+  ) -> 'profile' ->> 'avatar_url') like
+    'http://127.0.0.1:54321/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg?v=%',
+  'set_my_avatar derives a cache-busted URL from the verified auth issuer'
+);
+select ok(
+  (public.get_my_profile() -> 'profile' ->> 'avatar_url') like
+  'http://127.0.0.1:54321/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg?v=%',
+  'the Storage-backed avatar is immediately visible in the actor profile'
 );
 select is(
   (select count(*)::integer from public.profiles),
@@ -60,9 +85,20 @@ select throws_ok(
   'expected_revision_required',
   'profile updates cannot bypass optimistic concurrency with null'
 );
-select is(
-  (public.find_profile_by_exact_username('ben') -> 'user' ->> 'avatar_url'),
-  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
+
+select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
+select ok(
+  (public.set_my_avatar(
+    '22222222-2222-4222-8222-222222222222/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp'
+  ) -> 'profile' ->> 'avatar_url') like
+    'http://127.0.0.1:54321/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp?v=%',
+  'a second user can bind only their own verified Storage object'
+);
+
+select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+select ok(
+  (public.find_profile_by_exact_username('ben') -> 'user' ->> 'avatar_url') like
+    'http://127.0.0.1:54321/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp?v=%',
   'exact username search projects the other user avatar URL'
 );
 select is(
@@ -70,9 +106,9 @@ select is(
   'pending',
   'friend request is outgoing for requester'
 );
-select is(
-  (public.send_friend_request('ben') -> 'user' ->> 'avatar_url'),
-  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
+select ok(
+  (public.send_friend_request('ben') -> 'user' ->> 'avatar_url') like
+    'http://127.0.0.1:54321/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp?v=%',
   'friend request response projects the addressee avatar URL'
 );
 
@@ -82,9 +118,9 @@ select is(
   'pending',
   'friend request is incoming for addressee'
 );
-select is(
-  (public.list_friend_connections() -> 'connections' -> 0 -> 'user' ->> 'avatar_url'),
-  'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
+select ok(
+  (public.list_friend_connections() -> 'connections' -> 0 -> 'user' ->> 'avatar_url') like
+    'http://127.0.0.1:54321/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg?v=%',
   'friend request list projects the requester avatar URL'
 );
 select is(
@@ -198,39 +234,39 @@ select throws_ok(
 
 select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
 select is(
-  (public.get_friend_profile_stats('22222222-2222-4222-8222-222222222222')
-    -> 'permissions' ->> 'timer')::boolean,
-  true,
-  'friend stats expose granted timer permission'
-);
-select is(
-  (public.get_friend_profile_stats('22222222-2222-4222-8222-222222222222')
-    -> 'friend' ->> 'avatar_url'),
-  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
-  'friend profile projects the friend avatar URL'
-);
-select is(
-  (public.get_friend_profile_stats('22222222-2222-4222-8222-222222222222')
-    -> 'permissions' ->> 'manual')::boolean,
-  false,
-  'friend stats keep manual permission closed'
+  public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    ->> 'presence_status',
+  'offline',
+  'friend overview exposes only the current privacy-safe presence state'
 );
 select ok(
-  (public.get_friend_profile_stats('22222222-2222-4222-8222-222222222222')
-    -> 'periods' -> 0 -> 'timer_minutes') <> 'null'::jsonb,
-  'granted timer value is present'
+  (public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    -> 'friend' ->> 'avatar_url') like
+    'http://127.0.0.1:54321/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp?v=%',
+  'friend overview projects the current Storage-backed avatar URL'
+);
+select ok(
+  not (public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    ? 'permissions'),
+  'friend overview does not expose legacy statistics permissions'
+);
+select ok(
+  not (public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    ? 'periods'),
+  'friend overview does not expose private period statistics'
+);
+select ok(
+  not (public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    ?| array['timer_minutes', 'manual_minutes', 'streak_days', 'goal_reached']),
+  'friend overview contains no private study metrics'
 );
 select is(
-  public.get_friend_profile_stats('22222222-2222-4222-8222-222222222222')
-    -> 'periods' -> 0 -> 'manual_minutes',
-  'null'::jsonb,
-  'ungranted manual value is redacted instead of zero'
-);
-select is(
-  public.get_friend_profile_stats('22222222-2222-4222-8222-222222222222')
-    -> 'periods' -> 0 -> 'total_minutes',
-  'null'::jsonb,
-  'total is redacted unless both sources are shared'
+  jsonb_array_length(
+    public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+      -> 'shared_goal_ids'
+  ),
+  0,
+  'friend overview initially reports no genuinely shared goals'
 );
 
 select lives_ok(
@@ -268,10 +304,10 @@ select lives_ok(
   )$$,
   'creator can invite a confirmed friend to a shared goal'
 );
-select is(
+select ok(
   (public.get_shared_goal_details('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2')
-    -> 'participants' -> 0 -> 'user' ->> 'avatar_url'),
-  'https://project.supabase.co/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/avatar.jpg',
+    -> 'participants' -> 0 -> 'user' ->> 'avatar_url') like
+    'http://127.0.0.1:54321/storage/v1/object/public/avatars/11111111-1111-4111-8111-111111111111/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg?v=%',
   'shared goal details project participant avatar URLs'
 );
 
@@ -310,10 +346,10 @@ select is(
   false,
   'team target is not prematurely reached'
 );
-select is(
+select ok(
   (public.get_shared_goal_progress('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2')
-    -> 'participants' -> 1 -> 'user' ->> 'avatar_url'),
-  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
+    -> 'participants' -> 1 -> 'user' ->> 'avatar_url') like
+    'http://127.0.0.1:54321/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp?v=%',
   'shared goal progress projects participant avatar URLs'
 );
 select is(
@@ -321,19 +357,19 @@ select is(
   'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'::uuid,
   'shared invitations survive through secure list projection'
 );
-select is(
+select ok(
   (public.list_shared_goals() -> 'shared_goals' -> 0
-    -> 'participants' -> 1 -> 'user' ->> 'avatar_url'),
-  'https://project.supabase.co/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/avatar.jpg',
+    -> 'participants' -> 1 -> 'user' ->> 'avatar_url') like
+    'http://127.0.0.1:54321/storage/v1/object/public/avatars/22222222-2222-4222-8222-222222222222/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp?v=%',
   'shared goal list projects participant avatar URLs'
 );
 
 select set_config('request.jwt.claim.sub', '33333333-3333-4333-8333-333333333333', true);
 select throws_ok(
-  $$select public.get_friend_profile_stats('22222222-2222-4222-8222-222222222222')$$,
+  $$select public.get_friend_overview('22222222-2222-4222-8222-222222222222')$$,
   '42501',
   'friendship_required',
-  'non-friends cannot read aggregate statistics'
+  'non-friends cannot read the privacy-safe friend overview'
 );
 select throws_ok(
   $$select public.get_shared_goal_details('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2')$$,

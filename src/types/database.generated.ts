@@ -177,6 +177,7 @@ export type Database = {
       }>;
       learning_presence: TableDefinition<{
         user_id: string;
+        device_id: string;
         state: 'idle' | 'learning' | 'paused';
         active_since: string | null;
         last_study_at: string | null;
@@ -247,6 +248,14 @@ export type Database = {
         Args: { p_username: string; p_display_name: string; p_avatar_url: string | null; p_time_zone: string; p_expected_revision: number };
         Returns: Json;
       };
+      set_my_avatar: {
+        Args: { p_object_path: string };
+        Returns: Json;
+      };
+      list_my_stale_avatar_objects: {
+        Args: Record<PropertyKey, never>;
+        Returns: Json;
+      };
       update_privacy_settings: {
         Args: { p_share_timer_stats: boolean; p_share_manual_stats: boolean; p_share_goal_progress: boolean; p_share_streak: boolean; p_expected_revision: number };
         Returns: Json;
@@ -277,7 +286,6 @@ export type Database = {
       list_friend_connections: { Args: Record<PropertyKey, never>; Returns: Json };
       get_friend_overview: { Args: { p_friend_id: string }; Returns: Json };
       list_friend_overviews: { Args: Record<PropertyKey, never>; Returns: Json };
-      get_friend_profile_stats: { Args: { p_friend_id: string }; Returns: Json };
       create_shared_goal: { Args: { p_goal: Json; p_invitee_ids: string[]; p_operation_id: string }; Returns: Json };
       respond_shared_goal_invitation: { Args: { p_goal_id: string; p_accept: boolean }; Returns: Json };
       withdraw_from_shared_goal: { Args: { p_goal_id: string }; Returns: Json };
@@ -315,7 +323,11 @@ export type Database = {
       };
       cancel_shared_study_session: { Args: { p_session_id: string }; Returns: Json };
       update_learning_presence: {
-        Args: { p_state: 'idle' | 'learning' | 'paused'; p_active_since: string | null };
+        Args: {
+          p_device_id: string;
+          p_state: 'offline' | 'idle' | 'learning' | 'paused';
+          p_active_since: string | null;
+        };
         Returns: Json;
       };
     };

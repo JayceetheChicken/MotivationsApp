@@ -85,9 +85,19 @@ export interface UpdateSharingPreferencesInput {
 
 export interface UploadAvatarInput {
   userId: string;
+  objectId: string;
   body: ArrayBuffer;
   contentType: string;
   fileExtension: string;
+}
+
+export interface UploadedAvatar {
+  objectPath: string;
+}
+
+export interface ConfirmedAvatar {
+  profile: AccountStudyUser;
+  previousAvatarUrl: string | null;
 }
 
 export interface CreateSharedGoalInput {
@@ -142,12 +152,40 @@ export type SharedStudySessionParticipantAction =
   | 'finish'
   | 'leave';
 
-export type LearningPresenceState = 'idle' | 'learning' | 'paused';
+export type LearningPresenceState = 'offline' | 'idle' | 'learning' | 'paused';
+
+export type SocialInvalidationKind =
+  | 'presence'
+  | 'profile'
+  | 'friendship'
+  | 'shared_session'
+  | 'shared_session_progress'
+  | 'shared_goal'
+  | 'shared_goal_progress'
+  | 'study_group'
+  | 'social';
+
+export type SocialUpdatesListener = Readonly<{
+  onInvalidated: (kind: SocialInvalidationKind) => void;
+  onError?: (error: Error) => void;
+}>;
 
 export interface SocialRepository {
   getMyProfile(signal?: AbortSignal): Promise<AccountStudyUser>;
   updateMyProfile(input: UpdateAccountProfileInput, signal?: AbortSignal): Promise<AccountStudyUser>;
-  uploadAvatar(input: UploadAvatarInput, signal?: AbortSignal): Promise<string>;
+  uploadAvatar(input: UploadAvatarInput, signal?: AbortSignal): Promise<UploadedAvatar>;
+  setMyAvatar(objectPath: string, signal?: AbortSignal): Promise<ConfirmedAvatar>;
+  deleteAvatarObject(
+    userId: string,
+    objectPath: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  cleanupAvatarObjects(
+    userId: string,
+    keepObjectPath: string,
+    previousAvatarUrl?: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
   getSharingPreferences(signal?: AbortSignal): Promise<StudySharingPreferences>;
   updateSharingPreferences(
     input: UpdateSharingPreferencesInput,
@@ -171,6 +209,7 @@ export interface SocialRepository {
   getSharedGoalDetails(goalId: string, signal?: AbortSignal): Promise<StudyChallenge>;
   getSharedGoalProgress(goalId: string, signal?: AbortSignal): Promise<SharedGoalProgress>;
   listSharedGoalProgress(signal?: AbortSignal): Promise<readonly SharedGoalProgress[]>;
+  listSharedGoals(signal?: AbortSignal): Promise<readonly StudyChallenge[]>;
   listStudyGroups(signal?: AbortSignal): Promise<readonly StudyGroup[]>;
   getStudyGroupDetails(groupId: string, signal?: AbortSignal): Promise<StudyGroup>;
   createStudyGroup(input: CreateStudyGroupInput, signal?: AbortSignal): Promise<StudyGroup>;
@@ -204,6 +243,7 @@ export interface SocialRepository {
     signal?: AbortSignal,
   ): Promise<SharedStudySession | null>;
   updateLearningPresence(
+    deviceId: string,
     state: LearningPresenceState,
     activeSince: string | null,
     signal?: AbortSignal,
@@ -288,6 +328,10 @@ export interface StudyRepository {
   subscribeSharedGoalProgress(
     goalId: string,
     listener: SharedGoalProgressListener,
+    signal?: AbortSignal,
+  ): Promise<() => Promise<void>>;
+  subscribeSocialUpdates(
+    listener: SocialUpdatesListener,
     signal?: AbortSignal,
   ): Promise<() => Promise<void>>;
   dispose(): Promise<void>;

@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(85);
+select plan(93);
 
 select has_table('public', 'learning_presence', 'learning presence exists');
 select results_eq(
@@ -13,9 +13,9 @@ select results_eq(
   $$,
   array[
     'user_id'::text, 'state', 'active_since', 'last_study_at',
-    'last_seen_at', 'expires_at'
+    'last_seen_at', 'expires_at', 'device_id'
   ],
-  'learning presence stores no subject, task, note or private goal fields'
+  'learning presence is device-scoped and stores no private learning fields'
 );
 select has_table('public', 'study_groups', 'study groups exist');
 select has_table('public', 'study_group_members', 'study group memberships exist');
@@ -52,10 +52,8 @@ select results_eq(
   'RLS is enabled on every new social table'
 );
 select ok(
-  not pg_catalog.has_function_privilege(
-    'authenticated', 'public.get_friend_profile_stats(uuid)', 'execute'
-  ),
-  'authenticated users can no longer execute the detailed friend statistics RPC'
+  pg_catalog.to_regprocedure('public.get_friend_profile_stats(uuid)') is null,
+  'the detailed friend statistics RPC is absent'
 );
 select ok(
   pg_catalog.has_function_privilege(
@@ -78,6 +76,32 @@ select ok(
     'authenticated', 'public.shared_study_session_participants', 'select'
   ),
   'new social tables are RPC-only for authenticated clients'
+);
+select ok(
+  pg_catalog.to_regprocedure(
+    'public.update_learning_presence(uuid,text,timestamp with time zone)'
+  ) is not null
+  and pg_catalog.has_function_privilege(
+    'authenticated',
+    pg_catalog.to_regprocedure(
+      'public.update_learning_presence(uuid,text,timestamp with time zone)'
+    ),
+    'execute'
+  ),
+  'authenticated users can execute device-scoped presence updates'
+);
+select ok(
+  pg_catalog.to_regprocedure(
+    'public.update_learning_presence(text,timestamp with time zone)'
+  ) is not null
+  and pg_catalog.has_function_privilege(
+    'authenticated',
+    pg_catalog.to_regprocedure(
+      'public.update_learning_presence(text,timestamp with time zone)'
+    ),
+    'execute'
+  ),
+  'authenticated users retain the legacy presence RPC during rollout'
 );
 
 insert into auth.users(
@@ -132,24 +156,39 @@ set local role authenticated;
 
 select is(
   public.update_learning_presence(
-    'learning', clock_timestamp() - interval '10 minutes'
+    'b2000000-0000-4000-8000-000000000001',
+    'learning',
+    clock_timestamp() - interval '10 minutes'
   ) ->> 'state',
   'learning',
-  'a user can publish only a learning presence state'
+  'a device can publish a learning presence state'
 );
 select ok(
   (
     public.update_learning_presence(
-      'learning', clock_timestamp() - interval '10 minutes'
+      'b2000000-0000-4000-8000-000000000001', 'learning', null
     ) ->> 'expires_at'
-  )::timestamptz > clock_timestamp() + interval '4 minutes',
-  'learning presence receives a five-minute TTL with heartbeat jitter tolerance'
+  )::timestamptz between
+    clock_timestamp() + interval '1 minute 55 seconds'
+    and clock_timestamp() + interval '2 minutes 5 seconds',
+  'learning presence receives a two-minute TTL with heartbeat tolerance'
 );
 select throws_ok(
-  $$select public.update_learning_presence('studying-mathematics', null)$$,
+  $$
+    select public.update_learning_presence(
+      'b2000000-0000-4000-8000-000000000001',
+      'studying-mathematics',
+      null
+    )
+  $$,
   '22023',
   'invalid_presence_state',
   'presence rejects states that could encode private learning details'
+);
+select is(
+  public.update_learning_presence('idle', null) ->> 'device_id',
+  'b2222222-2222-4222-8222-222222222222',
+  'the legacy RPC uses the account id as its stable device id'
 );
 
 select set_config(
@@ -165,7 +204,7 @@ select is(
   public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'presence_status',
   'learning',
-  'fresh learning presence is projected as learning'
+  'learning takes priority over another device that is merely online'
 );
 select ok(
   position('time_zone' in public.get_friend_overview(
@@ -188,11 +227,11 @@ select is(
   (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'last_active_at')::timestamptz,
   (
-    select lp.last_seen_at
+    select max(lp.last_seen_at)
     from public.learning_presence lp
     where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
   ),
-  'friend overview exposes server-observed last activity instead of study history'
+  'friend overview exposes the latest server-observed device activity'
 );
 set local role authenticated;
 select is(
@@ -204,7 +243,13 @@ select is(
 select set_config(
   'request.jwt.claim.sub', 'b2222222-2222-4222-8222-222222222222', true
 );
-select public.update_learning_presence('idle', null);
+select is(
+  public.update_learning_presence(
+    'b2000000-0000-4000-8000-000000000001', 'offline', null
+  ) ->> 'state',
+  'offline',
+  'a device can explicitly publish an offline state'
+);
 select set_config(
   'request.jwt.claim.sub', 'a1111111-1111-4111-8111-111111111111', true
 );
@@ -212,20 +257,62 @@ select is(
   public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'presence_status',
   'online',
-  'fresh idle presence is projected as online'
+  'an online device keeps the account online after another device disconnects'
 );
 
 reset role;
-update public.learning_presence
-set expires_at = clock_timestamp() - interval '1 second'
-where user_id = 'b2222222-2222-4222-8222-222222222222';
+select ok(
+  exists (
+    select 1
+    from public.learning_presence lp
+    where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
+      and lp.device_id = 'b2000000-0000-4000-8000-000000000001'
+      and lp.state = 'idle'
+      and lp.active_since is null
+      and lp.expires_at = lp.last_seen_at
+  ),
+  'an offline update leaves an immediately expired privacy-safe tombstone'
+);
+select is(
+  (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
+    ->> 'last_active_at')::timestamptz,
+  (
+    select max(lp.last_seen_at)
+    from public.learning_presence lp
+    where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
+  ),
+  'disconnecting one device updates last active without hiding another device'
+);
 set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub', 'b2222222-2222-4222-8222-222222222222', true
+);
+select is(
+  public.update_learning_presence('offline', null) ->> 'state',
+  'offline',
+  'the legacy RPC can publish an offline tombstone'
+);
+select set_config(
+  'request.jwt.claim.sub', 'a1111111-1111-4111-8111-111111111111', true
+);
 select is(
   public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'presence_status',
   'offline',
-  'expired presence is projected as offline'
+  'the account is offline after every device has disconnected'
 );
+reset role;
+select is(
+  (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
+    ->> 'last_active_at')::timestamptz,
+  (
+    select max(lp.last_seen_at)
+    from public.learning_presence lp
+    where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
+  ),
+  'offline tombstones retain the latest server-observed activity time'
+);
+set local role authenticated;
 
 select set_config(
   'request.jwt.claim.sub', 'd4444444-4444-4444-8444-444444444444', true

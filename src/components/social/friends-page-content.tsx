@@ -21,7 +21,7 @@ import type {
 } from '@/types/study';
 
 import { AccountRequiredCta } from './account-required-cta';
-import { FriendPresenceRow } from './friend-presence-row';
+import { FriendPresenceRow, resolveFriendPresenceStatus } from './friend-presence-row';
 import { FriendRequestRow } from './friend-request-row';
 import {
   FriendSearch,
@@ -103,7 +103,7 @@ function remainingLabel(endsAt: string, now: number): string | undefined {
 
 type FriendPresenceProjection = Pick<
   FriendOverview,
-  'friend' | 'presenceStatus' | 'lastActiveAt'
+  'friend' | 'presenceStatus' | 'lastActiveAt' | 'presenceExpiresAt' | 'onlineExpiresAt'
 >;
 
 function safeOfflineOverview(connection: FriendshipConnection): FriendPresenceProjection {
@@ -111,6 +111,8 @@ function safeOfflineOverview(connection: FriendshipConnection): FriendPresencePr
     friend: connection.otherUser,
     presenceStatus: 'offline',
     lastActiveAt: null,
+    presenceExpiresAt: null,
+    onlineExpiresAt: null,
   };
 }
 
@@ -127,7 +129,7 @@ function presenceRank(overview: FriendPresenceProjection): number {
 export function FriendsPageContent() {
   const theme = useAppTheme();
   const auth = useAuthStore();
-  const now = useCurrentDate();
+  const now = useCurrentDate(15_000);
   const {
     data,
     socialLoading,
@@ -155,7 +157,7 @@ export function FriendsPageContent() {
   useFocusEffect(useCallback(() => {
     if (auth.activeMode !== 'supabase') return;
     const initialRefresh = setTimeout(() => void refreshSocial(), 0);
-    const interval = setInterval(() => void refreshSocial({ silent: true }), 120_000);
+    const interval = setInterval(() => void refreshSocial({ silent: true }), 60_000);
     return () => {
       clearTimeout(initialRefresh);
       clearInterval(interval);
@@ -180,7 +182,10 @@ export function FriendsPageContent() {
         overview: overviewById.get(connection.otherUser.id) ?? safeOfflineOverview(connection),
       }))
       .sort((left, right) => {
-        const rankDifference = presenceRank(left.overview) - presenceRank(right.overview);
+        const leftStatus = resolveFriendPresenceStatus(left.overview, now);
+        const rightStatus = resolveFriendPresenceStatus(right.overview, now);
+        const rankDifference = presenceRank({ ...left.overview, presenceStatus: leftStatus })
+          - presenceRank({ ...right.overview, presenceStatus: rightStatus });
         if (rankDifference !== 0) return rankDifference;
         const activityDifference = activityTimestamp(right.overview.lastActiveAt)
           - activityTimestamp(left.overview.lastActiveAt);
@@ -190,7 +195,7 @@ export function FriendsPageContent() {
           'de-DE',
         );
       });
-  }, [acceptedConnections, friendOverviews]);
+  }, [acceptedConnections, friendOverviews, now]);
 
   const sessionViews = useMemo<readonly PlannedSessionViewModel[]>(() => (
     sharedStudySessions
@@ -206,7 +211,9 @@ export function FriendsPageContent() {
         plannedDurationMinutes: session.plannedDurationMinutes,
         status: session.status,
         participants: session.participants
-          .filter((participant) => !['declined', 'left'].includes(participant.status))
+          .filter((participant) => ['joined', 'active', 'paused', 'finished'].includes(
+            participant.status,
+          ))
           .map((participant) => socialUser(participant.user)),
       }))
   ), [sharedStudySessions]);
@@ -215,8 +222,7 @@ export function FriendsPageContent() {
     data.challenges.flatMap((goal) => {
       if (goal.status !== 'active' && goal.status !== 'upcoming') return [];
       const progress = sharedGoalProgressById[goal.id];
-      if (!progress) return [];
-      const ownParticipant = progress.participants.find(
+      const ownParticipant = progress?.participants.find(
         (participant) => participant.userId === data.currentUser?.id,
       );
       return [{
@@ -227,12 +233,18 @@ export function FriendsPageContent() {
         targetType: goal.target.type,
         periodLabel: goalPeriodLabel(goal),
         remainingLabel: remainingLabel(goal.endsAt, now.getTime()),
-        participants: progress.participants
-          .filter((participant) => participant.status === 'accepted')
-          .map((participant) => socialUser(participant.user)),
+        participants: progress
+          ? progress.participants
+              .filter((participant) => participant.status === 'accepted')
+              .map((participant) => socialUser(participant.user))
+          : goal.participants.flatMap((participant) => (
+              participant.status === 'accepted' && participant.user
+                ? [socialUser(participant.user)]
+                : []
+            )),
         ownProgress: individualProgress(ownParticipant),
         ownContribution: ownParticipant?.contribution,
-        teamProgress: aggregateProgress(progress),
+        teamProgress: progress ? aggregateProgress(progress) : null,
       } satisfies SharedGoalSummaryViewModel];
     })
   ), [data.challenges, data.currentUser?.id, now, sharedGoalProgressById]);
@@ -376,13 +388,21 @@ export function FriendsPageContent() {
           result={mappedSearchResult}
           status={searchStatus}
         />
-        <AppButton
-          disabled={acceptedConnections.length === 0}
-          fullWidth
-          label="Gemeinsame Session erstellen"
-          onPress={() => router.push('/(tabs)/(friends)/shared-session/create')}
-          variant="secondary"
-        />
+        <View style={styles.createActions}>
+          <AppButton
+            disabled={acceptedConnections.length === 0}
+            fullWidth
+            label="Gemeinsames Ziel erstellen"
+            onPress={() => router.push('/(tabs)/(friends)/shared-goal/create')}
+          />
+          <AppButton
+            disabled={acceptedConnections.length === 0}
+            fullWidth
+            label="Gemeinsame Session erstellen"
+            onPress={() => router.push('/(tabs)/(friends)/shared-session/create')}
+            variant="secondary"
+          />
+        </View>
       </AppCard>
 
       {(actionError || (searchStatus !== 'error' && socialError)) ? (
@@ -430,6 +450,8 @@ export function FriendsPageContent() {
                   friend: overview.friend,
                   presenceStatus: overview.presenceStatus,
                   lastActiveAt: overview.lastActiveAt,
+                  presenceExpiresAt: overview.presenceExpiresAt,
+                  onlineExpiresAt: overview.onlineExpiresAt,
                 }}
                 removing={removingConnectionId === connection.id}
               />
@@ -479,6 +501,7 @@ export function FriendsPageContent() {
 
 const styles = StyleSheet.create({
   searchCard: { width: '100%', gap: 16 },
+  createActions: { width: '100%', gap: 8 },
   section: { width: '100%', gap: 12 },
   list: { width: '100%', overflow: 'hidden' },
   cardList: { width: '100%', gap: 12 },

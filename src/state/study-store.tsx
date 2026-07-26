@@ -20,8 +20,10 @@ import {
   type CreateSharedGoalInput,
   type CreateSharedStudySessionInput,
   type CreateStudyGroupInput,
+  type LearningPresenceState,
   type LocalImportReport,
   type SharedStudySessionParticipantAction,
+  type SocialInvalidationKind,
   type SyncStatus,
   type StudyRepository,
 } from '@/data/repositories/study-repository';
@@ -29,7 +31,11 @@ import { createSupabaseStudyRepository } from '@/data/repositories/supabase-stud
 import { useNetworkStatus } from '@/hooks/use-network-status';
 import '@/lib/local-storage';
 import { isValidGradeDate } from '@/lib/grades';
-import { prepareAvatarUpload } from '@/lib/avatar-upload';
+import {
+  avatarObjectPathFromUrl,
+  avatarUrlReferencesObjectPath,
+  prepareAvatarUpload,
+} from '@/lib/avatar-upload';
 import { getGoalSubjectId, getGoalTitle } from '@/lib/goals';
 import {
   assignStudyStateToAccount,
@@ -143,6 +149,12 @@ interface PersistedStudyState extends StudyState {
 interface PendingSharedSessionAction {
   sessionId: string;
   action: SharedStudySessionParticipantAction;
+}
+
+interface PendingPresenceMutation {
+  version: number;
+  state: LearningPresenceState;
+  activeSince: string | null;
 }
 
 const SHARED_SESSION_PARTICIPANT_ACTIONS: readonly SharedStudySessionParticipantAction[] = [
@@ -300,6 +312,7 @@ export interface AvatarUploadAsset {
   uri: string;
   mimeType?: string | null;
   fileName?: string | null;
+  fileSize?: number | null;
 }
 
 export interface FinishTimerOptions {
@@ -331,14 +344,14 @@ export interface StudyStoreValue extends StudyState {
   sharingPreferences: StudySharingPreferences | null;
   refreshSocial: (options?: { silent?: boolean }) => Promise<void>;
   updateAccountProfile: (profile: AccountProfileUpdate) => Promise<AccountStudyUser | null>;
-  uploadAvatar: (asset: AvatarUploadAsset) => Promise<string | null>;
+  replaceAccountAvatar: (asset: AvatarUploadAsset) => Promise<AccountStudyUser | null>;
   findFriendByUsername: (username: string) => Promise<FriendSearchResult | null>;
   sendFriendRequest: (username: string) => Promise<void>;
   acceptFriendRequest: (friendshipId: string) => Promise<void>;
   declineFriendRequest: (friendshipId: string) => Promise<void>;
   removeFriendship: (friendshipId: string) => Promise<void>;
   getFriendOverview: (friendId: string) => Promise<FriendOverview | null>;
-  createSharedGoal: (input: CreateSharedGoalInput) => Promise<StudyChallenge | null>;
+  createSharedGoal: (input: CreateSharedGoalInput) => Promise<StudyChallenge>;
   respondSharedGoalInvitation: (
     goalId: string,
     accept: boolean,
@@ -356,7 +369,7 @@ export interface StudyStoreValue extends StudyState {
   leaveStudyGroup: (groupId: string) => Promise<void>;
   createSharedStudySession: (
     input: CreateSharedStudySessionInput,
-  ) => Promise<SharedStudySession | null>;
+  ) => Promise<SharedStudySession>;
   getSharedStudySessionDetails: (sessionId: string) => Promise<SharedStudySession | null>;
   respondSharedStudySessionInvitation: (
     sessionId: string,
@@ -410,6 +423,7 @@ type Action =
   | { type: 'replace-goal'; payload: StudyGoal }
   | { type: 'delete-goal'; payload: string }
   | { type: 'upsert-challenge'; payload: StudyChallenge }
+  | { type: 'set-challenges'; payload: readonly StudyChallenge[] }
   | { type: 'remove-challenge'; payload: string }
   | {
       type: 'apply-account-profile';
@@ -543,6 +557,11 @@ function reducer(state: StudyState, action: Action): StudyState {
         },
       };
     }
+    case 'set-challenges':
+      return {
+        ...state,
+        data: { ...state.data, challenges: [...action.payload] },
+      };
     case 'remove-challenge':
       return {
         ...state,
@@ -1512,6 +1531,25 @@ function localImportDecisionFingerprint(snapshot: StudyStateSnapshot): string {
   }));
 }
 
+function sharedSessionProjectionIsOlder(
+  incoming: SharedStudySession,
+  existing: SharedStudySession,
+): boolean {
+  const incomingCalculatedAt = Date.parse(incoming.calculatedAt ?? '');
+  const existingCalculatedAt = Date.parse(existing.calculatedAt ?? '');
+  const incomingHasCalculation = Number.isFinite(incomingCalculatedAt);
+  const existingHasCalculation = Number.isFinite(existingCalculatedAt);
+  if (incomingHasCalculation !== existingHasCalculation) return existingHasCalculation;
+  if (incomingHasCalculation && incomingCalculatedAt !== existingCalculatedAt) {
+    return incomingCalculatedAt < existingCalculatedAt;
+  }
+
+  const incomingUpdatedAt = Date.parse(incoming.updatedAt);
+  const existingUpdatedAt = Date.parse(existing.updatedAt);
+  return Number.isFinite(existingUpdatedAt)
+    && (!Number.isFinite(incomingUpdatedAt) || incomingUpdatedAt < existingUpdatedAt);
+}
+
 const INITIAL_SYNC_STATUS: Readonly<SyncStatus> = {
   phase: 'idle',
   pendingMutationCount: 0,
@@ -1535,6 +1573,7 @@ export function StudyStoreProvider({
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(INITIAL_SYNC_STATUS);
   const [socialLoading, setSocialLoading] = useState(false);
   const [socialError, setSocialError] = useState<string | null>(null);
+  const [avatarMaintenanceError, setAvatarMaintenanceError] = useState<string | null>(null);
   const [friendConnections, setFriendConnections] = useState<readonly FriendshipConnection[]>([]);
   const [friendOverviews, setFriendOverviews] = useState<readonly FriendOverview[]>([]);
   const [studyGroups, setStudyGroups] = useState<readonly StudyGroup[]>([]);
@@ -1550,14 +1589,22 @@ export function StudyStoreProvider({
   );
   const online = useNetworkStatus();
   const storageKey = scopedStorageKey(storageScope);
+  const deviceId = useMemo(() => getDeviceFingerprint(), []);
   const sharedSessionActionStorageKey = accountUserId
     ? sharedSessionActionOutboxKey(accountUserId)
     : null;
   const stateRef = useRef(state);
   const stateGenerationRef = useRef(0);
   const socialRefreshGenerationRef = useRef(0);
+  const friendOverviewRefreshGenerationRef = useRef(0);
+  const sharedSessionRefreshGenerationRef = useRef(0);
+  const sharedGoalRefreshGenerationRef = useRef(0);
   const persistenceTailRef = useRef<Promise<void>>(Promise.resolve());
   const sharedSessionActionDrainTailRef = useRef<Promise<void>>(Promise.resolve());
+  const avatarCleanupTailRef = useRef<Promise<void>>(Promise.resolve());
+  const presenceMutationTailRef = useRef<Promise<void>>(Promise.resolve());
+  const presenceMutationVersionRef = useRef(0);
+  const pendingPresenceMutationRef = useRef<PendingPresenceMutation | null>(null);
   const [initialSharedSessionActionOutbox] = useState(() => ({
     storageKey: sharedSessionActionStorageKey,
     actions: sharedSessionActionStorageKey
@@ -1582,6 +1629,7 @@ export function StudyStoreProvider({
     activeSince: string | null;
     sentAt: number;
   }> | null>(null);
+  const previousAppStateRef = useRef(appState);
   const importDecisionKey = accountUserId
     ? `${IMPORT_DECISION_KEY_PREFIX}.${accountUserId}`
     : null;
@@ -1787,10 +1835,11 @@ export function StudyStoreProvider({
   }, []);
 
   const upsertSharedStudySession = useCallback((session: SharedStudySession) => {
-    setSharedStudySessions((current) => [
-      session,
-      ...current.filter((entry) => entry.id !== session.id),
-    ]);
+    setSharedStudySessions((current) => {
+      const existing = current.find((entry) => entry.id === session.id);
+      if (existing && sharedSessionProjectionIsOlder(session, existing)) return current;
+      return [session, ...current.filter((entry) => entry.id !== session.id)];
+    });
   }, []);
 
   const upsertSharedGoalProgress = useCallback((progress: SharedGoalProgress) => {
@@ -1811,50 +1860,261 @@ export function StudyStoreProvider({
   ): Promise<void> => {
     if (repository.mode !== 'supabase') return;
     const generation = ++socialRefreshGenerationRef.current;
+    const friendOverviewGeneration = ++friendOverviewRefreshGenerationRef.current;
+    const sharedSessionGeneration = ++sharedSessionRefreshGenerationRef.current;
+    const sharedGoalGeneration = ++sharedGoalRefreshGenerationRef.current;
     const silent = options.silent === true;
     if (!silent) setSocialLoading(true);
     setSocialError(null);
     try {
       const [
-        profile,
-        sharing,
-        connections,
-        overviews,
-        goalProgress,
-        groups,
-        sharedSessions,
-      ] = await Promise.all([
+        profileResult,
+        sharingResult,
+        connectionsResult,
+        overviewsResult,
+        sharedGoalsResult,
+        goalProgressResult,
+        groupsResult,
+        sharedSessionsResult,
+      ] = await Promise.allSettled([
         repository.social.getMyProfile(),
         repository.social.getSharingPreferences(),
         repository.social.listFriendConnections(),
         repository.social.listFriendOverviews(),
+        repository.social.listSharedGoals(),
         repository.social.listSharedGoalProgress(),
         repository.social.listStudyGroups(),
         repository.social.listSharedStudySessions(),
-      ]);
+      ] as const);
       if (generation !== socialRefreshGenerationRef.current) return;
-      setSharingPreferences(sharing);
-      setFriendConnections(connections);
-      setFriendOverviews(overviews);
-      setStudyGroups(groups);
-      setSharedStudySessions(sharedSessions);
-      setSharedGoalProgressById(Object.fromEntries(
-        goalProgress.map((progress) => [progress.goalId, progress]),
-      ));
-      applyAccountProfile(profile, sharing);
-    } catch (error) {
-      if (generation === socialRefreshGenerationRef.current) {
-        setSocialError(asRepositoryError(error).message);
+
+      if (sharingResult.status === 'fulfilled') {
+        setSharingPreferences(sharingResult.value);
       }
+      if (connectionsResult.status === 'fulfilled') {
+        setFriendConnections(connectionsResult.value);
+      }
+      if (
+        overviewsResult.status === 'fulfilled'
+        && friendOverviewGeneration === friendOverviewRefreshGenerationRef.current
+      ) {
+        setFriendOverviews(overviewsResult.value);
+      }
+      if (
+        sharedGoalsResult.status === 'fulfilled'
+        && sharedGoalGeneration === sharedGoalRefreshGenerationRef.current
+      ) {
+        dispatch({ type: 'set-challenges', payload: sharedGoalsResult.value });
+      }
+      if (
+        goalProgressResult.status === 'fulfilled'
+        && sharedGoalGeneration === sharedGoalRefreshGenerationRef.current
+      ) {
+        setSharedGoalProgressById(Object.fromEntries(
+          goalProgressResult.value.map((progress) => [progress.goalId, progress]),
+        ));
+      }
+      if (groupsResult.status === 'fulfilled') setStudyGroups(groupsResult.value);
+      if (
+        sharedSessionsResult.status === 'fulfilled'
+        && sharedSessionGeneration === sharedSessionRefreshGenerationRef.current
+      ) {
+        setSharedStudySessions((current) => sharedSessionsResult.value.map((session) => {
+          const existing = current.find((entry) => entry.id === session.id);
+          return existing && sharedSessionProjectionIsOlder(session, existing)
+            ? existing
+            : session;
+        }));
+      }
+      if (profileResult.status === 'fulfilled') {
+        const currentPrivacy = stateRef.current.privacy;
+        const sharing = sharingResult.status === 'fulfilled'
+          ? sharingResult.value
+          : {
+              shareTimerStats: currentPrivacy.shareAutomaticMinutes,
+              shareManualStats: currentPrivacy.shareManualMinutes,
+              shareGoalProgress: currentPrivacy.shareGoalProgress,
+              shareStreak: currentPrivacy.shareStreak,
+              revision: 1,
+              updatedAt: new Date().toISOString(),
+            };
+        applyAccountProfile(profileResult.value, sharing);
+      }
+
+      const firstFailure = [
+        profileResult,
+        sharingResult,
+        connectionsResult,
+        overviewsResult,
+        sharedGoalsResult,
+        goalProgressResult,
+        groupsResult,
+        sharedSessionsResult,
+      ].find((result) => result.status === 'rejected');
+      setSocialError(firstFailure?.status === 'rejected'
+        ? asRepositoryError(firstFailure.reason).message
+        : null);
     } finally {
       if (!silent) setSocialLoading(false);
     }
   }, [applyAccountProfile, repository]);
 
+  const refreshSocialProjection = useCallback(async (
+    kind: SocialInvalidationKind,
+  ): Promise<void> => {
+    if (repository.mode !== 'supabase') return;
+    try {
+      if (kind === 'presence') {
+        const generation = ++friendOverviewRefreshGenerationRef.current;
+        const overviews = await repository.social.listFriendOverviews();
+        if (generation === friendOverviewRefreshGenerationRef.current) {
+          setFriendOverviews(overviews);
+        }
+        return;
+      }
+      if (kind === 'shared_session' || kind === 'shared_session_progress') {
+        const generation = ++sharedSessionRefreshGenerationRef.current;
+        const sessions = await repository.social.listSharedStudySessions();
+        if (generation === sharedSessionRefreshGenerationRef.current) {
+          setSharedStudySessions((current) => sessions.map((session) => {
+            const existing = current.find((entry) => entry.id === session.id);
+            return existing && sharedSessionProjectionIsOlder(session, existing)
+              ? existing
+              : session;
+          }));
+        }
+        return;
+      }
+      if (kind === 'shared_goal' || kind === 'shared_goal_progress') {
+        const generation = ++sharedGoalRefreshGenerationRef.current;
+        const [goals, progress] = await Promise.all([
+          repository.social.listSharedGoals(),
+          repository.social.listSharedGoalProgress(),
+        ]);
+        if (generation === sharedGoalRefreshGenerationRef.current) {
+          dispatch({ type: 'set-challenges', payload: goals });
+          setSharedGoalProgressById(Object.fromEntries(
+            progress.map((entry) => [entry.goalId, entry]),
+          ));
+        }
+        return;
+      }
+      await refreshSocial({ silent: true });
+    } catch (error) {
+      setSocialError(asRepositoryError(error).message);
+    }
+  }, [refreshSocial, repository]);
+
+  const enqueuePresenceMutation = useCallback((
+    state: LearningPresenceState,
+    activeSince: string | null,
+  ): Promise<void> => {
+    const mutation: PendingPresenceMutation = {
+      version: ++presenceMutationVersionRef.current,
+      state,
+      activeSince,
+    };
+    pendingPresenceMutationRef.current = mutation;
+
+    const run = async () => {
+      // Collapse commands that have not started yet. If an older network call
+      // is already running, this still guarantees the newest state is sent
+      // immediately afterwards for this device.
+      if (pendingPresenceMutationRef.current?.version !== mutation.version) return;
+      try {
+        await repository.social.updateLearningPresence(
+          deviceId,
+          mutation.state,
+          mutation.activeSince,
+        );
+        if (
+          pendingPresenceMutationRef.current?.version === mutation.version
+          && mutation.state !== 'offline'
+        ) {
+          lastPresenceHeartbeatRef.current = {
+            state: mutation.state,
+            activeSince: mutation.activeSince,
+            sentAt: Date.now(),
+          };
+        }
+      } finally {
+        if (pendingPresenceMutationRef.current?.version === mutation.version) {
+          pendingPresenceMutationRef.current = null;
+        }
+      }
+    };
+    const task = presenceMutationTailRef.current.then(run, run);
+    presenceMutationTailRef.current = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
+  }, [deviceId, repository]);
+
+  const runAvatarCleanup = useCallback((
+    userId: string,
+    keepObjectPath: string,
+    previousAvatarUrl?: string,
+  ): Promise<void> => {
+    const run = () => repository.social.cleanupAvatarObjects(
+      userId,
+      keepObjectPath,
+      previousAvatarUrl,
+    );
+    const task = avatarCleanupTailRef.current.then(run, run);
+    avatarCleanupTailRef.current = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
+  }, [repository]);
+
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (
+      !hydrated
+      || !online
+      || repository.mode !== 'supabase'
+      || !accountUserId
+    ) return;
+    const avatarUrl = state.data.currentUser?.avatarUrl;
+    const keepObjectPath = avatarObjectPathFromUrl(avatarUrl, accountUserId);
+    if (!keepObjectPath?.startsWith(`${accountUserId}/profile/`)) return;
+
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 30_000;
+    const cleanup = async () => {
+      try {
+        await runAvatarCleanup(accountUserId, keepObjectPath, avatarUrl);
+        if (!cancelled) setAvatarMaintenanceError(null);
+      } catch {
+        if (cancelled) return;
+        setAvatarMaintenanceError(
+          'Das Profilbild ist gespeichert. Alte Bilddateien werden automatisch erneut bereinigt.',
+        );
+        retry = setTimeout(() => void cleanup(), retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 5 * 60_000);
+      }
+    };
+    const start = setTimeout(() => void cleanup(), 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(start);
+      if (retry) clearTimeout(retry);
+    };
+  }, [
+    accountUserId,
+    hydrated,
+    online,
+    repository.mode,
+    runAvatarCleanup,
+    state.data.currentUser?.avatarUrl,
+  ]);
 
   const getFriendOverviewCommand = useCallback(async (friendId: string) => {
     try {
@@ -1950,10 +2210,12 @@ export function StudyStoreProvider({
         if (!pending) break;
 
         try {
+          sharedSessionRefreshGenerationRef.current += 1;
           const session = await repository.social.updateSharedStudySessionParticipant(
             pending.sessionId,
             pending.action,
           );
+          sharedSessionRefreshGenerationRef.current += 1;
           if (sharedSessionActionOutboxRef.current?.storageKey !== queueStorageKey) return;
           outbox.actions.shift();
           writeSharedSessionActionOutbox(queueStorageKey, outbox.actions);
@@ -2058,6 +2320,79 @@ export function StudyStoreProvider({
   }, [hydrated, refreshSocial, repository.mode, retrySync]);
 
   useEffect(() => {
+    if (
+      !hydrated
+      || !online
+      || repository.mode !== 'supabase'
+      || appState !== 'active'
+    ) return;
+    const controller = new AbortController();
+    let cleanup: (() => Promise<void>) | null = null;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const pendingKinds = new Set<SocialInvalidationKind>();
+    const invalidate = (kind: SocialInvalidationKind) => {
+      pendingKinds.add(kind);
+      if (debounce) return;
+      debounce = setTimeout(() => {
+        debounce = null;
+        const kinds = [...pendingKinds];
+        pendingKinds.clear();
+        if (kinds.some((entry) => (
+          entry === 'social'
+          || entry === 'profile'
+          || entry === 'friendship'
+          || entry === 'study_group'
+        ))) {
+          void refreshSocial({ silent: true });
+          return;
+        }
+        void Promise.all(kinds.map(refreshSocialProjection));
+      }, 300);
+    };
+    void repository.subscribeSocialUpdates({
+      onInvalidated: invalidate,
+      onError: (error) => setSocialError(error.message),
+    }, controller.signal).then((nextCleanup) => {
+      if (controller.signal.aborted) void nextCleanup();
+      else cleanup = nextCleanup;
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setSocialError(asRepositoryError(error).message);
+    });
+    return () => {
+      controller.abort();
+      if (debounce) clearTimeout(debounce);
+      if (cleanup) void cleanup();
+    };
+  }, [
+    appState,
+    hydrated,
+    online,
+    refreshSocial,
+    refreshSocialProjection,
+    repository,
+  ]);
+
+  useEffect(() => {
+    const previous = previousAppStateRef.current;
+    previousAppStateRef.current = appState;
+    if (!hydrated || repository.mode !== 'supabase' || !online) return;
+    if (appState === 'active' && previous !== 'active') {
+      lastPresenceHeartbeatRef.current = null;
+      void refreshSocial({ silent: true });
+    } else if (appState === 'background' && previous !== 'background') {
+      lastPresenceHeartbeatRef.current = null;
+      void enqueuePresenceMutation('offline', null).catch(() => undefined);
+    }
+  }, [
+    appState,
+    enqueuePresenceMutation,
+    hydrated,
+    online,
+    refreshSocial,
+    repository.mode,
+  ]);
+
+  useEffect(() => {
     if (!hydrated || repository.mode !== 'supabase' || !online || appState !== 'active') return;
     const timer = state.data.activeTimer;
     const presence = {
@@ -2069,28 +2404,42 @@ export function StudyStoreProvider({
       activeSince: timer ? timer.startedAt : null,
     };
 
-    const sendPresence = () => {
+    const sendPresence = async () => {
       const now = Date.now();
       const previous = lastPresenceHeartbeatRef.current;
+      const pending = pendingPresenceMutationRef.current;
       if (
+        (
+          pending
+          && pending.state === presence.state
+          && pending.activeSince === presence.activeSince
+        )
+        || (
         previous &&
         previous.state === presence.state &&
         previous.activeSince === presence.activeSince &&
-        now - previous.sentAt < 120_000
+        now - previous.sentAt < 45_000
+        )
       ) return;
-      lastPresenceHeartbeatRef.current = { ...presence, sentAt: now };
-      void repository.social.updateLearningPresence(presence.state, presence.activeSince)
-        .catch(() => undefined);
+      try {
+        await enqueuePresenceMutation(presence.state, presence.activeSince);
+      } catch {
+        // The 15-second retry loop below keeps transient failures from turning
+        // into a stale two-minute client-side suppression window.
+      }
     };
 
-    sendPresence();
-    const heartbeat = setInterval(sendPresence, 120_000);
-    return () => clearInterval(heartbeat);
+    void sendPresence();
+    const heartbeat = setInterval(() => void sendPresence(), 15_000);
+    return () => {
+      clearInterval(heartbeat);
+    };
   }, [
     hydrated,
     appState,
+    enqueuePresenceMutation,
     online,
-    repository,
+    repository.mode,
     state.data.activeTimer,
   ]);
 
@@ -2518,7 +2867,7 @@ export function StudyStoreProvider({
       lastSyncError: syncStatus.lastError?.message ?? null,
       retrySync,
       socialLoading,
-      socialError,
+      socialError: socialError ?? avatarMaintenanceError,
       friendConnections,
       friendOverviews,
       studyGroups,
@@ -2534,7 +2883,7 @@ export function StudyStoreProvider({
           () => repository.social.updateMyProfile({
             username: profile.username,
             displayName: profile.displayName,
-            avatarUrl: profile.avatarUrl?.trim() || null,
+            avatarUrl: current?.avatarUrl?.trim() || null,
             timeZone: profile.timeZone
               ?? current?.timeZone
               ?? Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -2554,12 +2903,9 @@ export function StudyStoreProvider({
         applyAccountProfile(updated, sharing);
         return updated;
       },
-      uploadAvatar: async (asset) => {
+      replaceAccountAvatar: async (asset) => {
         if (repository.mode !== 'supabase') return null;
-        // Errors intentionally propagate: runSocialOperation records the concrete
-        // message in socialError and rethrows so the UI can show exactly why the
-        // upload failed instead of a silent null.
-        return runSocialOperation(async () => {
+        const replacement = await runSocialOperation(async () => {
           const userId = accountUserId?.trim() || stateRef.current.data.currentUser?.id;
           if (!userId) {
             throw new Error(
@@ -2567,8 +2913,75 @@ export function StudyStoreProvider({
             );
           }
           const { body, contentType, fileExtension } = await prepareAvatarUpload(asset);
-          return repository.social.uploadAvatar({ userId, body, contentType, fileExtension });
+          const uploaded = await repository.social.uploadAvatar({
+            userId,
+            objectId: randomUUID(),
+            body,
+            contentType,
+            fileExtension,
+          });
+          try {
+            const confirmed = await repository.social.setMyAvatar(uploaded.objectPath);
+            return {
+              profile: confirmed.profile,
+              previousAvatarUrl: confirmed.previousAvatarUrl,
+              objectPath: uploaded.objectPath,
+              userId,
+            };
+          } catch (error) {
+            // The RPC may have committed even when its response was lost. A
+            // fresh profile read distinguishes that ambiguous network outcome
+            // from an actual rejection before the uploaded object is removed.
+            let reconciledProfile: AccountStudyUser | null = null;
+            try {
+              reconciledProfile = await repository.social.getMyProfile();
+            } catch {
+              // Keep the object. Startup maintenance will remove it later if
+              // it is not the profile's current avatar.
+            }
+            if (avatarUrlReferencesObjectPath(
+              reconciledProfile?.avatarUrl,
+              userId,
+              uploaded.objectPath,
+            )) {
+              return {
+                profile: reconciledProfile as AccountStudyUser,
+                previousAvatarUrl: null,
+                objectPath: uploaded.objectPath,
+                userId,
+              };
+            }
+            if (reconciledProfile) {
+              await repository.social.deleteAvatarObject(userId, uploaded.objectPath)
+                .catch(() => undefined);
+            }
+            throw error;
+          }
         });
+        const latestState = stateRef.current;
+        const sharing: StudySharingPreferences = {
+          shareTimerStats: latestState.privacy.shareAutomaticMinutes,
+          shareManualStats: latestState.privacy.shareManualMinutes,
+          shareGoalProgress: latestState.privacy.shareGoalProgress,
+          shareStreak: latestState.privacy.shareStreak,
+          revision: sharingPreferences?.revision ?? 1,
+          updatedAt: sharingPreferences?.updatedAt ?? new Date().toISOString(),
+        };
+        applyAccountProfile(replacement.profile, sharing);
+        await refreshSocial({ silent: true }).catch(() => undefined);
+        try {
+          await runAvatarCleanup(
+            replacement.userId,
+            replacement.objectPath,
+            replacement.previousAvatarUrl ?? undefined,
+          );
+          setAvatarMaintenanceError(null);
+        } catch {
+          setAvatarMaintenanceError(
+            'Das Profilbild ist gespeichert. Alte Bilddateien werden automatisch erneut bereinigt.',
+          );
+        }
+        return replacement.profile;
       },
       findFriendByUsername: (username) => runSocialOperation(
         () => repository.social.findProfileByExactUsername(username),
@@ -2591,15 +3004,11 @@ export function StudyStoreProvider({
       },
       getFriendOverview: getFriendOverviewCommand,
       createSharedGoal: async (input) => {
-        try {
-          const challenge = await runSocialOperation(
-            () => repository.social.createSharedGoal(input),
-          );
-          dispatch({ type: 'upsert-challenge', payload: challenge });
-          return challenge;
-        } catch {
-          return null;
-        }
+        const challenge = await runSocialOperation(
+          () => repository.social.createSharedGoal(input),
+        );
+        dispatch({ type: 'upsert-challenge', payload: challenge });
+        return challenge;
       },
       respondSharedGoalInvitation: async (goalId, accept) => {
         const challenge = await runSocialOperation(
@@ -2645,38 +3054,42 @@ export function StudyStoreProvider({
         setStudyGroups((current) => current.filter((entry) => entry.id !== groupId));
       },
       createSharedStudySession: async (input) => {
-        try {
-          const session = await runSocialOperation(
-            () => repository.social.createSharedStudySession(input),
-          );
-          upsertSharedStudySession(session);
-          return session;
-        } catch {
-          return null;
-        }
+        sharedSessionRefreshGenerationRef.current += 1;
+        const session = await runSocialOperation(
+          () => repository.social.createSharedStudySession(input),
+        );
+        sharedSessionRefreshGenerationRef.current += 1;
+        upsertSharedStudySession(session);
+        return session;
       },
       getSharedStudySessionDetails: getSharedStudySessionDetailsCommand,
       respondSharedStudySessionInvitation: async (sessionId, accept) => {
+        sharedSessionRefreshGenerationRef.current += 1;
         const session = await runSocialOperation(
           () => repository.social.respondSharedStudySessionInvitation(sessionId, accept),
         );
+        sharedSessionRefreshGenerationRef.current += 1;
         if (session) upsertSharedStudySession(session);
         else setSharedStudySessions((current) => current.filter((entry) => entry.id !== sessionId));
         return session;
       },
       updateSharedStudySessionParticipant: async (sessionId, action) => {
+        sharedSessionRefreshGenerationRef.current += 1;
         const session = await runSocialOperation(
           () => repository.social.updateSharedStudySessionParticipant(sessionId, action),
         );
+        sharedSessionRefreshGenerationRef.current += 1;
         if (session) upsertSharedStudySession(session);
         else setSharedStudySessions((current) => current.filter((entry) => entry.id !== sessionId));
         return session;
       },
       cancelSharedStudySession: async (sessionId) => {
         try {
+          sharedSessionRefreshGenerationRef.current += 1;
           const session = await runSocialOperation(
             () => repository.social.cancelSharedStudySession(sessionId),
           );
+          sharedSessionRefreshGenerationRef.current += 1;
           if (session) upsertSharedStudySession(session);
           return session;
         } catch {
@@ -2766,6 +3179,7 @@ export function StudyStoreProvider({
   }, [
     accountUserId,
     applyAccountProfile,
+    avatarMaintenanceError,
     friendConnections,
     friendOverviews,
     studyGroups,
@@ -2790,6 +3204,7 @@ export function StudyStoreProvider({
     removeSharedGoalProgress,
     repository,
     retrySync,
+    runAvatarCleanup,
     runSocialOperation,
     sharingPreferences,
     socialError,

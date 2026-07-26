@@ -222,6 +222,10 @@ export interface FriendOverview {
   friend: StudyUser;
   presenceStatus: FriendPresenceStatus;
   lastActiveAt: ISODateTime | null;
+  /** Expiry of the currently projected learning/online state. */
+  presenceExpiresAt: ISODateTime | null;
+  /** Latest online expiry across all devices, used after a learning device expires. */
+  onlineExpiresAt: ISODateTime | null;
   sharedGoalIds: readonly string[];
   sharedSessionIds: readonly string[];
   groupIds: readonly string[];
@@ -369,6 +373,10 @@ export interface SharedStudySession {
   participants: readonly SharedStudySessionParticipant[];
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
+  /** Server timestamp used to order independently fetched participant projections. */
+  calculatedAt: ISODateTime | null;
+  /** Local receipt baseline used only to animate an active duration. */
+  receivedAt?: ISODateTime;
 }
 
 export interface StudyData {

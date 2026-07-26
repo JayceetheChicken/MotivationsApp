@@ -8,7 +8,10 @@ import StudyGroupDetailsScreen from '@/app/(tabs)/(friends)/group/[group-id]';
 import CreateSharedGoalScreen from '@/app/(tabs)/(friends)/shared-goal/create';
 import SharedGoalDetailsScreen from '@/app/(tabs)/(friends)/shared-goal/[goal-id]';
 import CreateSharedStudySessionScreen from '@/app/(tabs)/(friends)/shared-session/create';
-import SharedStudySessionDetailsScreen from '@/app/(tabs)/(friends)/shared-session/[session-id]';
+import SharedStudySessionDetailsScreen, {
+  participantElapsedMinutes,
+  selectLatestSharedStudySession,
+} from '@/app/(tabs)/(friends)/shared-session/[session-id]';
 import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import type {
@@ -258,12 +261,15 @@ const sharedStudySession: SharedStudySession = {
   ],
   createdAt: '2026-07-18T09:30:00.000Z',
   updatedAt: '2026-07-18T09:30:00.000Z',
+  calculatedAt: '2026-07-18T09:30:00.000Z',
 };
 
 const friendOverview: FriendOverview = {
   friend: friendUser,
   presenceStatus: 'learning',
   lastActiveAt: '2026-07-22T08:59:00.000Z',
+  presenceExpiresAt: '2030-07-22T09:02:00.000Z',
+  onlineExpiresAt: '2030-07-22T09:02:00.000Z',
   sharedGoalIds: [teamGoal.id],
   sharedSessionIds: [sharedStudySession.id],
   groupIds: [studyGroup.id],
@@ -507,6 +513,9 @@ describe('Social routes', () => {
     await fireEvent.press(rendered.getByRole('button', { name: 'Gemeinsame Session erstellen' }));
     expect(mockPush).toHaveBeenCalledWith('/(tabs)/(friends)/shared-session/create');
 
+    await fireEvent.press(rendered.getByRole('button', { name: 'Gemeinsames Ziel erstellen' }));
+    expect(mockPush).toHaveBeenCalledWith('/(tabs)/(friends)/shared-goal/create');
+
     await fireEvent.press(rendered.getByRole('button', {
       name: 'Freundschaft mit Berta Beispiel entfernen',
     }));
@@ -556,6 +565,8 @@ describe('Social routes', () => {
       friend: user,
       presenceStatus,
       lastActiveAt,
+      presenceExpiresAt: presenceStatus === 'offline' ? null : '2030-07-22T09:02:00.000Z',
+      onlineExpiresAt: presenceStatus === 'offline' ? null : '2030-07-22T09:02:00.000Z',
       sharedGoalIds: [],
       sharedSessionIds: [],
       groupIds: [],
@@ -582,6 +593,32 @@ describe('Social routes', () => {
     expect(rendered.getByText('Lernt gerade')).toBeTruthy();
     expect(rendered.getByText('Online')).toBeTruthy();
     expect(rendered.getByText('Offline')).toBeTruthy();
+    await rendered.unmount();
+  });
+
+  it('keeps a shared-goal invitation visible before progress is authorized', async () => {
+    const invitation: StudyChallenge = {
+      ...teamGoal,
+      id: 'goal-invitation',
+      creatorId: friendUser.id,
+      title: 'Einladung zum Wochenziel',
+      participants: [{ userId: currentUser.id, status: 'invited' }],
+    };
+    setStudyStore({
+      data: { ...emptyData, challenges: [invitation] },
+      friendConnections: [acceptedConnection],
+      friendOverviews: [friendOverview],
+      sharedGoalProgressById: {},
+    });
+
+    const rendered = await render(<FriendsScreen />);
+    const card = rendered.getByTestId('shared-goal-summary-goal-invitation');
+    expect(rendered.getByText('Einladung zum Wochenziel')).toBeTruthy();
+    await fireEvent.press(card);
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/(tabs)/(friends)/shared-goal/[goal-id]',
+      params: { 'goal-id': 'goal-invitation' },
+    });
     await rendered.unmount();
   });
 
@@ -627,6 +664,29 @@ describe('Social routes', () => {
     ]) {
       expect(rendered.queryByText(privateLabel)).toBeNull();
     }
+    await rendered.unmount();
+  });
+
+  it('removes a loaded friend overview immediately when the friendship disappears', async () => {
+    mockLocalSearchParams = { 'user-id': friendUser.id };
+    mockGetFriendOverview.mockResolvedValue(friendOverview);
+    setStudyStore({
+      friendConnections: [acceptedConnection],
+      friendOverviews: [friendOverview],
+    });
+    const rendered = await render(<FriendProfileScreen />);
+
+    await waitFor(() => {
+      expect(rendered.getByTestId(`friend-presence-${friendUser.id}`)).toBeTruthy();
+    });
+
+    setStudyStore({ friendConnections: [], friendOverviews: [] });
+    await rendered.rerender(<FriendProfileScreen />);
+
+    await waitFor(() => {
+      expect(rendered.getByText('Profil nicht verfügbar')).toBeTruthy();
+      expect(rendered.queryByTestId(`friend-presence-${friendUser.id}`)).toBeNull();
+    });
     await rendered.unmount();
   });
 
@@ -842,7 +902,7 @@ describe('Social routes', () => {
       ...sharedStudySession,
       creatorId: friendUser.id,
       participants: [
-        { userId: friendUser.id, user: friendUser, status: 'joined', elapsedMinutes: 0 },
+        { userId: friendUser.id, user: friendUser, status: 'joined', elapsedMinutes: 30 },
         { userId: currentUser.id, user: currentUser, status: 'invited', elapsedMinutes: 0 },
       ],
     };
@@ -862,6 +922,8 @@ describe('Social routes', () => {
     await waitFor(() => {
       expect(mockGetSharedStudySessionDetails).toHaveBeenCalledWith(sharedStudySession.id);
       expect(rendered.getByText('Einladung zur Lern-Session')).toBeTruthy();
+      expect(rendered.getByText('50 %')).toBeTruthy();
+      expect(rendered.queryByText('25 %')).toBeNull();
     });
     await fireEvent.press(rendered.getByRole('button', { name: 'Teilnehmen' }));
 
@@ -870,6 +932,108 @@ describe('Social routes', () => {
         .toHaveBeenCalledWith(sharedStudySession.id, true);
       expect(rendered.getByText('Dein Lernstatus')).toBeTruthy();
       expect(rendered.getByRole('button', { name: 'Lernen starten' })).toBeTruthy();
+    });
+    await rendered.unmount();
+  });
+
+  it('removes stale shared-session details when realtime access disappears', async () => {
+    mockLocalSearchParams = { 'session-id': sharedStudySession.id };
+    mockGetSharedStudySessionDetails.mockResolvedValue(sharedStudySession);
+    setStudyStore({ sharedStudySessions: [sharedStudySession] });
+    const rendered = await render(<SharedStudySessionDetailsScreen />);
+
+    await waitFor(() => {
+      expect(rendered.getByText(sharedStudySession.title)).toBeTruthy();
+    });
+
+    setStudyStore({ sharedStudySessions: [] });
+    await rendered.rerender(<SharedStudySessionDetailsScreen />);
+
+    await waitFor(() => {
+      expect(rendered.getByText('Session nicht verfügbar')).toBeTruthy();
+      expect(rendered.queryByText(sharedStudySession.title)).toBeNull();
+    });
+    await rendered.unmount();
+  });
+
+  it('continues an active server duration from calculatedAt without double counting activeSince', () => {
+    const participant = {
+      userId: currentUser.id,
+      user: currentUser,
+      status: 'active' as const,
+      elapsedMinutes: 10,
+      activeSince: '2026-07-22T09:50:00.000Z',
+    };
+
+    expect(participantElapsedMinutes(
+      participant,
+      '2026-07-22T09:59:00.000Z',
+      Date.parse('2026-07-22T10:00:00.000Z'),
+    )).toBe(11);
+  });
+
+  it('prefers a newer participant projection even when the session row was not updated', () => {
+    const loadedSession: SharedStudySession = {
+      ...sharedStudySession,
+      participants: sharedStudySession.participants.map((participant) => ({ ...participant })),
+      calculatedAt: '2026-07-22T09:59:00.000Z',
+    };
+    const realtimeSession: SharedStudySession = {
+      ...loadedSession,
+      participants: loadedSession.participants.map((participant) =>
+        participant.userId === friendUser.id
+          ? { ...participant, status: 'joined' as const, elapsedMinutes: 12 }
+          : participant),
+      calculatedAt: '2026-07-22T10:00:00.000Z',
+    };
+
+    expect(selectLatestSharedStudySession(loadedSession, realtimeSession)).toBe(realtimeSession);
+  });
+
+  it('ignores a detail request that finishes after a participant mutation', async () => {
+    mockLocalSearchParams = { 'session-id': sharedStudySession.id };
+    const releaseOlderLoads: ((session: SharedStudySession) => void)[] = [];
+    mockGetSharedStudySessionDetails.mockImplementation(() => new Promise((resolve) => {
+      releaseOlderLoads.push(resolve);
+    }));
+    const activeSession: SharedStudySession = {
+      ...sharedStudySession,
+      status: 'active',
+      participants: sharedStudySession.participants.map((participant) => (
+        participant.userId === currentUser.id
+          ? { ...participant, status: 'active' as const, activeSince: '2026-07-22T10:00:00.000Z' }
+          : participant
+      )),
+      calculatedAt: '2026-07-22T10:00:00.000Z',
+      receivedAt: '2026-07-22T10:00:00.000Z',
+    };
+    const pausedSession: SharedStudySession = {
+      ...activeSession,
+      participants: activeSession.participants.map((participant) => (
+        participant.userId === currentUser.id
+          ? { ...participant, status: 'paused' as const, activeSince: undefined }
+          : participant
+      )),
+      calculatedAt: '2026-07-22T10:01:00.000Z',
+      receivedAt: '2026-07-22T10:01:00.000Z',
+    };
+    mockUpdateSharedStudySessionParticipant.mockResolvedValueOnce(pausedSession);
+    setStudyStore({ sharedStudySessions: [activeSession] });
+    const rendered = await render(<SharedStudySessionDetailsScreen />);
+    await waitFor(() => expect(releaseOlderLoads.length).toBeGreaterThan(0));
+
+    await fireEvent.press(rendered.getByRole('button', { name: 'Pause' }));
+    await waitFor(() => {
+      expect(rendered.getByRole('button', { name: 'Fortsetzen' })).toBeTruthy();
+    });
+
+    await act(async () => {
+      releaseOlderLoads.forEach((release) => release(sharedStudySession));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(rendered.getByRole('button', { name: 'Fortsetzen' })).toBeTruthy();
+      expect(rendered.queryByRole('button', { name: 'Lernen starten' })).toBeNull();
     });
     await rendered.unmount();
   });

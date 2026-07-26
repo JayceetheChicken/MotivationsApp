@@ -24,10 +24,6 @@ export {
   type PlannedSessionCardProps,
 } from './planned-session-card';
 export {
-  PrivacySourceToggles,
-  type PrivacySourceTogglesProps,
-} from './privacy-source-toggles';
-export {
   SharedGoalCard,
   type SharedGoalCardProps,
 } from './shared-goal-card';
@@ -57,8 +53,6 @@ export {
 } from './study-group-card';
 export type {
   PlannedSessionViewModel,
-  PrivacySourceKey,
-  PrivacySourceValues,
   SharedGoalCadence,
   SharedGoalDurationUnit,
   SharedGoalFormValue,

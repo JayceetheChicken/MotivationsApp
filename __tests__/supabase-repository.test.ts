@@ -58,6 +58,15 @@ function fakeClient() {
         error: null,
       };
     }
+    if (name === 'get_my_profile') {
+      return {
+        data: {
+          id: 'account-id', username: 'lea', display_name: 'Lea', avatar_url: null,
+          time_zone: 'Europe/Berlin', username_needs_review: false, revision: 1,
+        },
+        error: null,
+      };
+    }
     if (name === 'create_shared_goal') {
       return {
         data: {
@@ -93,18 +102,40 @@ function fakeClient() {
     return { data: null, error: null };
   });
   const removeChannel = jest.fn(async () => 'ok');
-  const channel = jest.fn();
+  const channelObject = { on: jest.fn(), subscribe: jest.fn() };
+  channelObject.on.mockReturnValue(channelObject);
+  const channel = jest.fn(() => channelObject);
+  const realtimeSetAuth = jest.fn(async () => undefined);
   const storageUpload = jest.fn(async (path: string, _body?: unknown, _options?: unknown) => ({ data: { path }, error: null as unknown }));
   const storageGetPublicUrl = jest.fn((path: string) => ({
     data: { publicUrl: `https://cdn.test/avatars/${path}` },
   }));
-  const storageFrom = jest.fn(() => ({ upload: storageUpload, getPublicUrl: storageGetPublicUrl }));
+  const storageList = jest.fn(async () => ({ data: [] as { name: string }[], error: null as unknown }));
+  const storageRemove = jest.fn(async () => ({ data: [], error: null as unknown }));
+  const storageFrom = jest.fn(() => ({
+    upload: storageUpload,
+    getPublicUrl: storageGetPublicUrl,
+    list: storageList,
+    remove: storageRemove,
+  }));
   return {
-    client: { rpc, removeChannel, channel, storage: { from: storageFrom } } as unknown as SupabaseClient<Database>,
+    client: {
+      rpc,
+      removeChannel,
+      channel,
+      realtime: { setAuth: realtimeSetAuth },
+      storage: { from: storageFrom },
+    } as unknown as SupabaseClient<Database>,
     rpc,
     storageFrom,
     storageUpload,
     storageGetPublicUrl,
+    storageList,
+    storageRemove,
+    channel,
+    channelObject,
+    removeChannel,
+    realtimeSetAuth,
   };
 }
 
@@ -370,13 +401,18 @@ describe('SupabaseStudyRepository RPC contract', () => {
     });
 
     rpc.mockResolvedValueOnce({ data: { state: 'learning' }, error: null });
-    await repository.social.updateLearningPresence('learning', now);
+    await repository.social.updateLearningPresence(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'learning',
+      now,
+    );
     expect(rpc).toHaveBeenLastCalledWith('update_learning_presence', {
+      p_device_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       p_state: 'learning', p_active_since: now,
     });
   });
 
-  it('uploads an ArrayBuffer into the caller folder and returns the cache-busted public URL', async () => {
+  it('uploads an ArrayBuffer to a unique own profile object without upsert', async () => {
     const { client, storageFrom, storageUpload } = fakeClient();
     const repository = createSupabaseStudyRepository({
       client,
@@ -385,8 +421,9 @@ describe('SupabaseStudyRepository RPC contract', () => {
     });
 
     const body = new Uint8Array([1, 2, 3]).buffer;
-    const url = await repository.social.uploadAvatar({
+    const uploaded = await repository.social.uploadAvatar({
       userId: 'account-id',
+      objectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       body,
       contentType: 'image/jpeg',
       fileExtension: 'jpg',
@@ -394,12 +431,110 @@ describe('SupabaseStudyRepository RPC contract', () => {
 
     expect(storageFrom).toHaveBeenCalledWith('avatars');
     expect(storageUpload).toHaveBeenCalledWith(
-      'account-id/avatar.jpg',
+      'account-id/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg',
       body,
-      expect.objectContaining({ contentType: 'image/jpeg', upsert: true }),
+      expect.objectContaining({ contentType: 'image/jpeg', upsert: false }),
     );
     expect(storageUpload.mock.calls[0][1]).toBeInstanceOf(ArrayBuffer);
-    expect(url).toMatch(/^https:\/\/cdn\.test\/avatars\/account-id\/avatar\.jpg\?v=\d+$/);
+    expect(uploaded).toEqual({
+      objectPath: 'account-id/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg',
+    });
+  });
+
+  it('persists a verified path and removes stale objects without touching the current avatar', async () => {
+    const { client, rpc, storageList, storageRemove } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+    const keepPath = 'account-id/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg';
+    rpc.mockResolvedValueOnce({
+      data: {
+        profile: {
+          id: 'account-id', username: 'lea', display_name: 'Lea',
+          avatar_url: 'https://project.test/storage/v1/object/public/avatars/account-id/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg?v=1',
+          time_zone: 'Europe/Berlin', username_needs_review: false, revision: 2,
+        },
+        object_path: keepPath,
+        previous_avatar_url: 'https://project.test/storage/v1/object/public/avatars/account-id/avatar.png?v=old',
+      },
+      error: null,
+    });
+    await expect(repository.social.setMyAvatar(keepPath)).resolves.toMatchObject({
+      profile: {
+        avatarUrl: expect.stringContaining(`${keepPath}?v=1`),
+        revision: 2,
+      },
+      previousAvatarUrl: expect.stringContaining('account-id/avatar.png?v=old'),
+    });
+    expect(rpc).toHaveBeenLastCalledWith('set_my_avatar', { p_object_path: keepPath });
+
+    rpc.mockResolvedValueOnce({
+      data: {
+        id: 'account-id', username: 'lea', display_name: 'Lea',
+        avatar_url: `https://project.test/storage/v1/object/public/avatars/${keepPath}?v=1`,
+        time_zone: 'Europe/Berlin', username_needs_review: false, revision: 2,
+      },
+      error: null,
+    });
+    rpc.mockResolvedValueOnce({
+      data: {
+        object_paths: [
+          'account-id/avatar.png',
+          'account-id/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.png',
+        ],
+      },
+      error: null,
+    });
+    await repository.social.cleanupAvatarObjects(
+      'account-id',
+      keepPath,
+      'https://project.test/storage/v1/object/public/avatars/account-id/avatar.png?v=old',
+    );
+    expect(storageRemove.mock.calls).toEqual(expect.arrayContaining([
+      [['account-id/avatar.png']],
+      [['account-id/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.png']],
+    ]));
+    expect(storageRemove).not.toHaveBeenCalledWith([keepPath]);
+    expect(storageList).not.toHaveBeenCalled();
+  });
+
+  it('subscribes to the authenticated private social inbox and refetches after reconnect', async () => {
+    const {
+      client,
+      channel,
+      channelObject,
+      realtimeSetAuth,
+      removeChannel,
+    } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+    const onInvalidated = jest.fn();
+    const cleanup = await repository.subscribeSocialUpdates({ onInvalidated });
+
+    expect(realtimeSetAuth).toHaveBeenCalledTimes(1);
+    expect(channel).toHaveBeenCalledWith('social:user:account-id', {
+      config: { private: true },
+    });
+    const broadcastHandler = channelObject.on.mock.calls[0]?.[2] as (
+      (message: unknown) => void
+    ) | undefined;
+    broadcastHandler?.({ payload: { kind: 'presence' } });
+    expect(onInvalidated).toHaveBeenNthCalledWith(1, 'presence');
+
+    const statusHandler = channelObject.subscribe.mock.calls[0]?.[0] as (
+      status: string,
+    ) => void;
+    statusHandler('SUBSCRIBED');
+    statusHandler('SUBSCRIBED');
+    expect(onInvalidated).toHaveBeenNthCalledWith(2, 'social');
+
+    await cleanup();
+    expect(removeChannel).toHaveBeenCalledTimes(1);
   });
 
   it('reports a missing bucket or policy distinctly from a rejected upload', async () => {
@@ -413,6 +548,7 @@ describe('SupabaseStudyRepository RPC contract', () => {
     storageUpload.mockResolvedValueOnce({ data: null as never, error: { message: 'Bucket not found' } });
     await expect(repository.social.uploadAvatar({
       userId: 'account-id',
+      objectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       body: new ArrayBuffer(1),
       contentType: 'image/png',
       fileExtension: 'png',
@@ -421,6 +557,7 @@ describe('SupabaseStudyRepository RPC contract', () => {
     storageUpload.mockResolvedValueOnce({ data: null as never, error: { message: 'new row violates row-level security policy' } });
     await expect(repository.social.uploadAvatar({
       userId: 'account-id',
+      objectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       body: new ArrayBuffer(1),
       contentType: 'image/png',
       fileExtension: 'png',
@@ -438,6 +575,7 @@ describe('SupabaseStudyRepository RPC contract', () => {
 
     const input = {
       userId: 'account-id',
+      objectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       body: new ArrayBuffer(1),
       contentType: 'image/png',
       fileExtension: 'png',

@@ -7,14 +7,6 @@ export type SocialUserSummary = Readonly<{
 
 export type SocialActionState = 'idle' | 'loading' | 'disabled';
 
-export type PrivacySourceKey =
-  | 'shareTimerStats'
-  | 'shareManualStats'
-  | 'shareGoalProgress'
-  | 'shareStreak';
-
-export type PrivacySourceValues = Readonly<Record<PrivacySourceKey, boolean>>;
-
 export type SharedGoalMode = 'per_participant' | 'shared';
 export type SharedGoalTargetType = 'duration' | 'sessions';
 export type SharedGoalDurationUnit = 'minutes' | 'hours';

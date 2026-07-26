@@ -69,6 +69,15 @@ function optionalString(row: UnknownRecord, ...keys: string[]): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function clientAlignedExpiry(expiry: string | null, serverObservedAt: string | null): string | null {
+  if (!expiry || !serverObservedAt) return expiry;
+  const expiryMs = Date.parse(expiry);
+  const observedMs = Date.parse(serverObservedAt);
+  if (!Number.isFinite(expiryMs) || !Number.isFinite(observedMs)) return expiry;
+  const remainingMs = Math.max(0, Math.min(expiryMs - observedMs, 10 * 60_000));
+  return new Date(Date.now() + remainingMs).toISOString();
+}
+
 function finiteNumber(row: UnknownRecord, fallback: number, ...keys: string[]): number {
   const value = valueOf(row, ...keys);
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -383,11 +392,22 @@ export function mapFriendOverview(value: unknown): FriendOverview {
     : rawPresenceStatus === 'online'
       ? 'online'
       : 'offline';
+  const serverObservedAt = optionalString(summary, 'server_observed_at', 'serverObservedAt');
+  const presenceExpiresAt = optionalString(
+    summary,
+    'presence_expires_at',
+    'presenceExpiresAt',
+    'expires_at',
+    'expiresAt',
+  );
+  const onlineExpiresAt = optionalString(summary, 'online_expires_at', 'onlineExpiresAt');
 
   return {
     friend: mapBasicUser(optionalRecord(valueOf(row, 'friend', 'profile', 'user')) ?? row),
     presenceStatus,
     lastActiveAt: optionalString(summary, 'last_active_at', 'lastActiveAt', 'last_seen_at', 'lastSeenAt'),
+    presenceExpiresAt: clientAlignedExpiry(presenceExpiresAt, serverObservedAt),
+    onlineExpiresAt: clientAlignedExpiry(onlineExpiresAt, serverObservedAt),
     sharedGoalIds: stringList(valueOf(row, 'shared_goal_ids', 'sharedGoalIds')),
     sharedSessionIds: stringList(valueOf(row, 'shared_session_ids', 'sharedSessionIds')),
     groupIds: stringList(valueOf(row, 'group_ids', 'groupIds', 'shared_group_ids', 'sharedGroupIds')),
@@ -492,6 +512,7 @@ export function mapSharedStudySession(value: unknown): SharedStudySession {
   const row = record(value, 'Gemeinsame Lernsession');
   const session = optionalRecord(valueOf(row, 'session')) ?? row;
   const creator = optionalRecord(valueOf(row, 'creator'));
+  const calculatedAt = optionalString(row, 'calculated_at', 'calculatedAt');
   const rawPlannedMinutes = valueOf(
     session,
     'planned_duration_minutes',
@@ -556,6 +577,10 @@ export function mapSharedStudySession(value: unknown): SharedStudySession {
     participants: [...participantsById.values()],
     createdAt: requiredString(session, 'Gemeinsame Lernsession', 'created_at', 'createdAt'),
     updatedAt: requiredString(session, 'Gemeinsame Lernsession', 'updated_at', 'updatedAt'),
+    calculatedAt,
+    ...(calculatedAt && Number.isFinite(Date.parse(calculatedAt))
+      ? { receivedAt: new Date(Date.now()).toISOString() }
+      : {}),
   };
 }
 

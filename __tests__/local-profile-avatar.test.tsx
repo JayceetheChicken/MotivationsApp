@@ -9,7 +9,7 @@ import type { StudyData } from '@/types/study';
 
 const mockReplace = jest.fn();
 const mockSaveLocalProfile = jest.fn();
-const mockUploadAvatar = jest.fn();
+const mockReplaceAccountAvatar = jest.fn();
 
 jest.mock('expo-router', () => ({
   router: {
@@ -98,7 +98,7 @@ function configureLocalStores(withProfile: boolean) {
     socialLoading: false,
     syncStatus: { phase: 'idle', pendingMutationCount: 0, lastSyncedAt: null, lastError: null },
     updateAccountProfile: jest.fn(),
-    uploadAvatar: mockUploadAvatar,
+    replaceAccountAvatar: mockReplaceAccountAvatar,
   } as unknown as ReturnType<typeof useStudyStore>);
 }
 
@@ -113,7 +113,7 @@ function selectLocalImage(uri = 'file:///picked-avatar.jpg') {
 describe('local profile pictures', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUploadAvatar.mockResolvedValue('https://should-never-be-used.example/avatar.jpg');
+    mockReplaceAccountAvatar.mockResolvedValue(null);
   });
 
   it('selects a picture during local profile creation and persists only its local URI', async () => {
@@ -138,7 +138,7 @@ describe('local profile pictures', () => {
       });
       expect(mockReplace).toHaveBeenCalledWith('/');
     });
-    expect(mockUploadAvatar).not.toHaveBeenCalled();
+    expect(mockReplaceAccountAvatar).not.toHaveBeenCalled();
     await rendered.unmount();
   });
 
@@ -155,7 +155,7 @@ describe('local profile pictures', () => {
         avatarUri: 'content://media/picked-avatar.jpg',
       });
     });
-    expect(mockUploadAvatar).not.toHaveBeenCalled();
+    expect(mockReplaceAccountAvatar).not.toHaveBeenCalled();
     expect(rendered.getByText('Dein neues Profilbild wurde lokal gespeichert.')).toBeTruthy();
     await rendered.unmount();
   });
@@ -170,7 +170,7 @@ describe('local profile pictures', () => {
       expect(rendered.getByText('Fotozugriff ist momentan nicht verfügbar.')).toBeTruthy();
     });
     expect(mockedLaunchLibrary).not.toHaveBeenCalled();
-    expect(mockUploadAvatar).not.toHaveBeenCalled();
+    expect(mockReplaceAccountAvatar).not.toHaveBeenCalled();
     expect(mockSaveLocalProfile).not.toHaveBeenCalled();
     await rendered.unmount();
   });

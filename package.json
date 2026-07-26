@@ -61,6 +61,7 @@
     "supabase:reset": "supabase db reset",
     "supabase:lint": "supabase db lint --local --level warning",
     "test:db": "supabase test db",
+    "test:supabase:e2e": "node scripts/supabase-local-e2e.mjs",
     "types:db": "supabase gen types typescript --local > src/types/database.generated.ts",
     "verify": "npm run typecheck && npm test && npm run lint"
   },

@@ -14,11 +14,38 @@ const PRESENCE_LABELS: Readonly<Record<FriendPresenceStatus, string>> = {
 };
 
 export type FriendPresenceRowProps = {
-  overview: Pick<FriendOverview, 'friend' | 'presenceStatus' | 'lastActiveAt'>;
+  overview: Pick<
+    FriendOverview,
+    'friend' | 'presenceStatus' | 'lastActiveAt' | 'presenceExpiresAt' | 'onlineExpiresAt'
+  >;
   now?: Date | number;
   removing?: boolean;
   onRemove?: () => void;
 };
+
+function validExpiry(value: string | null): number | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+export function resolveFriendPresenceStatus(
+  overview: Pick<
+    FriendOverview,
+    'presenceStatus' | 'presenceExpiresAt' | 'onlineExpiresAt'
+  >,
+  now: Date | number = Date.now(),
+): FriendPresenceStatus {
+  const nowMs = now instanceof Date ? now.getTime() : now;
+  const currentExpiry = validExpiry(overview.presenceExpiresAt);
+  const onlineExpiry = validExpiry(overview.onlineExpiresAt);
+  if (overview.presenceStatus === 'learning' && currentExpiry !== null && currentExpiry > nowMs) {
+    return 'learning';
+  }
+  if (onlineExpiry !== null) return onlineExpiry > nowMs ? 'online' : 'offline';
+  if (currentExpiry !== null) return currentExpiry > nowMs ? overview.presenceStatus : 'offline';
+  return overview.presenceStatus;
+}
 
 export function FriendPresenceRow({
   overview,
@@ -27,7 +54,7 @@ export function FriendPresenceRow({
   onRemove,
 }: FriendPresenceRowProps) {
   const theme = useAppTheme();
-  const status = overview.presenceStatus;
+  const status = resolveFriendPresenceStatus(overview, now);
   const relative = formatSocialRelativeTime(overview.lastActiveAt, now);
   const activityLabel = relative ? `Zuletzt aktiv ${relative}` : 'Zuletzt aktiv nicht verfügbar';
   const badgeColors = status === 'learning'

@@ -41,6 +41,8 @@ const friendOverview: FriendOverview = {
   friend: { id: 'friend-id', username: 'mia', displayName: 'Mia' },
   presenceStatus: 'learning',
   lastActiveAt: now,
+  presenceExpiresAt: '2026-07-22T10:02:00.000Z',
+  onlineExpiresAt: '2026-07-22T10:02:00.000Z',
   sharedGoalIds: ['goal-id'],
   sharedSessionIds: ['shared-session-id'],
   groupIds: ['group-id'],
@@ -71,6 +73,7 @@ const sharedSession: SharedStudySession = {
   }],
   createdAt: now,
   updatedAt: now,
+  calculatedAt: now,
 };
 const progress: SharedGoalProgress = {
   goalId: 'goal-id',
@@ -125,7 +128,7 @@ const mockUpdateParticipant = jest.fn<
   Promise<SharedStudySession | null>,
   [string, SharedStudySessionParticipantAction]
 >();
-const mockUpdatePresence = jest.fn<Promise<void>, [string, string | null]>();
+const mockUpdatePresence = jest.fn<Promise<void>, [string, string, string | null]>();
 const mockGetSharedStudySessionDetails = jest.fn<
   Promise<SharedStudySession>,
   [string]
@@ -152,6 +155,7 @@ const mockRepository = {
     getSharingPreferences: jest.fn(async () => sharing),
     listFriendConnections: jest.fn(async () => []),
     listFriendOverviews: jest.fn(async () => [friendOverview]),
+    listSharedGoals: jest.fn(async () => [challenge]),
     listSharedGoalProgress: jest.fn(async () => [progress]),
     listStudyGroups: jest.fn(async () => [group]),
     listSharedStudySessions: jest.fn(async () => [sharedSession]),
@@ -172,8 +176,8 @@ const mockRepository = {
       sessionId: string,
       action: SharedStudySessionParticipantAction,
     ) => mockUpdateParticipant(sessionId, action),
-    updateLearningPresence: (state: string, activeSince: string | null) => (
-      mockUpdatePresence(state, activeSince)
+    updateLearningPresence: (deviceId: string, state: string, activeSince: string | null) => (
+      mockUpdatePresence(deviceId, state, activeSince)
     ),
   },
   imports: {},
@@ -193,6 +197,7 @@ const mockRepository = {
   })),
   subscribeSyncStatus: jest.fn(() => () => undefined),
   subscribeSharedGoalProgress: jest.fn(),
+  subscribeSocialUpdates: jest.fn(async () => async () => undefined),
   dispose: jest.fn(async () => undefined),
 } as unknown as StudyRepository;
 
@@ -264,23 +269,61 @@ describe('StudyStoreProvider social learning infrastructure', () => {
 
     await waitFor(() => {
       expect(hook.result.current.hydrated).toBe(true);
-      expect(mockUpdatePresence).toHaveBeenCalledWith('idle', null);
-      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 120_000);
+      expect(mockUpdatePresence).toHaveBeenCalledWith(expect.any(String), 'idle', null);
+      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 15_000);
     });
 
-    const heartbeat = intervalSpy.mock.calls.find(([, delay]) => delay === 120_000)?.[0];
+    const heartbeat = intervalSpy.mock.calls.find(([, delay]) => delay === 15_000)?.[0];
     expect(heartbeat).toEqual(expect.any(Function));
     mockUpdatePresence.mockClear();
-    const dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 120_001);
+    const dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 45_001);
     await act(async () => {
       (heartbeat as () => void)();
       await Promise.resolve();
     });
-    expect(mockUpdatePresence).toHaveBeenCalledWith('idle', null);
+    expect(mockUpdatePresence).toHaveBeenCalledWith(expect.any(String), 'idle', null);
 
     await hook.unmount();
     dateNowSpy.mockRestore();
     intervalSpy.mockRestore();
+  });
+
+  it('serializes presence writes and collapses superseded queued states', async () => {
+    let releaseIdle!: () => void;
+    mockUpdatePresence.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      releaseIdle = resolve;
+    }));
+    const { result } = await renderHook(() => useStudyStore(), { wrapper });
+    await waitFor(() => {
+      expect(result.current.hydrated).toBe(true);
+      expect(mockUpdatePresence.mock.calls.map(([, state]) => state)).toEqual(['idle']);
+    });
+
+    let subjectId = '';
+    await act(() => {
+      subjectId = result.current.addSubject('Biologie').id;
+    });
+    await waitFor(() => expect(result.current.data.subjects).toHaveLength(1));
+    await act(() => {
+      result.current.startTimer({ subjectId });
+    });
+    await waitFor(() => expect(result.current.data.activeTimer?.status).toBe('running'));
+    await act(() => {
+      result.current.pauseTimer();
+    });
+    await waitFor(() => expect(result.current.data.activeTimer?.status).toBe('paused'));
+    expect(mockUpdatePresence.mock.calls.map(([, state]) => state)).toEqual(['idle']);
+
+    await act(async () => {
+      releaseIdle();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(mockUpdatePresence.mock.calls.map(([, state]) => state)).toEqual([
+        'idle',
+        'paused',
+      ]);
+    });
   });
 
   it('serializes timer participant actions and publishes privacy-safe presence', async () => {
@@ -310,6 +353,7 @@ describe('StudyStoreProvider social learning infrastructure', () => {
       expect(result.current.data.activeTimer?.status).toBe('running');
       expect(mockUpdateParticipant).toHaveBeenCalledWith('shared-session-id', 'start');
       expect(mockUpdatePresence).toHaveBeenCalledWith(
+        expect.any(String),
         'learning',
         result.current.data.activeTimer?.startedAt ?? null,
       );
@@ -328,10 +372,41 @@ describe('StudyStoreProvider social learning infrastructure', () => {
     await waitFor(() => {
       expect(mockUpdateParticipant.mock.calls.map(([, action]) => action)).toEqual(['start', 'pause']);
       expect(mockUpdatePresence).toHaveBeenCalledWith(
+        expect.any(String),
         'paused',
         result.current.data.activeTimer?.startedAt ?? null,
       );
     });
+  });
+
+  it('does not let an older session detail projection overwrite a mutation result', async () => {
+    const newerSession: SharedStudySession = {
+      ...sharedSession,
+      participants: sharedSession.participants.map((participant) => ({
+        ...participant,
+        status: 'paused' as const,
+        elapsedMinutes: 12,
+      })),
+      calculatedAt: '2026-07-22T10:01:00.000Z',
+      receivedAt: '2026-07-22T10:01:00.000Z',
+    };
+    mockUpdateParticipant.mockResolvedValueOnce(newerSession);
+    mockGetSharedStudySessionDetails.mockResolvedValueOnce(sharedSession);
+    const { result } = await renderHook(() => useStudyStore(), { wrapper });
+    await waitFor(() => expect(result.current.sharedStudySessions).toEqual([sharedSession]));
+
+    await act(async () => {
+      await result.current.updateSharedStudySessionParticipant(
+        sharedSession.id,
+        'pause',
+      );
+    });
+    expect(result.current.sharedStudySessions[0]).toBe(newerSession);
+
+    await act(async () => {
+      await result.current.getSharedStudySessionDetails(sharedSession.id);
+    });
+    expect(result.current.sharedStudySessions[0]).toBe(newerSession);
   });
 
   it('persists privacy-minimal timer actions offline and drains them in order on reconnect', async () => {
