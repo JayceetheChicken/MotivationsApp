@@ -17,7 +17,10 @@ import { createLocalStudyRepository } from '@/data/repositories/local-study-repo
 import { asRepositoryError } from '@/data/repositories/repository-error';
 import {
   type CreateSharedGoalInput,
+  type CreateSharedStudySessionInput,
+  type CreateStudyGroupInput,
   type LocalImportReport,
+  type SharedStudySessionParticipantAction,
   type SyncStatus,
   type StudyRepository,
 } from '@/data/repositories/study-repository';
@@ -50,6 +53,7 @@ import type {
   ActiveTimer,
   ChallengeMode,
   ChallengeParticipant,
+  FriendOverview,
   FriendProfileStatistics,
   FriendSearchResult,
   FriendshipConnection,
@@ -69,6 +73,8 @@ import type {
   StudySharingPreferences,
   StudyUser,
   SharedGoalProgress,
+  SharedStudySession,
+  StudyGroup,
   Subject,
   TimerStudySession,
 } from '@/types/study';
@@ -76,6 +82,7 @@ import type {
 const LEGACY_STORAGE_KEY = 'lernzeit.study-state.v1';
 const STORAGE_KEY_PREFIX = 'lernzeit.study-state.v2';
 const IMPORT_DECISION_KEY_PREFIX = 'lernzeit.study-import.v2';
+const SHARED_SESSION_ACTION_OUTBOX_PREFIX = 'lernzeit.shared-session-actions.v1';
 const DEVICE_FINGERPRINT_KEY = 'lernzeit.device-fingerprint.v1';
 const CURRENT_SCHEMA_VERSION = 3;
 const LOCAL_USER_ID = 'local-user';
@@ -133,10 +140,93 @@ interface PersistedStudyState extends StudyState {
   schemaVersion: typeof CURRENT_SCHEMA_VERSION;
 }
 
+interface PendingSharedSessionAction {
+  sessionId: string;
+  action: SharedStudySessionParticipantAction;
+}
+
+const SHARED_SESSION_PARTICIPANT_ACTIONS: readonly SharedStudySessionParticipantAction[] = [
+  'start',
+  'pause',
+  'resume',
+  'finish',
+  'leave',
+];
+
+function sharedSessionActionOutboxKey(accountId: string): string {
+  const safeAccountId = accountId.trim().replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `${SHARED_SESSION_ACTION_OUTBOX_PREFIX}.${safeAccountId}`;
+}
+
+/**
+ * Adjacent/retried duplicates are safe to collapse because the server actions
+ * are idempotent. Inverse transitions stay ordered: a request may have reached
+ * the server even when its response did not reach this client.
+ */
+function enqueueSharedSessionAction(
+  current: readonly PendingSharedSessionAction[],
+  pending: PendingSharedSessionAction,
+): PendingSharedSessionAction[] {
+  const previousForSession = [...current]
+    .reverse()
+    .find((entry) => entry.sessionId === pending.sessionId);
+  if (
+    previousForSession?.action === pending.action
+    || previousForSession?.action === 'finish'
+    || previousForSession?.action === 'leave'
+  ) {
+    return [...current];
+  }
+  return [...current, pending];
+}
+
+function readSharedSessionActionOutbox(storageKey: string): PendingSharedSessionAction[] {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value)) return [];
+    return value.reduce<PendingSharedSessionAction[]>((actions, entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return actions;
+      const record = entry as Record<string, unknown>;
+      const sessionId = typeof record.sessionId === 'string' ? record.sessionId.trim() : '';
+      const action = record.action;
+      if (
+        !sessionId
+        || typeof action !== 'string'
+        || !SHARED_SESSION_PARTICIPANT_ACTIONS.includes(
+          action as SharedStudySessionParticipantAction,
+        )
+      ) {
+        return actions;
+      }
+      return enqueueSharedSessionAction(actions, {
+        sessionId,
+        action: action as SharedStudySessionParticipantAction,
+      });
+    }, []);
+  } catch {
+    return [];
+  }
+}
+
+function writeSharedSessionActionOutbox(
+  storageKey: string,
+  actions: readonly PendingSharedSessionAction[],
+): void {
+  try {
+    if (actions.length === 0) localStorage.removeItem(storageKey);
+    else localStorage.setItem(storageKey, JSON.stringify(actions));
+  } catch {
+    // The in-memory queue remains active when persistent storage is unavailable.
+  }
+}
+
 export interface NewManualEntry {
   /** Optional when `goalId` resolves to exactly one subject. */
   subjectId?: string;
   goalId?: string | null;
+  sharedSessionId?: string | null;
   durationMinutes: number;
   studiedOn: string;
   note?: string;
@@ -156,6 +246,7 @@ export interface StartTimerOptions {
   /** Optional when `goalId` resolves to exactly one subject. */
   subjectId?: string;
   goalId?: string | null;
+  sharedSessionId?: string | null;
   plannedDurationMinutes?: number;
   note?: string;
 }
@@ -233,8 +324,12 @@ export interface StudyStoreValue extends StudyState {
   socialLoading: boolean;
   socialError: string | null;
   friendConnections: readonly FriendshipConnection[];
+  friendOverviews: readonly FriendOverview[];
+  studyGroups: readonly StudyGroup[];
+  sharedStudySessions: readonly SharedStudySession[];
+  sharedGoalProgressById: Readonly<Record<string, SharedGoalProgress>>;
   sharingPreferences: StudySharingPreferences | null;
-  refreshSocial: () => Promise<void>;
+  refreshSocial: (options?: { silent?: boolean }) => Promise<void>;
   updateAccountProfile: (profile: AccountProfileUpdate) => Promise<AccountStudyUser | null>;
   uploadAvatar: (asset: AvatarUploadAsset) => Promise<string | null>;
   findFriendByUsername: (username: string) => Promise<FriendSearchResult | null>;
@@ -242,6 +337,7 @@ export interface StudyStoreValue extends StudyState {
   acceptFriendRequest: (friendshipId: string) => Promise<void>;
   declineFriendRequest: (friendshipId: string) => Promise<void>;
   removeFriendship: (friendshipId: string) => Promise<void>;
+  getFriendOverview: (friendId: string) => Promise<FriendOverview | null>;
   getFriendProfileStats: (friendId: string) => Promise<FriendProfileStatistics>;
   createSharedGoal: (input: CreateSharedGoalInput) => Promise<StudyChallenge | null>;
   respondSharedGoalInvitation: (
@@ -252,6 +348,26 @@ export interface StudyStoreValue extends StudyState {
   getSharedGoalDetails: (goalId: string) => Promise<StudyChallenge | null>;
   getSharedGoalProgress: (goalId: string) => Promise<SharedGoalProgress | null>;
   subscribeSharedGoalProgress: StudyRepository['subscribeSharedGoalProgress'];
+  createStudyGroup: (input: CreateStudyGroupInput) => Promise<StudyGroup | null>;
+  getStudyGroupDetails: (groupId: string) => Promise<StudyGroup | null>;
+  respondStudyGroupInvitation: (
+    groupId: string,
+    accept: boolean,
+  ) => Promise<StudyGroup | null>;
+  leaveStudyGroup: (groupId: string) => Promise<void>;
+  createSharedStudySession: (
+    input: CreateSharedStudySessionInput,
+  ) => Promise<SharedStudySession | null>;
+  getSharedStudySessionDetails: (sessionId: string) => Promise<SharedStudySession | null>;
+  respondSharedStudySessionInvitation: (
+    sessionId: string,
+    accept: boolean,
+  ) => Promise<SharedStudySession | null>;
+  updateSharedStudySessionParticipant: (
+    sessionId: string,
+    action: SharedStudySessionParticipantAction,
+  ) => Promise<SharedStudySession | null>;
+  cancelSharedStudySession: (sessionId: string) => Promise<SharedStudySession | null>;
   addSubject: (name: string) => Subject;
   updateLocalProfile: (profile: LocalProfileUpdate) => StudyUser | null;
   clearLocalProfile: () => void;
@@ -295,7 +411,7 @@ type Action =
   | { type: 'replace-goal'; payload: StudyGoal }
   | { type: 'delete-goal'; payload: string }
   | { type: 'upsert-challenge'; payload: StudyChallenge }
-  | { type: 'withdraw-from-challenge'; payload: { goalId: string; userId: string } }
+  | { type: 'remove-challenge'; payload: string }
   | {
       type: 'apply-account-profile';
       payload: {
@@ -428,23 +544,12 @@ function reducer(state: StudyState, action: Action): StudyState {
         },
       };
     }
-    case 'withdraw-from-challenge':
+    case 'remove-challenge':
       return {
         ...state,
         data: {
           ...state.data,
-          challenges: state.data.challenges.map((challenge) =>
-            challenge.id !== action.payload.goalId
-              ? challenge
-              : {
-                  ...challenge,
-                  participants: challenge.participants.map((participant) =>
-                    participant.userId === action.payload.userId
-                      ? { ...participant, status: 'withdrawn' as const }
-                      : participant,
-                  ),
-                },
-          ),
+          challenges: state.data.challenges.filter((challenge) => challenge.id !== action.payload),
         },
       };
     case 'apply-account-profile':
@@ -757,6 +862,16 @@ function parsedGoalId(record: Record<string, unknown>): { goalId?: string | null
   return id ? { goalId: id } : {};
 }
 
+function parsedSharedSessionId(
+  record: Record<string, unknown>,
+): { sharedSessionId?: string | null } {
+  if (!hasOwn(record, 'sharedSessionId')) return {};
+  const value = record.sharedSessionId;
+  if (value === null) return { sharedSessionId: null };
+  const id = optionalString(value);
+  return id ? { sharedSessionId: id } : {};
+}
+
 function parseUser(value: unknown): StudyUser | null {
   if (!isRecord(value)) return null;
   if (!isString(value.id) || !isString(value.username) || !isString(value.displayName)) {
@@ -810,6 +925,7 @@ function parseSession(value: unknown): StudySession | null {
     id: value.id,
     userId: value.userId,
     ...parsedGoalId(value),
+    ...parsedSharedSessionId(value),
     subjectId: value.subjectId,
     goalTitleSnapshot: optionalString(value.goalTitleSnapshot),
     subjectNameSnapshot: optionalString(value.subjectNameSnapshot),
@@ -913,6 +1029,7 @@ function parseActiveTimer(value: unknown): ActiveTimer | null {
     id: value.id,
     userId: value.userId,
     ...parsedGoalId(value),
+    ...parsedSharedSessionId(value),
     subjectId: value.subjectId,
     goalTitleSnapshot: optionalString(value.goalTitleSnapshot),
     subjectNameSnapshot: optionalString(value.subjectNameSnapshot),
@@ -1118,12 +1235,18 @@ function parseChallenge(value: unknown): StudyChallenge | null {
         }
       : null;
   if (!target) return null;
+  const cadence = value.cadence === 'daily' || value.cadence === 'weekly'
+    ? value.cadence
+    : 'weekly';
+  const groupId = value.groupId === null ? null : optionalString(value.groupId) ?? null;
 
   return {
     id: value.id,
     creatorId: value.creatorId,
     title: value.title,
     description: value.description,
+    cadence,
+    groupId,
     target,
     sourcePolicy: value.sourcePolicy,
     startsAt: value.startsAt,
@@ -1414,12 +1537,39 @@ export function StudyStoreProvider({
   const [socialLoading, setSocialLoading] = useState(false);
   const [socialError, setSocialError] = useState<string | null>(null);
   const [friendConnections, setFriendConnections] = useState<readonly FriendshipConnection[]>([]);
+  const [friendOverviews, setFriendOverviews] = useState<readonly FriendOverview[]>([]);
+  const [studyGroups, setStudyGroups] = useState<readonly StudyGroup[]>([]);
+  const [sharedStudySessions, setSharedStudySessions] = useState<readonly SharedStudySession[]>([]);
+  const [sharedGoalProgressById, setSharedGoalProgressById] = useState<Readonly<
+    Record<string, SharedGoalProgress>
+  >>({});
   const [sharingPreferences, setSharingPreferences] = useState<StudySharingPreferences | null>(null);
   const online = useNetworkStatus();
+  const storageKey = scopedStorageKey(storageScope);
+  const sharedSessionActionStorageKey = accountUserId
+    ? sharedSessionActionOutboxKey(accountUserId)
+    : null;
   const stateRef = useRef(state);
   const stateGenerationRef = useRef(0);
   const persistenceTailRef = useRef<Promise<void>>(Promise.resolve());
-  const storageKey = scopedStorageKey(storageScope);
+  const sharedSessionActionDrainTailRef = useRef<Promise<void>>(Promise.resolve());
+  const sharedSessionActionOutboxRef = useRef<{
+    storageKey: string | null;
+    actions: PendingSharedSessionAction[];
+  } | null>(null);
+  if (sharedSessionActionOutboxRef.current?.storageKey !== sharedSessionActionStorageKey) {
+    sharedSessionActionOutboxRef.current = {
+      storageKey: sharedSessionActionStorageKey,
+      actions: sharedSessionActionStorageKey
+        ? readSharedSessionActionOutbox(sharedSessionActionStorageKey)
+        : [],
+    };
+  }
+  const lastPresenceHeartbeatRef = useRef<Readonly<{
+    state: 'idle' | 'learning' | 'paused';
+    activeSince: string | null;
+    sentAt: number;
+  }> | null>(null);
   const importDecisionKey = accountUserId
     ? `${IMPORT_DECISION_KEY_PREFIX}.${accountUserId}`
     : null;
@@ -1598,7 +1748,7 @@ export function StudyStoreProvider({
   }, []);
 
   const applyAccountProfile = useCallback((
-    profile: AccountStudyUser,
+    profile: StudyUser,
     sharing: StudySharingPreferences,
   ) => {
     const action: Action = {
@@ -1606,31 +1756,96 @@ export function StudyStoreProvider({
       payload: { profile, sharing },
     };
 
-    // Make a successful profile mutation immediately visible to commands that
-    // resume from an older async render (for example after Android's picker).
+    // Keep command callbacks current before React commits the reducer update.
+    // This matters when a picker/upload promise resumes with a callback from an
+    // older render and immediately starts the profile mutation afterwards.
     stateRef.current = reducer(stateRef.current, action);
     dispatch(action);
   }, []);
 
-  const refreshSocial = useCallback(async (): Promise<void> => {
+  const upsertFriendOverview = useCallback((overview: FriendOverview) => {
+    setFriendOverviews((current) => [
+      overview,
+      ...current.filter((entry) => entry.friend.id !== overview.friend.id),
+    ]);
+  }, []);
+
+  const upsertStudyGroup = useCallback((group: StudyGroup) => {
+    setStudyGroups((current) => [group, ...current.filter((entry) => entry.id !== group.id)]);
+  }, []);
+
+  const upsertSharedStudySession = useCallback((session: SharedStudySession) => {
+    setSharedStudySessions((current) => [
+      session,
+      ...current.filter((entry) => entry.id !== session.id),
+    ]);
+  }, []);
+
+  const upsertSharedGoalProgress = useCallback((progress: SharedGoalProgress) => {
+    setSharedGoalProgressById((current) => ({ ...current, [progress.goalId]: progress }));
+  }, []);
+
+  const removeSharedGoalProgress = useCallback((goalId: string) => {
+    setSharedGoalProgressById((current) => {
+      if (!(goalId in current)) return current;
+      const next = { ...current };
+      delete next[goalId];
+      return next;
+    });
+  }, []);
+
+  const refreshSocial = useCallback(async (
+    options: { silent?: boolean } = {},
+  ): Promise<void> => {
     if (repository.mode !== 'supabase') return;
-    setSocialLoading(true);
+    const silent = options.silent === true;
+    if (!silent) setSocialLoading(true);
     setSocialError(null);
     try {
-      const [profile, sharing, connections] = await Promise.all([
+      const [
+        profile,
+        sharing,
+        connections,
+        overviews,
+        goalProgress,
+        groups,
+        sharedSessions,
+      ] = await Promise.all([
         repository.social.getMyProfile(),
         repository.social.getSharingPreferences(),
         repository.social.listFriendConnections(),
+        repository.social.listFriendOverviews(),
+        repository.social.listSharedGoalProgress(),
+        repository.social.listStudyGroups(),
+        repository.social.listSharedStudySessions(),
       ]);
       setSharingPreferences(sharing);
       setFriendConnections(connections);
+      setFriendOverviews(overviews);
+      setStudyGroups(groups);
+      setSharedStudySessions(sharedSessions);
+      setSharedGoalProgressById(Object.fromEntries(
+        goalProgress.map((progress) => [progress.goalId, progress]),
+      ));
       applyAccountProfile(profile, sharing);
     } catch (error) {
       setSocialError(asRepositoryError(error).message);
     } finally {
-      setSocialLoading(false);
+      if (!silent) setSocialLoading(false);
     }
   }, [applyAccountProfile, repository]);
+
+  const getFriendOverviewCommand = useCallback(async (friendId: string) => {
+    try {
+      const overview = await runSocialOperation(
+        () => repository.social.getFriendOverview(friendId),
+      );
+      upsertFriendOverview(overview);
+      return overview;
+    } catch {
+      return null;
+    }
+  }, [repository, runSocialOperation, upsertFriendOverview]);
 
   const getFriendProfileStatsCommand = useCallback(
     (friendId: string) => runSocialOperation(
@@ -1653,18 +1868,171 @@ export function StudyStoreProvider({
 
   const getSharedGoalProgressCommand = useCallback(async (goalId: string) => {
     try {
-      return await runSocialOperation(
+      const progress = await runSocialOperation(
         () => repository.social.getSharedGoalProgress(goalId),
       );
+      upsertSharedGoalProgress(progress);
+      return progress;
     } catch {
       return null;
     }
-  }, [repository, runSocialOperation]);
+  }, [repository, runSocialOperation, upsertSharedGoalProgress]);
+
+  const getStudyGroupDetailsCommand = useCallback(async (groupId: string) => {
+    try {
+      const group = await runSocialOperation(
+        () => repository.social.getStudyGroupDetails(groupId),
+      );
+      upsertStudyGroup(group);
+      return group;
+    } catch {
+      return null;
+    }
+  }, [repository, runSocialOperation, upsertStudyGroup]);
+
+  const getSharedStudySessionDetailsCommand = useCallback(async (sessionId: string) => {
+    try {
+      const session = await runSocialOperation(
+        () => repository.social.getSharedStudySessionDetails(sessionId),
+      );
+      upsertSharedStudySession(session);
+      return session;
+    } catch {
+      return null;
+    }
+  }, [repository, runSocialOperation, upsertSharedStudySession]);
 
   const subscribeSharedGoalProgressCommand = useCallback<StudyRepository['subscribeSharedGoalProgress']>(
-    (goalId, listener, signal) => repository.subscribeSharedGoalProgress(goalId, listener, signal),
-    [repository],
+    (goalId, listener, signal) => repository.subscribeSharedGoalProgress(goalId, {
+      ...listener,
+      onProgress: (progress) => {
+        upsertSharedGoalProgress(progress);
+        listener.onProgress(progress);
+      },
+    }, signal),
+    [repository, upsertSharedGoalProgress],
   );
+
+  const drainSharedSessionActionOutbox = useCallback(async (): Promise<void> => {
+    if (
+      !hydrated
+      || !online
+      || repository.mode !== 'supabase'
+      || !sharedSessionActionStorageKey
+    ) {
+      return;
+    }
+    const queueStorageKey = sharedSessionActionStorageKey;
+    const drain = async () => {
+      const touchedSessionIds = new Set<string>();
+      const initialOutbox = sharedSessionActionOutboxRef.current;
+      if (initialOutbox?.storageKey !== queueStorageKey) return;
+      // Persist the validated/compacted projection loaded during hydration.
+      writeSharedSessionActionOutbox(queueStorageKey, initialOutbox.actions);
+      while (true) {
+        const outbox = sharedSessionActionOutboxRef.current;
+        if (!outbox || outbox.storageKey !== queueStorageKey) return;
+        const pending = outbox.actions[0];
+        if (!pending) break;
+
+        try {
+          const session = await repository.social.updateSharedStudySessionParticipant(
+            pending.sessionId,
+            pending.action,
+          );
+          if (sharedSessionActionOutboxRef.current?.storageKey !== queueStorageKey) return;
+          outbox.actions.shift();
+          writeSharedSessionActionOutbox(queueStorageKey, outbox.actions);
+          touchedSessionIds.add(pending.sessionId);
+          if (session) upsertSharedStudySession(session);
+          else {
+            setSharedStudySessions((current) => (
+              current.filter((entry) => entry.id !== pending.sessionId)
+            ));
+          }
+        } catch (error) {
+          if (sharedSessionActionOutboxRef.current?.storageKey !== queueStorageKey) return;
+          const normalized = asRepositoryError(error);
+          setSocialError(normalized.message);
+          if (normalized.retryable) break;
+
+          // A permanent lifecycle mismatch must not block newer sessions. Its
+          // authoritative state is fetched in the reconciliation pass below.
+          outbox.actions.shift();
+          writeSharedSessionActionOutbox(queueStorageKey, outbox.actions);
+          touchedSessionIds.add(pending.sessionId);
+        }
+      }
+
+      if (touchedSessionIds.size === 0) return;
+      await Promise.all([...touchedSessionIds].map(async (sessionId) => {
+        try {
+          const session = await repository.social.getSharedStudySessionDetails(sessionId);
+          if (sharedSessionActionOutboxRef.current?.storageKey === queueStorageKey) {
+            upsertSharedStudySession(session);
+          }
+        } catch (error) {
+          const normalized = asRepositoryError(error);
+          if (
+            sharedSessionActionOutboxRef.current?.storageKey === queueStorageKey
+            && (normalized.code === 'forbidden' || normalized.code === 'not_found')
+          ) {
+            setSharedStudySessions((current) => (
+              current.filter((entry) => entry.id !== sessionId)
+            ));
+          }
+        }
+      }));
+      await retrySync();
+    };
+
+    const task = sharedSessionActionDrainTailRef.current.then(drain, drain);
+    sharedSessionActionDrainTailRef.current = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    await task;
+  }, [
+    hydrated,
+    online,
+    repository,
+    retrySync,
+    sharedSessionActionStorageKey,
+    upsertSharedStudySession,
+  ]);
+
+  const fireSharedSessionParticipantAction = useCallback((
+    sessionId: string | null | undefined,
+    action: SharedStudySessionParticipantAction,
+  ) => {
+    const cleanSessionId = sessionId?.trim();
+    if (
+      !cleanSessionId
+      || repository.mode !== 'supabase'
+      || !sharedSessionActionStorageKey
+    ) {
+      return;
+    }
+    const outbox = sharedSessionActionOutboxRef.current;
+    if (!outbox || outbox.storageKey !== sharedSessionActionStorageKey) return;
+    outbox.actions = enqueueSharedSessionAction(outbox.actions, {
+      sessionId: cleanSessionId,
+      action,
+    });
+    writeSharedSessionActionOutbox(sharedSessionActionStorageKey, outbox.actions);
+    if (hydrated && online) void drainSharedSessionActionOutbox();
+  }, [
+    drainSharedSessionActionOutbox,
+    hydrated,
+    online,
+    repository.mode,
+    sharedSessionActionStorageKey,
+  ]);
+
+  useEffect(() => {
+    if (!hydrated || !online || repository.mode !== 'supabase') return;
+    void drainSharedSessionActionOutbox();
+  }, [drainSharedSessionActionOutbox, hydrated, online, repository.mode]);
 
   useEffect(() => {
     if (!hydrated || repository.mode !== 'supabase') return;
@@ -1674,6 +2042,43 @@ export function StudyStoreProvider({
     }, 0);
     return () => clearTimeout(timeout);
   }, [hydrated, refreshSocial, repository.mode, retrySync]);
+
+  useEffect(() => {
+    if (!hydrated || repository.mode !== 'supabase' || !online) return;
+    const timer = state.data.activeTimer;
+    const presence = {
+      state: timer?.status === 'running'
+        ? 'learning' as const
+        : timer?.status === 'paused'
+          ? 'paused' as const
+          : 'idle' as const,
+      activeSince: timer ? timer.startedAt : null,
+    };
+
+    const sendPresence = () => {
+      const now = Date.now();
+      const previous = lastPresenceHeartbeatRef.current;
+      if (
+        previous &&
+        previous.state === presence.state &&
+        previous.activeSince === presence.activeSince &&
+        now - previous.sentAt < 120_000
+      ) return;
+      lastPresenceHeartbeatRef.current = { ...presence, sentAt: now };
+      void repository.social.updateLearningPresence(presence.state, presence.activeSince)
+        .catch(() => undefined);
+    };
+
+    sendPresence();
+    if (presence.state !== 'learning') return;
+    const heartbeat = setInterval(sendPresence, 120_000);
+    return () => clearInterval(heartbeat);
+  }, [
+    hydrated,
+    online,
+    repository,
+    state.data.activeTimer,
+  ]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1761,11 +2166,13 @@ export function StudyStoreProvider({
         return null;
       }
       const now = new Date().toISOString();
+      const sharedSessionId = cleanOptionalText(options.sharedSessionId);
       const timer: ActiveTimer = {
         schemaVersion: 1,
         id: makeId('timer'),
         userId: currentActorId,
         goalId: binding.goalId,
+        sharedSessionId,
         subjectId: binding.subjectId,
         goalTitleSnapshot: binding.goalTitleSnapshot,
         subjectNameSnapshot: binding.subjectNameSnapshot,
@@ -1779,6 +2186,7 @@ export function StudyStoreProvider({
         updatedAt: now,
       };
       dispatch({ type: 'set-active-timer', payload: timer });
+      fireSharedSessionParticipantAction(sharedSessionId, 'start');
       return timer;
     };
 
@@ -1787,6 +2195,7 @@ export function StudyStoreProvider({
       if (!timer || timer.status !== 'running') return null;
       const paused = pauseActiveTimer(timer);
       dispatch({ type: 'set-active-timer', payload: paused });
+      fireSharedSessionParticipantAction(timer.sharedSessionId, 'pause');
       return paused;
     };
 
@@ -1795,6 +2204,7 @@ export function StudyStoreProvider({
       if (!timer || timer.status !== 'paused') return null;
       const resumed = resumeActiveTimer(timer);
       dispatch({ type: 'set-active-timer', payload: resumed });
+      fireSharedSessionParticipantAction(timer.sharedSessionId, 'resume');
       return resumed;
     };
 
@@ -1810,9 +2220,20 @@ export function StudyStoreProvider({
       ) {
         return null;
       }
-      const session = buildTimerSession(active, now);
+      const session: TimerStudySession = {
+        ...buildTimerSession(active, now),
+        sharedSessionId: active.sharedSessionId,
+      };
       dispatch({ type: 'finish-timer', payload: session });
+      fireSharedSessionParticipantAction(active.sharedSessionId, 'finish');
       return session;
+    };
+
+    const discardTimer = () => {
+      const active = state.data.activeTimer;
+      if (!active) return;
+      dispatch({ type: 'set-active-timer', payload: null });
+      fireSharedSessionParticipantAction(active.sharedSessionId, 'finish');
     };
 
     const addManualEntry = (entry: NewManualEntry): ManualStudySession | null => {
@@ -1832,6 +2253,7 @@ export function StudyStoreProvider({
         id: makeId('manual'),
         userId: currentActorId,
         goalId: binding.goalId,
+        sharedSessionId: cleanOptionalText(entry.sharedSessionId),
         subjectId: binding.subjectId,
         goalTitleSnapshot: binding.goalTitleSnapshot,
         subjectNameSnapshot: binding.subjectNameSnapshot,
@@ -2084,6 +2506,10 @@ export function StudyStoreProvider({
       socialLoading,
       socialError,
       friendConnections,
+      friendOverviews,
+      studyGroups,
+      sharedStudySessions,
+      sharedGoalProgressById,
       sharingPreferences,
       refreshSocial,
       updateAccountProfile: async (profile) => {
@@ -2103,13 +2529,13 @@ export function StudyStoreProvider({
           }),
         );
         const latestState = stateRef.current;
-        const sharing = sharingPreferences ?? {
+        const sharing: StudySharingPreferences = {
           shareTimerStats: latestState.privacy.shareAutomaticMinutes,
           shareManualStats: latestState.privacy.shareManualMinutes,
           shareGoalProgress: latestState.privacy.shareGoalProgress,
           shareStreak: latestState.privacy.shareStreak,
-          revision: 1,
-          updatedAt: new Date().toISOString(),
+          revision: sharingPreferences?.revision ?? 1,
+          updatedAt: sharingPreferences?.updatedAt ?? new Date().toISOString(),
         };
         applyAccountProfile(updated, sharing);
         return updated;
@@ -2149,6 +2575,7 @@ export function StudyStoreProvider({
         await runSocialOperation(() => repository.social.removeFriendship(friendshipId));
         await refreshSocial();
       },
+      getFriendOverview: getFriendOverviewCommand,
       getFriendProfileStats: getFriendProfileStatsCommand,
       createSharedGoal: async (input) => {
         try {
@@ -2162,26 +2589,87 @@ export function StudyStoreProvider({
         }
       },
       respondSharedGoalInvitation: async (goalId, accept) => {
-        try {
-          const challenge = await runSocialOperation(
-            () => repository.social.respondSharedGoalInvitation(goalId, accept),
-          );
-          dispatch({ type: 'upsert-challenge', payload: challenge });
-          return challenge;
-        } catch {
-          return null;
+        const challenge = await runSocialOperation(
+          () => repository.social.respondSharedGoalInvitation(goalId, accept),
+        );
+        if (challenge) dispatch({ type: 'upsert-challenge', payload: challenge });
+        else {
+          dispatch({ type: 'remove-challenge', payload: goalId });
+          removeSharedGoalProgress(goalId);
         }
+        return challenge;
       },
       withdrawFromSharedGoal: async (goalId) => {
         await runSocialOperation(() => repository.social.withdrawFromSharedGoal(goalId));
-        dispatch({
-          type: 'withdraw-from-challenge',
-          payload: { goalId, userId: currentActorId },
-        });
+        dispatch({ type: 'remove-challenge', payload: goalId });
+        removeSharedGoalProgress(goalId);
       },
       getSharedGoalDetails: getSharedGoalDetailsCommand,
       getSharedGoalProgress: getSharedGoalProgressCommand,
       subscribeSharedGoalProgress: subscribeSharedGoalProgressCommand,
+      createStudyGroup: async (input) => {
+        try {
+          const group = await runSocialOperation(
+            () => repository.social.createStudyGroup(input),
+          );
+          upsertStudyGroup(group);
+          return group;
+        } catch {
+          return null;
+        }
+      },
+      getStudyGroupDetails: getStudyGroupDetailsCommand,
+      respondStudyGroupInvitation: async (groupId, accept) => {
+        const group = await runSocialOperation(
+          () => repository.social.respondStudyGroupInvitation(groupId, accept),
+        );
+        if (group) upsertStudyGroup(group);
+        else setStudyGroups((current) => current.filter((entry) => entry.id !== groupId));
+        return group;
+      },
+      leaveStudyGroup: async (groupId) => {
+        await runSocialOperation(() => repository.social.leaveStudyGroup(groupId));
+        setStudyGroups((current) => current.filter((entry) => entry.id !== groupId));
+      },
+      createSharedStudySession: async (input) => {
+        try {
+          const session = await runSocialOperation(
+            () => repository.social.createSharedStudySession(input),
+          );
+          upsertSharedStudySession(session);
+          return session;
+        } catch {
+          return null;
+        }
+      },
+      getSharedStudySessionDetails: getSharedStudySessionDetailsCommand,
+      respondSharedStudySessionInvitation: async (sessionId, accept) => {
+        const session = await runSocialOperation(
+          () => repository.social.respondSharedStudySessionInvitation(sessionId, accept),
+        );
+        if (session) upsertSharedStudySession(session);
+        else setSharedStudySessions((current) => current.filter((entry) => entry.id !== sessionId));
+        return session;
+      },
+      updateSharedStudySessionParticipant: async (sessionId, action) => {
+        const session = await runSocialOperation(
+          () => repository.social.updateSharedStudySessionParticipant(sessionId, action),
+        );
+        if (session) upsertSharedStudySession(session);
+        else setSharedStudySessions((current) => current.filter((entry) => entry.id !== sessionId));
+        return session;
+      },
+      cancelSharedStudySession: async (sessionId) => {
+        try {
+          const session = await runSocialOperation(
+            () => repository.social.cancelSharedStudySession(sessionId),
+          );
+          if (session) upsertSharedStudySession(session);
+          return session;
+        } catch {
+          return null;
+        }
+      },
       addSubject,
       updateLocalProfile,
       clearLocalProfile: () => dispatch({ type: 'set-current-user', payload: null }),
@@ -2189,7 +2677,7 @@ export function StudyStoreProvider({
       pauseTimer,
       resumeTimer,
       finishTimer,
-      discardTimer: () => dispatch({ type: 'set-active-timer', payload: null }),
+      discardTimer,
       addManualEntry,
       addGrade,
       deleteGrade: (gradeId) => {
@@ -2256,7 +2744,7 @@ export function StudyStoreProvider({
           setSharingPreferences(sharing);
           const profile = stateRef.current.data.currentUser;
           if (profile) {
-            applyAccountProfile(profile as AccountStudyUser, sharing);
+            applyAccountProfile(profile, sharing);
           }
         }).catch(() => undefined);
       },
@@ -2266,7 +2754,15 @@ export function StudyStoreProvider({
     accountUserId,
     applyAccountProfile,
     friendConnections,
+    friendOverviews,
+    studyGroups,
+    sharedStudySessions,
+    sharedGoalProgressById,
+    fireSharedSessionParticipantAction,
+    getFriendOverviewCommand,
     getFriendProfileStatsCommand,
+    getSharedStudySessionDetailsCommand,
+    getStudyGroupDetailsCommand,
     getSharedGoalDetailsCommand,
     getSharedGoalProgressCommand,
     hydrated,
@@ -2279,6 +2775,7 @@ export function StudyStoreProvider({
     migrationStatus,
     online,
     refreshSocial,
+    removeSharedGoalProgress,
     repository,
     retrySync,
     runSocialOperation,
@@ -2290,6 +2787,8 @@ export function StudyStoreProvider({
     storageScope,
     syncStatus,
     subscribeSharedGoalProgressCommand,
+    upsertSharedStudySession,
+    upsertStudyGroup,
   ]);
 
   return <StudyStoreContext value={value}>{children}</StudyStoreContext>;

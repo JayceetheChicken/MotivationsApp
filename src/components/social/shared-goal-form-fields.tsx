@@ -16,9 +16,9 @@ import { useAppTheme } from '@/theme';
 
 import type {
   SharedGoalDurationUnit,
+  SharedGoalCadence,
   SharedGoalFormValue,
   SharedGoalMode,
-  SharedGoalPeriod,
   SharedGoalSourcePolicy,
   SharedGoalTargetType,
   SocialUserSummary,
@@ -34,10 +34,9 @@ const MODE_OPTIONS: readonly { value: SharedGoalMode; label: string }[] = [
   { value: 'shared', label: 'Gemeinsam' },
 ];
 
-const PERIOD_OPTIONS: readonly { value: SharedGoalPeriod; label: string }[] = [
-  { value: 'day', label: 'Täglich' },
-  { value: 'week', label: 'Wöchentlich' },
-  { value: 'month', label: 'Monatlich' },
+const CADENCE_OPTIONS: readonly { value: SharedGoalCadence; label: string }[] = [
+  { value: 'daily', label: 'Täglich' },
+  { value: 'weekly', label: 'Wöchentlich' },
 ];
 
 const SOURCE_OPTIONS: readonly { value: SharedGoalSourcePolicy; label: string }[] = [
@@ -51,7 +50,10 @@ const DURATION_UNIT_OPTIONS: readonly { value: SharedGoalDurationUnit; label: st
 ];
 
 export type SharedGoalFormErrors = Partial<
-  Readonly<Record<'title' | 'targetValue' | 'minimumSessionMinutes' | 'participantIds', string>>
+  Readonly<Record<
+    'title' | 'targetValue' | 'minimumSessionMinutes' | 'participantIds' | 'startsOn' | 'endsOn',
+    string
+  >>
 >;
 
 export type SharedGoalFormFieldsProps = {
@@ -181,13 +183,13 @@ export function SharedGoalFormFields({
         <View style={[styles.fieldPair, tablet ? styles.fieldPairTablet : undefined]}>
           <View style={styles.pairedField}>
             <Text selectable style={[theme.typography.label, { color: theme.colors.text }]}>
-              Zeitraum
+              Lernrhythmus
             </Text>
             <SegmentedControl
-              accessibilityLabel="Zeitraum des gemeinsamen Lernziels"
-              onChange={(period) => update('period', period)}
-              options={PERIOD_OPTIONS}
-              value={value.period}
+              accessibilityLabel="Rhythmus des gemeinsamen Lernziels"
+              onChange={(cadence) => update('cadence', cadence)}
+              options={CADENCE_OPTIONS}
+              value={value.cadence}
             />
           </View>
           <View style={styles.pairedField}>
@@ -200,6 +202,41 @@ export function SharedGoalFormFields({
               options={SOURCE_OPTIONS}
               value={value.sourcePolicy}
             />
+          </View>
+        </View>
+
+        <View style={[styles.fieldPair, tablet ? styles.fieldPairTablet : undefined]}>
+          <View style={styles.pairedField}>
+            <Text selectable style={[theme.typography.label, { color: theme.colors.text }]}>Startdatum</Text>
+            <TextInput
+              accessibilityLabel="Startdatum des gemeinsamen Lernziels"
+              autoCorrect={false}
+              editable={!disabled}
+              keyboardType="numbers-and-punctuation"
+              maxLength={10}
+              onChangeText={(text) => update('startsOn', text)}
+              placeholder="JJJJ-MM-TT"
+              placeholderTextColor={theme.colors.textSubtle}
+              style={[inputStyle, styles.numeric]}
+              value={value.startsOn}
+            />
+            <FieldError message={errors?.startsOn} />
+          </View>
+          <View style={styles.pairedField}>
+            <Text selectable style={[theme.typography.label, { color: theme.colors.text }]}>Enddatum</Text>
+            <TextInput
+              accessibilityLabel="Enddatum des gemeinsamen Lernziels"
+              autoCorrect={false}
+              editable={!disabled}
+              keyboardType="numbers-and-punctuation"
+              maxLength={10}
+              onChangeText={(text) => update('endsOn', text)}
+              placeholder="JJJJ-MM-TT"
+              placeholderTextColor={theme.colors.textSubtle}
+              style={[inputStyle, styles.numeric]}
+              value={value.endsOn}
+            />
+            <FieldError message={errors?.endsOn} />
           </View>
         </View>
 

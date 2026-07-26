@@ -262,10 +262,12 @@ describe('StudyStoreProvider goal lifecycle', () => {
     await act(() => {
       expect(result.current.startTimer({
         goalId,
+        sharedSessionId: 'shared-session-timer',
         plannedDurationMinutes: 45,
         note: '  Gedichtanalyse  ',
       })).toMatchObject({
         goalId,
+        sharedSessionId: 'shared-session-timer',
         subjectId: germanId,
         goalTitleSnapshot: 'Deutsch-Abitur',
         subjectNameSnapshot: 'Deutsch',
@@ -278,6 +280,7 @@ describe('StudyStoreProvider goal lifecycle', () => {
     await act(() => {
       expect(result.current.finishTimer({ allowShortSession: true })).toMatchObject({
         goalId,
+        sharedSessionId: 'shared-session-timer',
         subjectId: germanId,
         status: 'completed',
       });
@@ -329,9 +332,15 @@ describe('StudyStoreProvider goal lifecycle', () => {
     await act(() => {
       expect(result.current.addManualEntry({
         goalId,
+        sharedSessionId: 'shared-session-manual',
         durationMinutes: 30,
         studiedOn: '2026-07-10',
-      })).toMatchObject({ goalId, subjectId: germanId, source: 'manual' });
+      })).toMatchObject({
+        goalId,
+        sharedSessionId: 'shared-session-manual',
+        subjectId: germanId,
+        source: 'manual',
+      });
     });
     await waitFor(() => expect(result.current.data.sessions).toHaveLength(1));
 
@@ -729,6 +738,8 @@ describe('persisted goal-bound session migration', () => {
           creatorId: 'local-user',
           title: 'Avatar-Team',
           description: '',
+          cadence: 'daily',
+          groupId: 'group-avatar',
           target: { type: 'duration', mode: 'shared', targetMinutes: 60 },
           sourcePolicy: 'all',
           startsAt: '2026-07-01T00:00:00.000Z',
@@ -767,6 +778,10 @@ describe('persisted goal-bound session migration', () => {
       }),
       { userId: 'other-friend', status: 'invited' },
     ]);
+    expect(migrated?.data.challenges[0]).toMatchObject({
+      cadence: 'daily',
+      groupId: 'group-avatar',
+    });
   });
 
   it('restores an unfinished timer with its exact goal binding', () => {
@@ -781,6 +796,7 @@ describe('persisted goal-bound session migration', () => {
           id: 'timer-running',
           userId: 'local-user',
           goalId: 'goal-deutsch',
+          sharedSessionId: 'shared-session-running',
           subjectId: 'subject-deutsch',
           goalTitleSnapshot: 'Deutsch-Abitur',
           subjectNameSnapshot: 'Deutsch',
@@ -799,6 +815,7 @@ describe('persisted goal-bound session migration', () => {
 
     expect(migrated?.data.activeTimer).toMatchObject({
       goalId: 'goal-deutsch',
+      sharedSessionId: 'shared-session-running',
       subjectId: 'subject-deutsch',
       goalTitleSnapshot: 'Deutsch-Abitur',
       subjectNameSnapshot: 'Deutsch',

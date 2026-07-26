@@ -25,15 +25,26 @@ export default function SessionScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { goalId: requestedGoalId } = useLocalSearchParams<{ goalId?: string }>();
+  const {
+    goalId: requestedGoalId,
+    sharedSessionId: requestedSharedSessionId,
+    plannedDuration: requestedPlannedDuration,
+  } = useLocalSearchParams<{
+    goalId?: string;
+    sharedSessionId?: string;
+    plannedDuration?: string;
+  }>();
   const {
     data,
+    sharedStudySessions,
     addSubject,
     startTimer,
     pauseTimer,
     resumeTimer,
     finishTimer,
     discardTimer,
+    getSharedStudySessionDetails,
+    updateSharedStudySessionParticipant,
   } = useStudyStore();
   const now = useCurrentDate();
   const availableSubjects = data.subjects.filter((subject) => !subject.archived);
@@ -78,8 +89,14 @@ export default function SessionScreen() {
   const [selectedSubjectId, setSelectedSubjectId] = useState(
     () => data.activeTimer?.subjectId ?? requestedGoalSubjectId ?? availableSubjects[0]?.id ?? '',
   );
-  const [plannedDuration, setPlannedDuration] = useState('');
+  const [plannedDuration, setPlannedDuration] = useState(() => {
+    const parsed = Number(requestedPlannedDuration);
+    return Number.isFinite(parsed) && parsed >= 1 && parsed <= 720
+      ? String(Math.round(parsed))
+      : '';
+  });
   const [startError, setStartError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const [reviewingRecovery, setReviewingRecovery] = useState(
     () => Boolean(data.activeTimer && getTimerRecoveryDecision(data.activeTimer) === 'review_unusually_long_session'),
@@ -123,7 +140,7 @@ export default function SessionScreen() {
     router.replace('/manual-entry');
   };
 
-  const beginSession = () => {
+  const beginSession = async () => {
     if (!effectiveSelectedSubjectId) {
       setStartError('Bitte wähle zuerst ein Fach aus.');
       return;
@@ -132,9 +149,49 @@ export default function SessionScreen() {
       setStartError('Die geplante Dauer muss zwischen 1 und 720 Minuten liegen.');
       return;
     }
+    const sharedSessionId = requestedSharedSessionId?.trim();
+    setStartError(null);
+    if (sharedSessionId) {
+      setStarting(true);
+      try {
+        const sharedSession = sharedStudySessions.find((session) => session.id === sharedSessionId)
+          ?? await getSharedStudySessionDetails(sharedSessionId);
+        const participant = sharedSession?.participants.find(
+          (entry) => entry.userId === data.currentUser?.id,
+        );
+        if (
+          !sharedSession ||
+          !participant ||
+          !['planned', 'active'].includes(sharedSession.status) ||
+          !['joined', 'active', 'paused'].includes(participant.status)
+        ) {
+          setStartError('Diese gemeinsame Session ist nicht mehr aktiv oder du nimmst nicht daran teil.');
+          return;
+        }
+        const confirmed = await updateSharedStudySessionParticipant(
+          sharedSessionId,
+          participant.status === 'paused' ? 'resume' : 'start',
+        );
+        const confirmedParticipant = confirmed?.participants.find(
+          (entry) => entry.userId === data.currentUser?.id,
+        );
+        if (confirmed?.status !== 'active' || confirmedParticipant?.status !== 'active') {
+          setStartError('Die gemeinsame Session konnte nicht gestartet werden. Öffne sie erneut über die Freundeseite.');
+          return;
+        }
+      } catch (error) {
+        setStartError(error instanceof Error
+          ? error.message
+          : 'Die gemeinsame Session ist gerade nicht erreichbar. Versuche es erneut.');
+        return;
+      } finally {
+        setStarting(false);
+      }
+    }
     const started = startTimer({
       subjectId: effectiveSelectedSubjectId,
       goalId: selectedGoal?.id ?? null,
+      ...(sharedSessionId ? { sharedSessionId } : {}),
       plannedDurationMinutes: plannedDuration.trim() ? parsedPlannedDuration : undefined,
     });
     if (!started) {
@@ -304,10 +361,16 @@ export default function SessionScreen() {
         <View style={[styles.setupContent, { maxWidth: isTablet ? 760 : 560 }]}>
           <View style={styles.setupCopy}>
             <Text accessibilityRole="header" style={[styles.setupTitle, isTablet ? styles.setupTitleTablet : undefined, { color: foreground }]}>
-              {requestedGoalIdForSession ? 'Bereit für dein Lernziel?' : 'Woran möchtest du jetzt arbeiten?'}
+              {requestedSharedSessionId
+                ? 'Bereit für eure gemeinsame Session?'
+                : requestedGoalIdForSession
+                  ? 'Bereit für dein Lernziel?'
+                  : 'Woran möchtest du jetzt arbeiten?'}
             </Text>
             <Text style={[styles.setupDescription, { color: foregroundMuted }]}>
-              {requestedGoal
+              {requestedSharedSessionId
+                ? 'Dein Fach und deine Aufgabe bleiben privat. Geteilt werden nur dein Lernstatus und die absolvierte Dauer.'
+                : requestedGoal
                 ? 'Ziel und Fach werden fest mit dieser Session verbunden. Pausen zählen nicht zur Lernzeit.'
                 : requestedSharedGoal
                   ? 'Das gemeinsame Ziel wird fest verbunden; dein Fach bleibt frei wählbar. Pausen zählen nicht zur Lernzeit.'
@@ -425,10 +488,15 @@ export default function SessionScreen() {
           <View style={styles.setupFooter}>
             {startError ? <Text accessibilityRole="alert" style={[styles.startError, { color: theme.colors.danger }]}>{startError}</Text> : null}
             <AppButton
-              disabled={!effectiveSelectedSubjectId || !plannedDurationIsValid}
+              disabled={starting || !effectiveSelectedSubjectId || !plannedDurationIsValid}
               fullWidth
-              label={requestedGoalIdForSession ? 'Ziel-Session starten' : 'Session starten'}
-              onPress={beginSession}
+              label={requestedSharedSessionId
+                ? 'Gemeinsame Session starten'
+                : requestedGoalIdForSession
+                  ? 'Ziel-Session starten'
+                  : 'Session starten'}
+              loading={starting}
+              onPress={() => void beginSession()}
               size="large"
               style={[styles.lightButton, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}
               textStyle={{ color: theme.colors.onPrimary }}

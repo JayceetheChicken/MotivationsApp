@@ -4,13 +4,16 @@ import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import type { Database, Json } from '@/types/database.generated';
 import {
   mapAccountProfile,
+  mapFriendOverview,
   mapFriendProfileStatistics,
   mapFriendSearchResult,
   mapFriendshipConnection,
   mapPullStudyChanges,
   mapSharedGoalProgress,
+  mapSharedStudySession,
   mapSharingPreferences,
   mapStudyChallenge,
+  mapStudyGroup,
 } from '@/data/mappers/database-mappers';
 import {
   asRepositoryError,
@@ -21,6 +24,8 @@ import { LocalStudyRepository } from '@/data/repositories/local-study-repository
 import type {
   CoreMutation,
   CreateSharedGoalInput,
+  CreateSharedStudySessionInput,
+  CreateStudyGroupInput,
   ImportChunk,
   ImportCounts,
   ImportRepository,
@@ -28,6 +33,7 @@ import type {
   LocalImportManifest,
   LocalImportReport,
   SharedGoalProgressListener,
+  SharedStudySessionParticipantAction,
   SocialRepository,
   StudyRepository,
   SyncResult,
@@ -55,6 +61,28 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function rpcRows(value: unknown, ...keys: string[]): readonly unknown[] {
+  if (Array.isArray(value)) return value;
+  const row = asRecord(value);
+  for (const key of keys) {
+    if (Array.isArray(row[key])) return row[key] as readonly unknown[];
+  }
+  return [];
+}
+
+function isLifecycleTombstone(
+  value: unknown,
+  idKeys: readonly string[],
+): boolean {
+  const row = asRecord(value);
+  const status = readString(row, 'status');
+  return Boolean(
+    status &&
+    ['declined', 'left'].includes(status) &&
+    idKeys.some((key) => typeof row[key] === 'string'),
+  );
 }
 
 /**
@@ -480,9 +508,20 @@ export class SupabaseStudyRepository implements StudyRepository {
       getFriendProfileStats: async (friendId, signal) => mapFriendProfileStatistics(await this.rpc('get_friend_profile_stats', {
         p_friend_id: friendId,
       }, signal)),
+      getFriendOverview: async (friendId, signal) => mapFriendOverview(await this.rpc('get_friend_overview', {
+        p_friend_id: friendId,
+      }, signal)),
+      listFriendOverviews: async (signal) => rpcRows(
+        await this.rpc('list_friend_overviews', {}, signal),
+        'friend_overviews',
+        'overviews',
+        'friends',
+      ).map(mapFriendOverview),
       createSharedGoal: async (input: CreateSharedGoalInput, signal) => mapStudyChallenge(await this.rpc('create_shared_goal', {
         p_goal: {
           ...input.goal,
+          cadence: input.goal.cadence ?? (input.goal.period === 'day' ? 'daily' : 'weekly'),
+          group_id: input.goal.groupId ?? null,
           period: input.goal.period,
           source_policy: input.goal.sourcePolicy,
           starts_at: input.goal.startsAt,
@@ -494,10 +533,15 @@ export class SupabaseStudyRepository implements StudyRepository {
         p_invitee_ids: [...input.inviteeIds],
         p_operation_id: input.operationId,
       }, signal)),
-      respondSharedGoalInvitation: async (goalId, accept, signal) => mapStudyChallenge(await this.rpc('respond_shared_goal_invitation', {
-        p_goal_id: goalId,
-        p_accept: accept,
-      }, signal)),
+      respondSharedGoalInvitation: async (goalId, accept, signal) => {
+        const result = await this.rpc('respond_shared_goal_invitation', {
+          p_goal_id: goalId,
+          p_accept: accept,
+        }, signal);
+        return isLifecycleTombstone(result, ['goal_id', 'goalId'])
+          ? null
+          : mapStudyChallenge(result);
+      },
       withdrawFromSharedGoal: async (goalId, signal) => {
         await this.rpc('withdraw_from_shared_goal', { p_goal_id: goalId }, signal);
       },
@@ -507,6 +551,94 @@ export class SupabaseStudyRepository implements StudyRepository {
       getSharedGoalProgress: async (goalId, signal) => mapSharedGoalProgress(await this.rpc('get_shared_goal_progress', {
         p_goal_id: goalId,
       }, signal)),
+      listSharedGoalProgress: async (signal) => rpcRows(
+        await this.rpc('list_shared_goal_progress', {}, signal),
+        'shared_goal_progress',
+        'progress',
+        'goals',
+      ).map(mapSharedGoalProgress),
+      listStudyGroups: async (signal) => rpcRows(
+        await this.rpc('list_study_groups', {}, signal),
+        'study_groups',
+        'groups',
+      ).map(mapStudyGroup),
+      getStudyGroupDetails: async (groupId, signal) => mapStudyGroup(await this.rpc('get_study_group_details', {
+        p_group_id: groupId,
+      }, signal)),
+      createStudyGroup: async (input: CreateStudyGroupInput, signal) => mapStudyGroup(await this.rpc('create_study_group', {
+        p_group: {
+          id: input.group.id,
+          name: input.group.name,
+          icon: input.group.icon,
+          image_url: input.group.imageUrl ?? null,
+        } as unknown as Json,
+        p_member_ids: [...input.memberIds],
+        p_operation_id: input.operationId,
+      }, signal)),
+      respondStudyGroupInvitation: async (groupId, accept, signal) => {
+        const result = await this.rpc('respond_study_group_invitation', {
+          p_group_id: groupId,
+          p_accept: accept,
+        }, signal);
+        return isLifecycleTombstone(result, ['group_id', 'groupId']) ? null : mapStudyGroup(result);
+      },
+      leaveStudyGroup: async (groupId, signal) => {
+        await this.rpc('leave_study_group', { p_group_id: groupId }, signal);
+      },
+      listSharedStudySessions: async (signal) => rpcRows(
+        await this.rpc('list_shared_study_sessions', {}, signal),
+        'shared_study_sessions',
+        'sessions',
+      ).map(mapSharedStudySession),
+      getSharedStudySessionDetails: async (sessionId, signal) => mapSharedStudySession(await this.rpc('get_shared_study_session_details', {
+        p_session_id: sessionId,
+      }, signal)),
+      createSharedStudySession: async (input: CreateSharedStudySessionInput, signal) => mapSharedStudySession(await this.rpc('create_shared_study_session', {
+        p_session: {
+          id: input.session.id,
+          title: input.session.title,
+          group_id: input.session.groupId ?? null,
+          starts_at: input.session.startsAt,
+          planned_duration_minutes: input.session.plannedDurationMinutes,
+          start_now: input.session.startNow,
+        } as unknown as Json,
+        p_invitee_ids: [...input.inviteeIds],
+        p_operation_id: input.operationId,
+      }, signal)),
+      respondSharedStudySessionInvitation: async (sessionId, accept, signal) => {
+        const result = await this.rpc('respond_shared_study_session_invitation', {
+          p_session_id: sessionId,
+          p_accept: accept,
+        }, signal);
+        return isLifecycleTombstone(result, ['session_id', 'sessionId'])
+          ? null
+          : mapSharedStudySession(result);
+      },
+      updateSharedStudySessionParticipant: async (
+        sessionId,
+        action: SharedStudySessionParticipantAction,
+        signal,
+      ) => {
+        const result = await this.rpc('update_shared_study_session_participant', {
+          p_session_id: sessionId,
+          p_action: action,
+        }, signal);
+        return isLifecycleTombstone(result, ['session_id', 'sessionId'])
+          ? null
+          : mapSharedStudySession(result);
+      },
+      cancelSharedStudySession: async (sessionId, signal) => {
+        const result = await this.rpc('cancel_shared_study_session', {
+          p_session_id: sessionId,
+        }, signal);
+        return result == null ? null : mapSharedStudySession(result);
+      },
+      updateLearningPresence: async (state, activeSince, signal) => {
+        await this.rpc('update_learning_presence', {
+          p_state: state,
+          p_active_since: activeSince,
+        }, signal);
+      },
     };
   }
 

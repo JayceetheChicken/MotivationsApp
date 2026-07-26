@@ -1,6 +1,6 @@
 import { randomUUID } from 'expo-crypto';
-import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -8,7 +8,6 @@ import {
   SharedGoalFormFields,
   type SharedGoalFormErrors,
   type SharedGoalFormValue,
-  type SharedGoalPeriod,
   type SocialUserSummary,
 } from '@/components/social';
 import { AppButton } from '@/components/ui/app-button';
@@ -20,85 +19,122 @@ import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
 
-const INITIAL_VALUE: SharedGoalFormValue = {
-  title: '',
-  description: '',
-  mode: 'per_participant',
-  targetType: 'duration',
-  durationUnit: 'hours',
-  period: 'week',
-  sourcePolicy: 'all',
-  targetValue: '',
-  minimumSessionMinutes: '10',
-  participantIds: [],
-};
+function localDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function initialFormValue(reference = new Date()): SharedGoalFormValue {
+  const end = new Date(reference);
+  end.setDate(end.getDate() + 28);
+  return {
+    title: '',
+    description: '',
+    mode: 'per_participant',
+    targetType: 'duration',
+    durationUnit: 'hours',
+    cadence: 'weekly',
+    startsOn: localDateString(reference),
+    endsOn: localDateString(end),
+    sourcePolicy: 'all',
+    targetValue: '',
+    minimumSessionMinutes: '10',
+    participantIds: [],
+  };
+}
 
 function parsePositiveNumber(value: string): number | null {
   const parsed = Number(value.trim().replace(',', '.'));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function periodBounds(period: SharedGoalPeriod, reference = new Date()): { startsAt: Date; endsAt: Date } {
-  const startsAt = new Date(reference);
-  startsAt.setHours(0, 0, 0, 0);
-
-  if (period === 'week') {
-    const daysSinceMonday = (startsAt.getDay() + 6) % 7;
-    startsAt.setDate(startsAt.getDate() - daysSinceMonday);
-  } else if (period === 'month') {
-    startsAt.setDate(1);
-  }
-
-  const endsAt = new Date(startsAt);
-  if (period === 'day') endsAt.setDate(endsAt.getDate() + 1);
-  if (period === 'week') endsAt.setDate(endsAt.getDate() + 7);
-  if (period === 'month') endsAt.setMonth(endsAt.getMonth() + 1);
-  return { startsAt, endsAt };
+function parseDateBoundary(value: string, endOfDay: boolean): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  );
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+    ? date
+    : null;
 }
 
-function periodPreview(period: SharedGoalPeriod, startsAt: Date, endsAt: Date): string {
+function periodPreview(startsAt: Date, endsAt: Date): string {
   const formatter = new Intl.DateTimeFormat('de-DE', {
-    weekday: period === 'day' ? 'long' : undefined,
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
   });
-  const inclusiveEnd = new Date(endsAt.getTime() - 1);
-  if (period === 'day') return formatter.format(startsAt);
-  return `${formatter.format(startsAt)} bis ${formatter.format(inclusiveEnd)}`;
+  return `${formatter.format(startsAt)} bis ${formatter.format(endsAt)}`;
 }
 
 export default function CreateSharedGoalScreen() {
   const theme = useAppTheme();
   const auth = useAuthStore();
+  const params = useLocalSearchParams();
+  const rawGroupId = params.groupId as string | readonly string[] | undefined;
+  const requestedGroupId = typeof rawGroupId === 'string' ? rawGroupId : rawGroupId?.[0] ?? null;
   const {
+    data,
     socialLoading,
     socialError,
     friendConnections,
+    studyGroups,
     refreshSocial,
     createSharedGoal,
   } = useStudyStore();
-  const [value, setValue] = useState<SharedGoalFormValue>(INITIAL_VALUE);
+  const [value, setValue] = useState<SharedGoalFormValue>(() => initialFormValue());
   const [errors, setErrors] = useState<SharedGoalFormErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const initializedGroupId = useRef<string | null>(null);
+  const group = studyGroups.find((entry) => entry.id === requestedGroupId) ?? null;
 
   useEffect(() => {
     if (auth.activeMode === 'supabase') void refreshSocial();
   }, [auth.activeMode, refreshSocial]);
 
   const friends = useMemo<readonly SocialUserSummary[]>(
-    () => friendConnections
-      .filter((connection) => connection.status === 'accepted')
-      .map((connection) => ({
-        id: connection.otherUser.id,
-        username: connection.otherUser.username,
-        displayName: connection.otherUser.displayName,
-        avatarUrl: connection.otherUser.avatarUrl,
+    () => (group
+      ? group.members.flatMap((member) => (
+          member.status === 'accepted' && member.userId !== data.currentUser?.id
+            ? [member.user]
+            : []
+        ))
+      : friendConnections
+          .filter((connection) => connection.status === 'accepted')
+          .map((connection) => connection.otherUser))
+      .map((user) => ({
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
       })),
-    [friendConnections],
+    [data.currentUser?.id, friendConnections, group],
   );
-  const bounds = useMemo(() => periodBounds(value.period), [value.period]);
+
+  useEffect(() => {
+    if (!group || initializedGroupId.current === group.id) return;
+    initializedGroupId.current = group.id;
+    const task = setTimeout(() => {
+      setValue((current) => ({
+        ...current,
+        participantIds: friends.map((friend) => friend.id),
+      }));
+    }, 0);
+    return () => clearTimeout(task);
+  }, [friends, group]);
 
   const submit = useCallback(async () => {
     const nextErrors: {
@@ -106,9 +142,13 @@ export default function CreateSharedGoalScreen() {
       targetValue?: string;
       minimumSessionMinutes?: string;
       participantIds?: string;
+      startsOn?: string;
+      endsOn?: string;
     } = {};
     const parsedTarget = parsePositiveNumber(value.targetValue);
     const parsedMinimum = parsePositiveNumber(value.minimumSessionMinutes);
+    const startsAt = parseDateBoundary(value.startsOn.trim(), false);
+    const endsAt = parseDateBoundary(value.endsOn.trim(), true);
 
     if (value.title.trim().length < 3) {
       nextErrors.title = 'Gib einen Titel mit mindestens drei Zeichen ein.';
@@ -124,10 +164,15 @@ export default function CreateSharedGoalScreen() {
     if (value.participantIds.length === 0) {
       nextErrors.participantIds = 'Wähle mindestens einen bestätigten Freund aus.';
     }
+    if (!startsAt) nextErrors.startsOn = 'Gib ein gültiges Startdatum im Format JJJJ-MM-TT ein.';
+    if (!endsAt) nextErrors.endsOn = 'Gib ein gültiges Enddatum im Format JJJJ-MM-TT ein.';
+    if (startsAt && endsAt && endsAt <= startsAt) {
+      nextErrors.endsOn = 'Das Enddatum muss nach dem Startdatum liegen.';
+    }
 
     setErrors(nextErrors);
     setSubmitError(null);
-    if (Object.keys(nextErrors).length > 0 || parsedTarget === null) return;
+    if (Object.keys(nextErrors).length > 0 || parsedTarget === null || !startsAt || !endsAt) return;
 
     const targetMinutes = value.targetType === 'duration'
       ? Math.round(parsedTarget * (value.durationUnit === 'hours' ? 60 : 1))
@@ -149,9 +194,11 @@ export default function CreateSharedGoalScreen() {
         targetSessions,
         minimumSessionMinutes,
         sourcePolicy: value.sourcePolicy,
-        period: value.period,
-        startsAt: bounds.startsAt.toISOString(),
-        endsAt: bounds.endsAt.toISOString(),
+        period: 'custom',
+        cadence: value.cadence,
+        groupId: group?.id ?? null,
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
       },
     };
 
@@ -170,7 +217,7 @@ export default function CreateSharedGoalScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [bounds.endsAt, bounds.startsAt, createSharedGoal, value]);
+  }, [createSharedGoal, group?.id, value]);
 
   if (auth.activeMode !== 'supabase') {
     return (
@@ -191,8 +238,8 @@ export default function CreateSharedGoalScreen() {
   return (
     <Screen maxWidth={920}>
       <SectionHeader
-        description="Lege fest, ob jede Person dasselbe Ziel erreicht oder alle Beiträge gemeinsam zählen."
-        eyebrow="Mit Freunden lernen"
+        description="Lege Laufzeit, Tages- oder Wochenrhythmus und den Zielwert pro Person oder für das Team fest."
+        eyebrow={group ? group.name : 'Mit Freunden lernen'}
         title="Gemeinsames Lernziel erstellen"
       />
 
@@ -220,11 +267,18 @@ export default function CreateSharedGoalScreen() {
         <View style={styles.previewCopy}>
           <Text selectable style={[theme.typography.label, { color: theme.colors.textMuted }]}>Gewählter Zeitraum</Text>
           <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
-            {periodPreview(value.period, bounds.startsAt, bounds.endsAt)}
+            {parseDateBoundary(value.startsOn, false) && parseDateBoundary(value.endsOn, true)
+              ? periodPreview(
+                  parseDateBoundary(value.startsOn, false) as Date,
+                  parseDateBoundary(value.endsOn, true) as Date,
+                )
+              : 'Bitte Start- und Enddatum prüfen'}
           </Text>
         </View>
         <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-          Die endgültigen Grenzen berechnet der Server anhand deiner gespeicherten Zeitzone. Es werden keine optionalen Datumsfelder gespeichert.
+          {value.cadence === 'daily'
+            ? 'Der Zielwert gilt für jeden Kalendertag innerhalb dieses Zeitraums.'
+            : 'Der Zielwert gilt für jede Kalenderwoche innerhalb dieses Zeitraums.'}
         </Text>
       </AppCard>
 

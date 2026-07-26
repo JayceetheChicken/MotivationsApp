@@ -44,6 +44,8 @@ interface StudySessionBase {
    * `null` represents an intentionally goal-free session.
    */
   goalId?: string | null;
+  /** Optional binding to a collaborative session; private study details stay separate. */
+  sharedSessionId?: string | null;
   subjectId: string;
   /** Historical labels keep deleted or renamed goals/subjects understandable. */
   goalTitleSnapshot?: string;
@@ -90,6 +92,8 @@ export interface ActiveTimer {
   userId: string;
   /** Missing only on timers persisted before goal-bound sessions existed. */
   goalId?: string | null;
+  /** Missing on timers created before collaborative sessions were introduced. */
+  sharedSessionId?: string | null;
   subjectId: string;
   goalTitleSnapshot?: string;
   subjectNameSnapshot?: string;
@@ -251,6 +255,24 @@ export interface FriendProfileStatistics {
   }>;
 }
 
+export type FriendLearningStatus =
+  | 'learning_now'
+  | 'learned_today'
+  | 'not_learned_today';
+
+/** Privacy-safe friend projection. It deliberately contains no study-detail fields. */
+export interface FriendOverview {
+  friend: StudyUser;
+  learningStatus: FriendLearningStatus;
+  activeSince: ISODateTime | null;
+  lastStudyAt: ISODateTime | null;
+  weekMinutes: number;
+  streakDays: number;
+  sharedGoalIds: readonly string[];
+  sharedSessionIds: readonly string[];
+  groupIds: readonly string[];
+}
+
 export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
 
 export interface FriendshipConnection {
@@ -326,6 +348,8 @@ export interface SharedGoalProgress {
   participants: readonly ChallengeParticipantProgress[];
   /** Non-null exactly when `mode` is `shared`. */
   team: SharedGoalTeamProgress | null;
+  /** Aggregate for the whole goal; equals `team` for shared-mode goals. */
+  overall: SharedGoalTeamProgress;
   calculatedAt: ISODateTime;
 }
 
@@ -334,6 +358,8 @@ export interface StudyChallenge {
   creatorId: string;
   title: string;
   description: string;
+  cadence: 'daily' | 'weekly';
+  groupId?: string | null;
   target: ChallengeTarget;
   sourcePolicy: GoalSourcePolicy;
   startsAt: ISODateTime;
@@ -344,6 +370,51 @@ export interface StudyChallenge {
   syncVersion?: string;
   updatedAt?: ISODateTime;
   deletedAt?: ISODateTime | null;
+}
+
+export interface StudyGroupMember {
+  userId: string;
+  user: StudyUser;
+  role: 'owner' | 'member';
+  status: 'invited' | 'accepted' | 'declined' | 'left';
+}
+
+export interface StudyGroup {
+  id: string;
+  creatorId: string;
+  name: string;
+  icon: string;
+  imageUrl?: string;
+  members: readonly StudyGroupMember[];
+  sharedGoalIds: readonly string[];
+  sharedSessionIds: readonly string[];
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
+export interface SharedStudySessionParticipant {
+  userId: string;
+  user: StudyUser;
+  status: 'invited' | 'joined' | 'active' | 'paused' | 'finished' | 'declined' | 'left';
+  elapsedMinutes: number;
+  activeSince?: ISODateTime;
+  joinedAt?: ISODateTime;
+  finishedAt?: ISODateTime;
+}
+
+export interface SharedStudySession {
+  id: string;
+  creatorId: string;
+  groupId: string | null;
+  title: string;
+  startsAt: ISODateTime;
+  plannedDurationMinutes: number;
+  status: 'planned' | 'active' | 'completed' | 'cancelled';
+  startedAt: ISODateTime | null;
+  endedAt: ISODateTime | null;
+  participants: readonly SharedStudySessionParticipant[];
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
 }
 
 export interface StudyData {

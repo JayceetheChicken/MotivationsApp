@@ -2,12 +2,17 @@ import { createLocalStudyRepository } from '@/data/repositories/local-study-repo
 import { StudyRepositoryError } from '@/data/repositories/repository-error';
 import type { CoreMutation } from '@/data/repositories/study-repository';
 import {
+  mapFriendOverview,
   mapFriendProfileStatistics,
   mapFriendSearchResult,
   mapFriendshipConnection,
   mapPullStudyChanges,
   mapSharedGoalProgress,
+  mapSharedStudySession,
+  mapStudySessionProjection,
   mapStudyChallenge,
+  mapStudyGroup,
+  toSessionPayload,
 } from '@/data/mappers/database-mappers';
 import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import { createLocalImportManifest, sha256Hex } from '@/services/sync/import-coordinator';
@@ -265,6 +270,7 @@ describe('repository domain infrastructure', () => {
         }],
         challenges: [{
           id: 'fake-goal', creatorId: 'local-user', title: 'Lokal manipuliert', description: '',
+          cadence: 'weekly',
           target: { type: 'duration', mode: 'shared', targetMinutes: 60 },
           sourcePolicy: 'all', startsAt: '2026-07-01T00:00:00.000Z',
           endsAt: '2026-07-31T00:00:00.000Z', status: 'active', participants: [],
@@ -293,6 +299,36 @@ describe('repository domain infrastructure', () => {
       details: { description: '', mode: 'shared' },
       participants: [],
     }).status).toBe('completed');
+  });
+
+  it('includes self participation for shared-goal invitations without losing authorized profiles', () => {
+    const common = {
+      goal: {
+        id: 'shared-invitation', creator_id: 'account-id', title: 'Teamziel',
+        target_type: 'duration', target_value: 3600, source_policy: 'all',
+        starts_at: '2026-07-01T00:00:00.000Z', ends_at: '2030-08-01T00:00:00.000Z',
+        status: 'active', created_at: now,
+      },
+      details: { description: '', mode: 'per_participant' },
+    };
+
+    expect(mapStudyChallenge({
+      ...common,
+      self_participation: { user_id: 'friend', role: 'member', status: 'invited' },
+    }).participants).toEqual([{ userId: 'friend', status: 'invited' }]);
+
+    expect(mapStudyChallenge({
+      ...common,
+      participants: [{
+        user_id: 'friend', status: 'accepted',
+        user: { id: 'friend', username: 'mia', display_name: 'Mia' },
+      }],
+      selfParticipation: { user_id: 'friend', role: 'member', status: 'accepted' },
+    }).participants).toEqual([{
+      userId: 'friend',
+      status: 'accepted',
+      user: { id: 'friend', username: 'mia', displayName: 'Mia' },
+    }]);
   });
 
   it('maps avatar URLs through every server-backed social projection', () => {
@@ -353,6 +389,145 @@ describe('repository domain infrastructure', () => {
     });
   });
 
+  it('maps privacy-safe friend, group and shared-session read models', () => {
+    const mia = {
+      id: 'friend',
+      username: 'mia',
+      display_name: 'Mia Muster',
+      avatar_url: 'https://cdn.example.com/avatars/friend/avatar.jpg',
+    };
+
+    expect(mapFriendOverview({
+      friend: mia,
+      learning_status: 'learning',
+      active_since: '2026-07-18T09:45:00.000Z',
+      last_study_at: '2026-07-18T09:30:00.000Z',
+      week_minutes: 235,
+      streak_days: 4,
+      shared_goal_ids: ['goal-1', 'goal-1'],
+      shared_session_ids: ['shared-session-1'],
+      shared_group_ids: ['group-1'],
+    })).toEqual({
+      friend: {
+        id: 'friend',
+        username: 'mia',
+        displayName: 'Mia Muster',
+        avatarUrl: 'https://cdn.example.com/avatars/friend/avatar.jpg',
+      },
+      learningStatus: 'learning_now',
+      activeSince: '2026-07-18T09:45:00.000Z',
+      lastStudyAt: '2026-07-18T09:30:00.000Z',
+      weekMinutes: 235,
+      streakDays: 4,
+      sharedGoalIds: ['goal-1'],
+      sharedSessionIds: ['shared-session-1'],
+      groupIds: ['group-1'],
+    });
+
+    expect(mapStudyGroup({
+      group: {
+        id: 'group-1', creator_id: 'account-id', name: 'Prüfungsteam', icon: 'people',
+        image_url: null, created_at: now, updated_at: now,
+      },
+      members: [
+        {
+          user_id: 'account-id', role: 'creator', status: 'accepted',
+          user: { id: 'account-id', username: 'lea', display_name: 'Lea' },
+        },
+        { user_id: 'friend', role: 'member', status: 'accepted', user: mia },
+      ],
+      shared_goal_ids: ['goal-1'],
+      shared_session_ids: ['shared-session-1'],
+    })).toMatchObject({
+      id: 'group-1',
+      creatorId: 'account-id',
+      name: 'Prüfungsteam',
+      members: [
+        { userId: 'account-id', role: 'owner', status: 'accepted' },
+        { userId: 'friend', role: 'member', status: 'accepted', user: { avatarUrl: mia.avatar_url } },
+      ],
+      sharedGoalIds: ['goal-1'],
+      sharedSessionIds: ['shared-session-1'],
+    });
+
+    expect(mapSharedStudySession({
+      session: {
+        id: 'shared-session-1', creator_id: 'account-id', group_id: 'group-1',
+        title: 'Mathe-Fokus', starts_at: now, planned_duration_seconds: 2700,
+        status: 'completed', actual_started_at: now,
+        completed_at: '2026-07-18T10:45:00.000Z', cancelled_at: null,
+        created_at: now, updated_at: '2026-07-18T10:45:00.000Z',
+      },
+      participants: [{
+        user_id: 'friend', status: 'finished', elapsed_seconds: 330,
+        joined_at: now, finished_at: '2026-07-18T10:40:00.000Z', user: mia,
+      }],
+    })).toMatchObject({
+      id: 'shared-session-1',
+      creatorId: 'account-id',
+      groupId: 'group-1',
+      plannedDurationMinutes: 45,
+      status: 'completed',
+      startedAt: now,
+      endedAt: '2026-07-18T10:45:00.000Z',
+      participants: [{
+        userId: 'friend', status: 'finished', elapsedMinutes: 5.5,
+        joinedAt: now, finishedAt: '2026-07-18T10:40:00.000Z',
+      }],
+    });
+
+    expect(mapStudyGroup({
+      group: {
+        id: 'invited-group', creator_id: 'account-id', name: 'Einladung', icon: 'people',
+        created_at: now, updated_at: now,
+      },
+      creator: { id: 'account-id', username: 'lea', display_name: 'Lea' },
+      self_membership: {
+        user_id: 'friend', role: 'member', status: 'invited', user: mia,
+      },
+    }).members).toEqual([
+      expect.objectContaining({
+        userId: 'friend',
+        status: 'invited',
+        user: expect.objectContaining({ displayName: 'Mia Muster' }),
+      }),
+    ]);
+
+    expect(mapSharedStudySession({
+      session: {
+        id: 'invited-session', creator_id: 'account-id', group_id: null,
+        title: 'Einladung', starts_at: now, planned_duration_seconds: 1800,
+        status: 'planned', created_at: now, updated_at: now,
+      },
+      creator: { id: 'account-id', username: 'lea', display_name: 'Lea' },
+      self_participant: {
+        user_id: 'friend', role: 'member', status: 'invited', user: mia,
+      },
+    }).participants).toEqual([
+      expect.objectContaining({ userId: 'friend', status: 'invited', elapsedMinutes: 0 }),
+    ]);
+  });
+
+  it('round-trips a private session shared-session binding without exposing its details', () => {
+    const session = mapStudySessionProjection({
+      id: 'private-session', user_id: 'account-id', subject_id: 'private-subject',
+      goal_id: null, shared_session_id: 'shared-session-1', source: 'manual',
+      started_at: now, ended_at: '2026-07-18T10:30:00.000Z', entered_at: now,
+      duration_seconds: 1800, created_at: now,
+      legacy_note: 'private note',
+    });
+
+    expect(session).toMatchObject({
+      id: 'private-session', sharedSessionId: 'shared-session-1', subjectId: 'private-subject',
+    });
+    expect(toSessionPayload(session)).toMatchObject({
+      id: 'private-session',
+      shared_session_id: 'shared-session-1',
+      subject_id: 'private-subject',
+      legacy_note: 'private note',
+    });
+  });
+
   it('preserves privacy redaction and maps server-computed shared progress', () => {
     expect(mapFriendSearchResult({
       user: { id: 'friend', username: 'mia', display_name: 'Mia', avatar_url: null },
@@ -393,6 +568,31 @@ describe('repository domain infrastructure', () => {
       userId: 'friend', user: { displayName: 'Mia' }, contribution: 150, contributionMinutes: 150,
     });
     expect(shared.team).toMatchObject({ target: 120, achieved: true, exceededBy: 30 });
+    expect(shared.overall).toEqual(shared.team);
+
+    const perParticipant = mapSharedGoalProgress({
+      goal_id: 'per-participant-goal', type: 'duration', mode: 'per_participant', target: 60,
+      participants: [
+        {
+          user_id: 'friend', status: 'accepted', contribution: 30,
+          user: { id: 'friend', username: 'mia', display_name: 'Mia' },
+        },
+        {
+          user_id: 'account-id', status: 'accepted', contribution: 90, target: 120,
+          user: { id: 'account-id', username: 'lea', display_name: 'Lea' },
+        },
+      ],
+      team: null,
+    });
+    expect(perParticipant.team).toBeNull();
+    expect(perParticipant.overall).toEqual({
+      contribution: 120,
+      target: 180,
+      progressPercent: 66.7,
+      remaining: 60,
+      achieved: false,
+      exceededBy: 0,
+    });
   });
 
   it('turns lifecycle-only goal changes into atomic transition operations', () => {

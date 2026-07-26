@@ -1,12 +1,15 @@
 import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import type {
   AccountStudyUser,
+  FriendOverview,
   FriendProfileStatistics,
   FriendSearchResult,
   FriendshipConnection,
   GoalStatus,
   SharedGoalProgress,
+  SharedStudySession,
   StudyChallenge,
+  StudyGroup,
   StudySharingPreferences,
 } from '@/types/study';
 
@@ -95,6 +98,8 @@ export interface CreateSharedGoalInput {
     id: string;
     title: string;
     description: string;
+    cadence?: 'daily' | 'weekly';
+    groupId?: string | null;
     period: 'day' | 'week' | 'month' | 'year' | 'custom';
     type: 'duration' | 'sessions';
     mode: 'per_participant' | 'shared';
@@ -106,6 +111,39 @@ export interface CreateSharedGoalInput {
     endsAt: string;
   }>;
 }
+
+export interface CreateStudyGroupInput {
+  operationId: string;
+  memberIds: readonly string[];
+  group: Readonly<{
+    id: string;
+    name: string;
+    icon: string;
+    imageUrl?: string | null;
+  }>;
+}
+
+export interface CreateSharedStudySessionInput {
+  operationId: string;
+  inviteeIds: readonly string[];
+  session: Readonly<{
+    id: string;
+    title: string;
+    groupId?: string | null;
+    startsAt: string;
+    plannedDurationMinutes: number;
+    startNow: boolean;
+  }>;
+}
+
+export type SharedStudySessionParticipantAction =
+  | 'start'
+  | 'pause'
+  | 'resume'
+  | 'finish'
+  | 'leave';
+
+export type LearningPresenceState = 'idle' | 'learning' | 'paused';
 
 export interface SocialRepository {
   getMyProfile(signal?: AbortSignal): Promise<AccountStudyUser>;
@@ -122,12 +160,56 @@ export interface SocialRepository {
   acceptFriendRequest(friendshipId: string, signal?: AbortSignal): Promise<FriendshipConnection>;
   declineFriendRequest(friendshipId: string, signal?: AbortSignal): Promise<FriendshipConnection>;
   removeFriendship(friendshipId: string, signal?: AbortSignal): Promise<void>;
+  getFriendOverview(friendId: string, signal?: AbortSignal): Promise<FriendOverview>;
+  listFriendOverviews(signal?: AbortSignal): Promise<readonly FriendOverview[]>;
   getFriendProfileStats(friendId: string, signal?: AbortSignal): Promise<FriendProfileStatistics>;
   createSharedGoal(input: CreateSharedGoalInput, signal?: AbortSignal): Promise<StudyChallenge>;
-  respondSharedGoalInvitation(goalId: string, accept: boolean, signal?: AbortSignal): Promise<StudyChallenge>;
+  respondSharedGoalInvitation(
+    goalId: string,
+    accept: boolean,
+    signal?: AbortSignal,
+  ): Promise<StudyChallenge | null>;
   withdrawFromSharedGoal(goalId: string, signal?: AbortSignal): Promise<void>;
   getSharedGoalDetails(goalId: string, signal?: AbortSignal): Promise<StudyChallenge>;
   getSharedGoalProgress(goalId: string, signal?: AbortSignal): Promise<SharedGoalProgress>;
+  listSharedGoalProgress(signal?: AbortSignal): Promise<readonly SharedGoalProgress[]>;
+  listStudyGroups(signal?: AbortSignal): Promise<readonly StudyGroup[]>;
+  getStudyGroupDetails(groupId: string, signal?: AbortSignal): Promise<StudyGroup>;
+  createStudyGroup(input: CreateStudyGroupInput, signal?: AbortSignal): Promise<StudyGroup>;
+  respondStudyGroupInvitation(
+    groupId: string,
+    accept: boolean,
+    signal?: AbortSignal,
+  ): Promise<StudyGroup | null>;
+  leaveStudyGroup(groupId: string, signal?: AbortSignal): Promise<void>;
+  listSharedStudySessions(signal?: AbortSignal): Promise<readonly SharedStudySession[]>;
+  getSharedStudySessionDetails(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<SharedStudySession>;
+  createSharedStudySession(
+    input: CreateSharedStudySessionInput,
+    signal?: AbortSignal,
+  ): Promise<SharedStudySession>;
+  respondSharedStudySessionInvitation(
+    sessionId: string,
+    accept: boolean,
+    signal?: AbortSignal,
+  ): Promise<SharedStudySession | null>;
+  updateSharedStudySessionParticipant(
+    sessionId: string,
+    action: SharedStudySessionParticipantAction,
+    signal?: AbortSignal,
+  ): Promise<SharedStudySession | null>;
+  cancelSharedStudySession(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<SharedStudySession | null>;
+  updateLearningPresence(
+    state: LearningPresenceState,
+    activeSince: string | null,
+    signal?: AbortSignal,
+  ): Promise<void>;
 }
 
 export interface ImportCounts {

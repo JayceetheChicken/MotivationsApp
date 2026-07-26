@@ -30,6 +30,22 @@ export default function FriendsStackLayout() {
         name="shared-goal/[goal-id]"
         options={{ headerLargeTitle: false, title: 'Gemeinsames Ziel' }}
       />
+      <Stack.Screen
+        name="group/create"
+        options={{ headerLargeTitle: false, presentation: 'formSheet', title: 'Lerngruppe erstellen' }}
+      />
+      <Stack.Screen
+        name="group/[group-id]"
+        options={{ headerLargeTitle: false, title: 'Lerngruppe' }}
+      />
+      <Stack.Screen
+        name="shared-session/create"
+        options={{ headerLargeTitle: false, presentation: 'formSheet', title: 'Gemeinsame Session' }}
+      />
+      <Stack.Screen
+        name="shared-session/[session-id]"
+        options={{ headerLargeTitle: false, title: 'Gemeinsame Session' }}
+      />
     </Stack>
   );
 }

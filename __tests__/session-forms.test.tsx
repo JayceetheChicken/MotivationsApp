@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Dimensions, StyleSheet } from 'react-native';
 import type { TestInstance } from 'test-renderer';
 
@@ -10,10 +10,15 @@ const mockBack = jest.fn();
 const mockReplace = jest.fn();
 const mockStartTimer = jest.fn();
 const mockAddManualEntry = jest.fn();
+const mockGetSharedStudySessionDetails = jest.fn();
+const mockUpdateSharedStudySessionParticipant = jest.fn();
+let mockSessionParams: Record<string, string | undefined> = {};
 
 const mockStudyStore = {
   data: {
     activeTimer: null,
+    currentUser: null,
+    challenges: [],
     goals: [],
     sessions: [],
     subjects: [{
@@ -23,6 +28,7 @@ const mockStudyStore = {
       icon: 'book',
     }],
   },
+  sharedStudySessions: [],
   addManualEntry: mockAddManualEntry,
   addSubject: jest.fn(),
   discardTimer: jest.fn(),
@@ -30,6 +36,8 @@ const mockStudyStore = {
   pauseTimer: jest.fn(),
   resumeTimer: jest.fn(),
   startTimer: mockStartTimer,
+  getSharedStudySessionDetails: mockGetSharedStudySessionDetails,
+  updateSharedStudySessionParticipant: mockUpdateSharedStudySessionParticipant,
 };
 
 jest.mock('expo-router', () => ({
@@ -38,7 +46,7 @@ jest.mock('expo-router', () => ({
     canGoBack: () => true,
     replace: (...args: unknown[]) => mockReplace(...args),
   },
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => mockSessionParams,
 }));
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -82,8 +90,28 @@ function ancestorStyle(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSessionParams = {};
+  (mockStudyStore.data as typeof mockStudyStore.data & { currentUser: null }).currentUser = null;
+  mockStudyStore.sharedStudySessions = [];
+  mockGetSharedStudySessionDetails.mockResolvedValue(null);
+  mockUpdateSharedStudySessionParticipant.mockResolvedValue(null);
   mockStartTimer.mockReturnValue({ id: 'timer-new' });
   mockAddManualEntry.mockReturnValue({ id: 'manual-new' });
+});
+
+it('starts no private timer for a forged or expired shared-session link', async () => {
+  mockSessionParams = { sharedSessionId: 'shared-session-forged' };
+  const rendered = await render(<SessionScreen />);
+
+  await fireEvent.press(rendered.getByRole('button', { name: 'Gemeinsame Session starten' }));
+
+  await waitFor(() => {
+    expect(mockGetSharedStudySessionDetails).toHaveBeenCalledWith('shared-session-forged');
+    expect(rendered.getByText('Diese gemeinsame Session ist nicht mehr aktiv oder du nimmst nicht daran teil.')).toBeTruthy();
+  });
+  expect(mockUpdateSharedStudySessionParticipant).not.toHaveBeenCalled();
+  expect(mockStartTimer).not.toHaveBeenCalled();
+  await rendered.unmount();
 });
 
 describe.each([

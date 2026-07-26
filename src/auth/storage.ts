@@ -19,12 +19,10 @@ const secureStoreOptions: SecureStore.SecureStoreOptions = {
   keychainService: 'lernzeit.auth',
 };
 
-function getWebStorage(): Storage {
-  if (typeof globalThis.localStorage === 'undefined') {
-    throw new Error('Lokaler Browser-Speicher ist nicht verfügbar.');
-  }
-
-  return globalThis.localStorage;
+function getWebStorage(): Storage | null {
+  return typeof globalThis.localStorage === 'undefined'
+    ? null
+    : globalThis.localStorage;
 }
 
 function chunkMetaKey(key: string): string {
@@ -113,7 +111,7 @@ async function removeNativeItem(key: string): Promise<void> {
 export const authStorage: AsyncKeyValueStorage = {
   async getItem(key) {
     if (Platform.OS === 'web') {
-      return getWebStorage().getItem(key);
+      return getWebStorage()?.getItem(key) ?? null;
     }
 
     try {
@@ -125,7 +123,7 @@ export const authStorage: AsyncKeyValueStorage = {
   },
   async setItem(key, value) {
     if (Platform.OS === 'web') {
-      getWebStorage().setItem(key, value);
+      getWebStorage()?.setItem(key, value);
       return;
     }
 
@@ -133,7 +131,7 @@ export const authStorage: AsyncKeyValueStorage = {
   },
   async removeItem(key) {
     if (Platform.OS === 'web') {
-      getWebStorage().removeItem(key);
+      getWebStorage()?.removeItem(key);
       return;
     }
 

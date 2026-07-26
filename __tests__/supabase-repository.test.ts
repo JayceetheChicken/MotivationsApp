@@ -6,6 +6,39 @@ import type { Database } from '@/types/database.generated';
 
 const now = '2026-07-18T10:00:00.000Z';
 
+function rawStudyGroup() {
+  return {
+    group: {
+      id: 'group-id', creator_id: 'account-id', name: 'Prüfungsteam', icon: 'people',
+      image_url: null, created_at: now, updated_at: now,
+    },
+    members: [{
+      user_id: 'account-id', role: 'creator', status: 'accepted',
+      user: { id: 'account-id', username: 'lea', display_name: 'Lea' },
+    }],
+    shared_goal_ids: [],
+    shared_session_ids: ['shared-session-id'],
+  };
+}
+
+function rawSharedStudySession(status: 'planned' | 'active' | 'completed' | 'cancelled' = 'planned') {
+  return {
+    session: {
+      id: 'shared-session-id', creator_id: 'account-id', group_id: 'group-id',
+      title: 'Mathe-Fokus', starts_at: now, planned_duration_seconds: 2700,
+      status, actual_started_at: status === 'planned' ? null : now,
+      completed_at: status === 'completed' ? now : null,
+      cancelled_at: status === 'cancelled' ? now : null,
+      created_at: now, updated_at: now,
+    },
+    participants: [{
+      user_id: 'account-id', status: status === 'planned' ? 'joined' : 'finished',
+      elapsed_seconds: 0,
+      user: { id: 'account-id', username: 'lea', display_name: 'Lea' },
+    }],
+  };
+}
+
 function fakeClient() {
   const rpc = jest.fn(async (name: string): Promise<{ data: unknown; error: unknown }> => {
     if (name === 'pull_my_study_changes') {
@@ -105,6 +138,8 @@ describe('SupabaseStudyRepository RPC contract', () => {
         id: '22222222-2222-4222-8222-222222222222',
         title: 'Teamwoche',
         description: '',
+        cadence: 'weekly',
+        groupId: 'group-id',
         period: 'week',
         type: 'duration',
         mode: 'shared',
@@ -117,7 +152,9 @@ describe('SupabaseStudyRepository RPC contract', () => {
 
     expect(challenge.target).toEqual({ type: 'duration', mode: 'shared', targetMinutes: 120 });
     expect(rpc).toHaveBeenCalledWith('create_shared_goal', expect.objectContaining({
-      p_goal: expect.objectContaining({ period: 'week', targetMinutes: 120 }),
+      p_goal: expect.objectContaining({
+        cadence: 'weekly', group_id: 'group-id', period: 'week', targetMinutes: 120,
+      }),
       p_invitee_ids: ['33333333-3333-4333-8333-333333333333'],
       p_operation_id: '11111111-1111-4111-8111-111111111111',
     }));
@@ -213,6 +250,132 @@ describe('SupabaseStudyRepository RPC contract', () => {
     });
     await expect(repository.social.getSharedGoalProgress('shared-avatar')).resolves.toMatchObject({
       participants: [{ user: { avatarUrl } }],
+    });
+  });
+
+  it('unwraps all social-hub list projections', async () => {
+    const { client, rpc } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    rpc.mockResolvedValueOnce({
+      data: { friends: [{
+        friend: { id: 'friend', username: 'mia', display_name: 'Mia' },
+        learning_status: 'learned_today', active_since: null, last_study_at: now,
+        week_minutes: 90, streak_days: 2, shared_goal_ids: [],
+        shared_session_ids: [], shared_group_ids: ['group-id'],
+      }] },
+      error: null,
+    });
+    await expect(repository.social.listFriendOverviews()).resolves.toEqual([
+      expect.objectContaining({ learningStatus: 'learned_today', groupIds: ['group-id'] }),
+    ]);
+
+    rpc.mockResolvedValueOnce({
+      data: { progress: [{
+        goal_id: 'goal-id', type: 'duration', mode: 'per_participant', target: 60,
+        participants: [{
+          user_id: 'account-id', status: 'accepted', contribution: 30,
+          user: { id: 'account-id', username: 'lea', display_name: 'Lea' },
+        }],
+      }] },
+      error: null,
+    });
+    await expect(repository.social.listSharedGoalProgress()).resolves.toEqual([
+      expect.objectContaining({ goalId: 'goal-id', overall: expect.objectContaining({ target: 60 }) }),
+    ]);
+
+    rpc.mockResolvedValueOnce({ data: { groups: [rawStudyGroup()] }, error: null });
+    await expect(repository.social.listStudyGroups()).resolves.toEqual([
+      expect.objectContaining({ id: 'group-id' }),
+    ]);
+
+    rpc.mockResolvedValueOnce({ data: { sessions: [rawSharedStudySession()] }, error: null });
+    await expect(repository.social.listSharedStudySessions()).resolves.toEqual([
+      expect.objectContaining({ id: 'shared-session-id', plannedDurationMinutes: 45 }),
+    ]);
+
+    expect(rpc.mock.calls.slice(-4).map(([name]) => name)).toEqual([
+      'list_friend_overviews',
+      'list_shared_goal_progress',
+      'list_study_groups',
+      'list_shared_study_sessions',
+    ]);
+  });
+
+  it('uses exact social-hub mutation RPC payloads and maps lifecycle tombstones', async () => {
+    const { client, rpc } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    rpc.mockResolvedValueOnce({ data: { goal_id: 'goal-id', status: 'declined' }, error: null });
+    await expect(repository.social.respondSharedGoalInvitation('goal-id', false)).resolves.toBeNull();
+    expect(rpc).toHaveBeenLastCalledWith('respond_shared_goal_invitation', {
+      p_goal_id: 'goal-id', p_accept: false,
+    });
+
+    rpc.mockResolvedValueOnce({ data: rawStudyGroup(), error: null });
+    await expect(repository.social.createStudyGroup({
+      operationId: 'group-operation-id',
+      memberIds: ['friend'],
+      group: { id: 'group-id', name: 'Prüfungsteam', icon: 'people', imageUrl: null },
+    })).resolves.toMatchObject({ id: 'group-id' });
+    expect(rpc).toHaveBeenLastCalledWith('create_study_group', {
+      p_group: { id: 'group-id', name: 'Prüfungsteam', icon: 'people', image_url: null },
+      p_member_ids: ['friend'],
+      p_operation_id: 'group-operation-id',
+    });
+
+    rpc.mockResolvedValueOnce({ data: { group_id: 'group-id', status: 'declined' }, error: null });
+    await expect(repository.social.respondStudyGroupInvitation('group-id', false)).resolves.toBeNull();
+    expect(rpc).toHaveBeenLastCalledWith('respond_study_group_invitation', {
+      p_group_id: 'group-id', p_accept: false,
+    });
+
+    rpc.mockResolvedValueOnce({ data: rawSharedStudySession(), error: null });
+    await expect(repository.social.createSharedStudySession({
+      operationId: 'session-operation-id',
+      inviteeIds: ['friend'],
+      session: {
+        id: 'shared-session-id', title: 'Mathe-Fokus', groupId: 'group-id', startsAt: now,
+        plannedDurationMinutes: 45, startNow: false,
+      },
+    })).resolves.toMatchObject({ id: 'shared-session-id' });
+    expect(rpc).toHaveBeenLastCalledWith('create_shared_study_session', {
+      p_session: {
+        id: 'shared-session-id', title: 'Mathe-Fokus', group_id: 'group-id', starts_at: now,
+        planned_duration_minutes: 45, start_now: false,
+      },
+      p_invitee_ids: ['friend'],
+      p_operation_id: 'session-operation-id',
+    });
+
+    rpc.mockResolvedValueOnce({
+      data: { session_id: 'shared-session-id', status: 'left' }, error: null,
+    });
+    await expect(repository.social.updateSharedStudySessionParticipant(
+      'shared-session-id',
+      'leave',
+    )).resolves.toBeNull();
+    expect(rpc).toHaveBeenLastCalledWith('update_shared_study_session_participant', {
+      p_session_id: 'shared-session-id', p_action: 'leave',
+    });
+
+    rpc.mockResolvedValueOnce({ data: rawSharedStudySession('cancelled'), error: null });
+    await expect(repository.social.cancelSharedStudySession('shared-session-id')).resolves.toMatchObject({
+      id: 'shared-session-id', status: 'cancelled', endedAt: now,
+    });
+
+    rpc.mockResolvedValueOnce({ data: { state: 'learning' }, error: null });
+    await repository.social.updateLearningPresence('learning', now);
+    expect(rpc).toHaveBeenLastCalledWith('update_learning_presence', {
+      p_state: 'learning', p_active_since: now,
     });
   });
 

@@ -18,6 +18,14 @@ const progress: SharedGoalProgress = {
     achieved: false,
     exceededBy: 0,
   },
+  overall: {
+    contribution: 30,
+    target: 120,
+    progressPercent: 25,
+    remaining: 90,
+    achieved: false,
+    exceededBy: 0,
+  },
   calculatedAt: '2026-07-18T10:00:00.000Z',
 };
 

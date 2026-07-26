@@ -125,7 +125,7 @@ export function SharedGoalCard({
         </View>
       </View>
 
-      {mode === 'shared' && teamProgress ? (
+      {teamProgress ? (
         <SharedGoalTeamSummary progress={teamProgress} targetType={targetType} />
       ) : mode === 'per_participant' && acceptedParticipants.length > 0 ? (
         <ProgressBar

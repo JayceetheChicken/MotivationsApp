@@ -83,6 +83,8 @@ export type Database = {
         description: string;
         mode: 'per_participant' | 'shared';
         period: 'day' | 'week' | 'month' | 'year' | 'custom';
+        cadence: 'daily' | 'weekly';
+        group_id: string | null;
         revision: number;
         sync_version: number;
         created_at: string;
@@ -118,6 +120,7 @@ export type Database = {
         user_id: string;
         subject_id: string;
         goal_id: string | null;
+        shared_session_id: string | null;
         source: 'timer' | 'manual';
         status: 'completed';
         started_at: string;
@@ -172,6 +175,70 @@ export type Database = {
         sync_version: number;
         updated_at: string;
       }>;
+      learning_presence: TableDefinition<{
+        user_id: string;
+        state: 'idle' | 'learning' | 'paused';
+        active_since: string | null;
+        last_study_at: string | null;
+        last_seen_at: string;
+        expires_at: string;
+      }>;
+      study_groups: TableDefinition<{
+        id: string;
+        creator_id: string;
+        name: string;
+        icon: string | null;
+        image_url: string | null;
+        revision: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+      study_group_members: TableDefinition<{
+        group_id: string;
+        user_id: string;
+        role: 'creator' | 'member';
+        status: 'invited' | 'accepted' | 'declined' | 'left';
+        invited_by: string | null;
+        invited_at: string;
+        responded_at: string | null;
+        accepted_at: string | null;
+        left_at: string | null;
+        revision: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+      shared_study_sessions: TableDefinition<{
+        id: string;
+        creator_id: string;
+        group_id: string | null;
+        title: string;
+        starts_at: string;
+        planned_duration_seconds: number;
+        status: 'planned' | 'active' | 'completed' | 'cancelled';
+        actual_started_at: string | null;
+        completed_at: string | null;
+        cancelled_at: string | null;
+        revision: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+      shared_study_session_participants: TableDefinition<{
+        session_id: string;
+        user_id: string;
+        role: 'creator' | 'member';
+        status: 'invited' | 'joined' | 'active' | 'paused' | 'finished' | 'declined' | 'left';
+        invited_by: string | null;
+        invited_at: string;
+        responded_at: string | null;
+        joined_at: string | null;
+        active_since: string | null;
+        elapsed_seconds: number;
+        finished_at: string | null;
+        left_at: string | null;
+        revision: number;
+        created_at: string;
+        updated_at: string;
+      }>;
     };
     Views: { [_ in never]: never };
     Functions: {
@@ -208,13 +275,49 @@ export type Database = {
       decline_friend_request: { Args: { p_friendship_id: string }; Returns: Json };
       remove_friendship: { Args: { p_friendship_id: string }; Returns: Json };
       list_friend_connections: { Args: Record<PropertyKey, never>; Returns: Json };
+      get_friend_overview: { Args: { p_friend_id: string }; Returns: Json };
+      list_friend_overviews: { Args: Record<PropertyKey, never>; Returns: Json };
       get_friend_profile_stats: { Args: { p_friend_id: string }; Returns: Json };
       create_shared_goal: { Args: { p_goal: Json; p_invitee_ids: string[]; p_operation_id: string }; Returns: Json };
       respond_shared_goal_invitation: { Args: { p_goal_id: string; p_accept: boolean }; Returns: Json };
       withdraw_from_shared_goal: { Args: { p_goal_id: string }; Returns: Json };
       get_shared_goal_details: { Args: { p_goal_id: string }; Returns: Json };
       get_shared_goal_progress: { Args: { p_goal_id: string }; Returns: Json };
+      list_shared_goal_progress: { Args: Record<PropertyKey, never>; Returns: Json };
       list_shared_goals: { Args: Record<PropertyKey, never>; Returns: Json };
+      list_study_groups: { Args: Record<PropertyKey, never>; Returns: Json };
+      get_study_group_details: { Args: { p_group_id: string }; Returns: Json };
+      create_study_group: {
+        Args: { p_group: Json; p_member_ids: string[]; p_operation_id: string };
+        Returns: Json;
+      };
+      respond_study_group_invitation: {
+        Args: { p_group_id: string; p_accept: boolean };
+        Returns: Json;
+      };
+      leave_study_group: { Args: { p_group_id: string }; Returns: Json };
+      list_shared_study_sessions: { Args: Record<PropertyKey, never>; Returns: Json };
+      get_shared_study_session_details: { Args: { p_session_id: string }; Returns: Json };
+      create_shared_study_session: {
+        Args: { p_session: Json; p_invitee_ids: string[]; p_operation_id: string };
+        Returns: Json;
+      };
+      respond_shared_study_session_invitation: {
+        Args: { p_session_id: string; p_accept: boolean };
+        Returns: Json;
+      };
+      update_shared_study_session_participant: {
+        Args: {
+          p_session_id: string;
+          p_action: 'start' | 'pause' | 'resume' | 'finish' | 'leave';
+        };
+        Returns: Json;
+      };
+      cancel_shared_study_session: { Args: { p_session_id: string }; Returns: Json };
+      update_learning_presence: {
+        Args: { p_state: 'idle' | 'learning' | 'paused'; p_active_since: string | null };
+        Returns: Json;
+      };
     };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };

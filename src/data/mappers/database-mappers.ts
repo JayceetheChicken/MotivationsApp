@@ -3,13 +3,19 @@ import type {
   AccountStudyUser,
   ChallengeParticipant,
   ChallengeParticipantProgress,
+  FriendOverview,
   FriendPeriodStatistics,
   FriendProfileStatistics,
   FriendSearchResult,
   FriendshipConnection,
   FriendStatsPeriod,
   SharedGoalProgress,
+  SharedGoalTeamProgress,
+  SharedStudySession,
+  SharedStudySessionParticipant,
   StudyChallenge,
+  StudyGroup,
+  StudyGroupMember,
   StudyGoal,
   StudyGrade,
   StudySession,
@@ -46,6 +52,13 @@ function optionalRecord(value: unknown): UnknownRecord | null {
 
 function list(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function stringList(value: unknown): readonly string[] {
+  return [...new Set(list(value)
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean))];
 }
 
 function valueOf(row: UnknownRecord, ...keys: string[]): unknown {
@@ -158,6 +171,7 @@ export function mapStudySessionProjection(value: unknown): StudySession {
     id: requiredString(row, 'Lernsession', 'id'),
     userId: requiredString(row, 'Lernsession', 'user_id', 'userId'),
     goalId: optionalString(row, 'goal_id', 'goalId'),
+    sharedSessionId: optionalString(row, 'shared_session_id', 'sharedSessionId'),
     subjectId: requiredString(row, 'Lernsession', 'subject_id', 'subjectId'),
     goalTitleSnapshot: optionalString(row, 'goal_title_snapshot', 'goalTitleSnapshot') ?? undefined,
     subjectNameSnapshot: optionalString(row, 'subject_name_snapshot', 'subjectNameSnapshot') ?? undefined,
@@ -307,6 +321,7 @@ export function toSessionPayload(session: StudySession): Readonly<Record<string,
     id: session.id,
     subject_id: session.subjectId,
     goal_id: session.goalId ?? null,
+    shared_session_id: session.sharedSessionId ?? null,
     source: session.source,
     started_at: session.startedAt,
     ended_at: session.endedAt,
@@ -439,6 +454,204 @@ export function mapFriendProfileStatistics(value: unknown): FriendProfileStatist
   };
 }
 
+export function mapFriendOverview(value: unknown): FriendOverview {
+  const row = record(value, 'Freundesüberblick');
+  const summary = optionalRecord(valueOf(row, 'overview', 'summary', 'visibility')) ?? row;
+  const rawStatus = valueOf(summary, 'learning_status', 'learningStatus', 'status');
+  const learningStatus = rawStatus === 'learning_now' || rawStatus === 'learning'
+    ? 'learning_now'
+    : rawStatus === 'learned_today'
+      ? 'learned_today'
+      : 'not_learned_today';
+  const rawWeekMinutes = valueOf(summary, 'week_minutes', 'weekMinutes');
+  const weekMinutes = rawWeekMinutes == null
+    ? finiteNumber(summary, 0, 'week_seconds', 'weekSeconds') / 60
+    : finiteNumber(summary, 0, 'week_minutes', 'weekMinutes');
+
+  return {
+    friend: mapBasicUser(optionalRecord(valueOf(row, 'friend', 'profile', 'user')) ?? row),
+    learningStatus,
+    activeSince: optionalString(summary, 'active_since', 'activeSince'),
+    lastStudyAt: optionalString(
+      summary,
+      'last_study_at',
+      'lastStudyAt',
+      'last_learned_at',
+      'lastLearnedAt',
+    ),
+    weekMinutes: Math.max(0, weekMinutes),
+    streakDays: Math.max(0, finiteNumber(summary, 0, 'streak_days', 'streakDays')),
+    sharedGoalIds: stringList(valueOf(row, 'shared_goal_ids', 'sharedGoalIds')),
+    sharedSessionIds: stringList(valueOf(row, 'shared_session_ids', 'sharedSessionIds')),
+    groupIds: stringList(valueOf(row, 'group_ids', 'groupIds', 'shared_group_ids', 'sharedGroupIds')),
+  };
+}
+
+function mapStudyGroupMember(value: unknown): StudyGroupMember {
+  const row = record(value, 'Gruppenmitglied');
+  const userValue = optionalRecord(valueOf(row, 'user', 'profile')) ?? row;
+  const user = mapBasicUser(userValue);
+  const rawRole = valueOf(row, 'role');
+  const rawStatus = valueOf(row, 'status', 'membership_status', 'membershipStatus');
+
+  return {
+    userId: optionalString(row, 'user_id', 'userId') ?? user.id,
+    user,
+    role: rawRole === 'owner' || rawRole === 'creator' ? 'owner' : 'member',
+    status: statusValue(
+      rawStatus,
+      ['invited', 'accepted', 'declined', 'left'] as const,
+      'accepted',
+    ),
+  };
+}
+
+export function mapStudyGroup(value: unknown): StudyGroup {
+  const row = record(value, 'Lerngruppe');
+  const group = optionalRecord(valueOf(row, 'group')) ?? row;
+  const creator = optionalRecord(valueOf(row, 'creator'));
+  const membersById = new Map<string, StudyGroupMember>();
+  for (const rawMember of [
+    ...list(valueOf(row, 'members')),
+    ...list(valueOf(row, 'invitations')),
+  ]) {
+    const member = mapStudyGroupMember(rawMember);
+    membersById.set(member.userId, member);
+  }
+  const selfMembership = optionalRecord(valueOf(row, 'self_membership', 'selfMembership'));
+  if (
+    selfMembership &&
+    (optionalRecord(valueOf(selfMembership, 'user', 'profile')) || optionalString(selfMembership, 'username'))
+  ) {
+    const member = mapStudyGroupMember(selfMembership);
+    membersById.set(member.userId, member);
+  }
+  const imageUrl = optionalString(group, 'image_url', 'imageUrl', 'avatar_url', 'avatarUrl');
+
+  return {
+    id: requiredString(group, 'Lerngruppe', 'id', 'group_id', 'groupId'),
+    creatorId: optionalString(group, 'creator_id', 'creatorId')
+      ?? (creator ? requiredString(creator, 'Lerngruppe', 'id') : requiredString(
+        group,
+        'Lerngruppe',
+        'creator_id',
+        'creatorId',
+      )),
+    name: requiredString(group, 'Lerngruppe', 'name'),
+    icon: optionalString(group, 'icon') ?? 'people',
+    ...(imageUrl ? { imageUrl } : {}),
+    members: [...membersById.values()],
+    sharedGoalIds: stringList(valueOf(row, 'shared_goal_ids', 'sharedGoalIds')),
+    sharedSessionIds: stringList(valueOf(row, 'shared_session_ids', 'sharedSessionIds')),
+    createdAt: requiredString(group, 'Lerngruppe', 'created_at', 'createdAt'),
+    updatedAt: requiredString(group, 'Lerngruppe', 'updated_at', 'updatedAt'),
+  };
+}
+
+function mapSharedStudySessionParticipant(value: unknown): SharedStudySessionParticipant {
+  const row = record(value, 'Teilnehmer der gemeinsamen Session');
+  const userValue = optionalRecord(valueOf(row, 'user', 'profile')) ?? row;
+  const user = mapBasicUser(userValue);
+  const rawStatus = valueOf(row, 'status', 'participant_status', 'participantStatus');
+  const normalizedStatus = rawStatus === 'accepted'
+    ? 'joined'
+    : rawStatus === 'withdrawn'
+      ? 'left'
+      : statusValue(
+          rawStatus,
+          ['invited', 'joined', 'active', 'paused', 'finished', 'declined', 'left'] as const,
+          'invited',
+        );
+  const rawElapsedMinutes = valueOf(row, 'elapsed_minutes', 'elapsedMinutes');
+  const elapsedMinutes = rawElapsedMinutes == null
+    ? finiteNumber(row, 0, 'active_seconds', 'elapsed_seconds', 'activeSeconds', 'elapsedSeconds') / 60
+    : finiteNumber(row, 0, 'elapsed_minutes', 'elapsedMinutes');
+  const activeSince = optionalString(row, 'active_since', 'activeSince');
+  const joinedAt = optionalString(row, 'joined_at', 'joinedAt');
+  const finishedAt = optionalString(row, 'finished_at', 'finishedAt');
+
+  return {
+    userId: optionalString(row, 'user_id', 'userId') ?? user.id,
+    user,
+    status: normalizedStatus,
+    elapsedMinutes: Math.max(0, elapsedMinutes),
+    ...(activeSince ? { activeSince } : {}),
+    ...(joinedAt ? { joinedAt } : {}),
+    ...(finishedAt ? { finishedAt } : {}),
+  };
+}
+
+export function mapSharedStudySession(value: unknown): SharedStudySession {
+  const row = record(value, 'Gemeinsame Lernsession');
+  const session = optionalRecord(valueOf(row, 'session')) ?? row;
+  const creator = optionalRecord(valueOf(row, 'creator'));
+  const rawPlannedMinutes = valueOf(
+    session,
+    'planned_duration_minutes',
+    'plannedDurationMinutes',
+  );
+  const plannedDurationMinutes = rawPlannedMinutes == null
+    ? finiteNumber(
+        session,
+        0,
+        'planned_duration_seconds',
+        'plannedDurationSeconds',
+      ) / 60
+    : finiteNumber(session, 0, 'planned_duration_minutes', 'plannedDurationMinutes');
+
+  const participantsById = new Map<string, SharedStudySessionParticipant>();
+  for (const rawParticipant of list(valueOf(row, 'participants'))) {
+    const participant = mapSharedStudySessionParticipant(rawParticipant);
+    participantsById.set(participant.userId, participant);
+  }
+  const selfParticipant = optionalRecord(valueOf(row, 'self_participant', 'selfParticipant'));
+  if (
+    selfParticipant &&
+    (optionalRecord(valueOf(selfParticipant, 'user', 'profile')) || optionalString(selfParticipant, 'username'))
+  ) {
+    const participant = mapSharedStudySessionParticipant(selfParticipant);
+    participantsById.set(participant.userId, {
+      ...participantsById.get(participant.userId),
+      ...participant,
+    });
+  }
+
+  return {
+    id: requiredString(session, 'Gemeinsame Lernsession', 'id', 'session_id', 'sessionId'),
+    creatorId: optionalString(session, 'creator_id', 'creatorId')
+      ?? (creator ? requiredString(creator, 'Gemeinsame Lernsession', 'id') : requiredString(
+        session,
+        'Gemeinsame Lernsession',
+        'creator_id',
+        'creatorId',
+      )),
+    groupId: optionalString(session, 'group_id', 'groupId'),
+    title: requiredString(session, 'Gemeinsame Lernsession', 'title'),
+    startsAt: requiredString(
+      session,
+      'Gemeinsame Lernsession',
+      'starts_at',
+      'startsAt',
+      'scheduled_for',
+      'scheduledFor',
+    ),
+    plannedDurationMinutes: Math.max(0, plannedDurationMinutes),
+    status: statusValue(
+      valueOf(session, 'status'),
+      ['planned', 'active', 'completed', 'cancelled'] as const,
+      'planned',
+    ),
+    startedAt: optionalString(session, 'started_at', 'startedAt')
+      ?? optionalString(session, 'actual_started_at', 'actualStartedAt'),
+    endedAt: optionalString(session, 'ended_at', 'endedAt')
+      ?? optionalString(session, 'completed_at', 'completedAt')
+      ?? optionalString(session, 'cancelled_at', 'cancelledAt'),
+    participants: [...participantsById.values()],
+    createdAt: requiredString(session, 'Gemeinsame Lernsession', 'created_at', 'createdAt'),
+    updatedAt: requiredString(session, 'Gemeinsame Lernsession', 'updated_at', 'updatedAt'),
+  };
+}
+
 function mapChallengeParticipant(value: unknown): ChallengeParticipant {
   const row = record(value, 'Zielteilnehmer');
   const userId = requiredString(row, 'Zielteilnehmer', 'user_id', 'userId');
@@ -455,8 +668,38 @@ export function mapStudyChallenge(value: unknown): StudyChallenge {
   const row = record(value, 'Gemeinsames Lernziel');
   const goal = optionalRecord(valueOf(row, 'goal')) ?? row;
   const details = optionalRecord(valueOf(row, 'details')) ?? row;
+  const participantsById = new Map<string, ChallengeParticipant>();
+  for (const rawParticipant of list(valueOf(row, 'participants'))) {
+    const participant = mapChallengeParticipant(rawParticipant);
+    participantsById.set(participant.userId, participant);
+  }
+  const selfParticipation = optionalRecord(valueOf(
+    row,
+    'self_participation',
+    'selfParticipation',
+  ));
+  if (selfParticipation) {
+    const self = mapChallengeParticipant(selfParticipation);
+    const existing = participantsById.get(self.userId);
+    const user = self.user ?? existing?.user;
+    participantsById.set(self.userId, {
+      ...existing,
+      ...self,
+      ...(user ? { user } : {}),
+    });
+  }
   const type = statusValue(valueOf(goal, 'target_type', 'type'), ['duration', 'sessions'] as const, 'duration');
   const mode = statusValue(valueOf(details, 'mode'), ['per_participant', 'shared'] as const, 'per_participant');
+  const period = statusValue(
+    valueOf(details, 'period'),
+    ['day', 'week', 'month', 'year', 'custom'] as const,
+    'week',
+  );
+  const cadence = statusValue(
+    valueOf(details, 'cadence'),
+    ['daily', 'weekly'] as const,
+    period === 'day' ? 'daily' : 'weekly',
+  );
   const startsAt = requiredString(goal, 'Gemeinsames Lernziel', 'starts_at', 'startsAt');
   const endsAt = requiredString(goal, 'Gemeinsames Lernziel', 'ends_at', 'endsAt');
   const rawStatus = optionalString(goal, 'status');
@@ -480,12 +723,15 @@ export function mapStudyChallenge(value: unknown): StudyChallenge {
     creatorId: requiredString(goal, 'Gemeinsames Lernziel', 'creator_id', 'creatorId'),
     title: requiredString(goal, 'Gemeinsames Lernziel', 'title'),
     description: optionalString(details, 'description') ?? '',
+    cadence,
+    groupId: optionalString(details, 'group_id', 'groupId')
+      ?? optionalString(goal, 'group_id', 'groupId'),
     target,
     sourcePolicy: statusValue(valueOf(goal, 'source_policy', 'sourcePolicy'), ['all', 'timer_only'] as const, 'all'),
     startsAt,
     endsAt,
     status: challengeStatus,
-    participants: list(valueOf(row, 'participants')).map(mapChallengeParticipant),
+    participants: [...participantsById.values()],
     revision: finiteNumber(goal, 0, 'revision'),
     syncVersion: String(valueOf(goal, 'sync_version', 'syncVersion') ?? '0'),
     updatedAt: optionalString(goal, 'updated_at', 'updatedAt') ?? undefined,
@@ -523,12 +769,48 @@ function mapParticipantProgress(
   };
 }
 
+function calculateProgressSummary(
+  contribution: number,
+  target: number,
+): SharedGoalTeamProgress {
+  const safeContribution = Math.max(0, contribution);
+  const safeTarget = Math.max(0, target);
+  const rounded = (value: number) => Math.round(value * 10) / 10;
+  return {
+    contribution: rounded(safeContribution),
+    target: rounded(safeTarget),
+    progressPercent: safeTarget > 0 ? rounded(safeContribution / safeTarget * 100) : 0,
+    remaining: rounded(Math.max(0, safeTarget - safeContribution)),
+    achieved: safeTarget > 0 && safeContribution >= safeTarget,
+    exceededBy: rounded(Math.max(0, safeContribution - safeTarget)),
+  };
+}
+
 export function mapSharedGoalProgress(value: unknown): SharedGoalProgress {
   const row = record(value, 'Gemeinsamer Zielfortschritt');
   const team = optionalRecord(valueOf(row, 'team'));
   const goalType = statusValue(valueOf(row, 'goal_type', 'target_type', 'goalType', 'type'), ['duration', 'sessions'] as const, 'duration');
   const mode = statusValue(valueOf(row, 'mode'), ['per_participant', 'shared'] as const, 'per_participant');
   const rootTarget = finiteNumber(row, 0, 'target');
+  const participants = list(valueOf(row, 'participants')).map((entry) => (
+    mapParticipantProgress(entry, goalType, mode, rootTarget)
+  ));
+  const mappedTeam = team ? {
+    contribution: finiteNumber(team, 0, 'contribution'),
+    target: finiteNumber(team, finiteNumber(row, 0, 'target'), 'target'),
+    progressPercent: finiteNumber(team, 0, 'progress_percent', 'progressPercent'),
+    remaining: finiteNumber(team, 0, 'remaining'),
+    achieved: booleanValue(team, false, 'achieved'),
+    exceededBy: finiteNumber(team, 0, 'exceeded_by', 'exceededBy', 'excess'),
+  } : null;
+  const overall = mode === 'shared' && mappedTeam
+    ? mappedTeam
+    : calculateProgressSummary(
+        participants.reduce((sum, participant) => sum + participant.contribution, 0),
+        mode === 'shared'
+          ? rootTarget
+          : participants.reduce((sum, participant) => sum + Math.max(0, participant.target ?? 0), 0),
+      );
   return {
     goalId: requiredString(row, 'Gemeinsamer Zielfortschritt', 'goal_id', 'goalId'),
     goalType,
@@ -537,15 +819,9 @@ export function mapSharedGoalProgress(value: unknown): SharedGoalProgress {
     startsAt: optionalString(row, 'starts_at', 'startsAt') ?? '',
     endsAt: optionalString(row, 'ends_at', 'endsAt') ?? '',
     revision: finiteNumber(row, 0, 'revision'),
-    participants: list(valueOf(row, 'participants')).map((entry) => mapParticipantProgress(entry, goalType, mode, rootTarget)),
-    team: team ? {
-      contribution: finiteNumber(team, 0, 'contribution'),
-      target: finiteNumber(team, finiteNumber(row, 0, 'target'), 'target'),
-      progressPercent: finiteNumber(team, 0, 'progress_percent', 'progressPercent'),
-      remaining: finiteNumber(team, 0, 'remaining'),
-      achieved: booleanValue(team, false, 'achieved'),
-      exceededBy: finiteNumber(team, 0, 'exceeded_by', 'exceededBy', 'excess'),
-    } : null,
+    participants,
+    team: mappedTeam,
+    overall,
     calculatedAt: optionalString(row, 'calculated_at', 'calculatedAt') ?? new Date().toISOString(),
   };
 }

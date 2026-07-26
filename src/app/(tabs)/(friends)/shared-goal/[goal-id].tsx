@@ -223,15 +223,16 @@ export default function SharedGoalDetailsScreen() {
   }, [data.currentUser, friendConnections, goal, progress]);
 
   const teamProgress = useMemo<SharedGoalProgressValues | undefined>(() => {
-    if (!goal || goal.target.mode !== 'shared') return undefined;
-    if (progress?.team) {
+    if (!goal || !progress) return undefined;
+    const overall = progress.overall;
+    if (overall) {
       return {
-        value: progress.team.contribution,
-        target: progress.team.target,
-        percent: progress.team.progressPercent,
-        remaining: progress.team.remaining,
-        reached: progress.team.achieved,
-        exceeded: progress.team.exceededBy,
+        value: overall.contribution,
+        target: overall.target,
+        percent: overall.progressPercent,
+        remaining: overall.remaining,
+        reached: overall.achieved,
+        exceeded: overall.exceededBy,
       };
     }
     return undefined;
@@ -382,6 +383,13 @@ export default function SharedGoalDetailsScreen() {
       />
 
       <View style={styles.infoGrid}>
+        <AppCard padding="sm" style={styles.infoCard} variant="subtle">
+          <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Zielrhythmus</Text>
+          <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
+            {goal.cadence === 'daily' ? 'Tagesziel' : 'Wochenziel'}{' '}
+            {goal.target.mode === 'per_participant' ? 'pro Person' : 'für das Team'}
+          </Text>
+        </AppCard>
         <AppCard padding="sm" style={styles.infoCard} variant="subtle">
           <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Gewertete Quellen</Text>
           <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>{sourceLabel}</Text>

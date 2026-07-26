@@ -1,6 +1,6 @@
 # Lernzeit
 
-Lernzeit ist eine responsive Expo-/Android-App für persönliche Lernziele, zuverlässig gemessene Fokus-Sessions und freiwillige Vergleiche im privaten Freundeskreis. Der Erststart ist vollständig leer: Es gibt keine Beispielkonten, Fächer, Sessions, Ziele, Freunde oder Challenges.
+Lernzeit ist eine responsive Expo-/Android-App für persönliche Lernziele, zuverlässig gemessene Fokus-Sessions und motivierendes gemeinsames Lernen im privaten Freundeskreis. Der Erststart ist vollständig leer: Es gibt keine Beispielkonten, Fächer, Sessions, Ziele, Freunde oder Challenges.
 
 ## Funktionen
 
@@ -12,9 +12,11 @@ Lernzeit ist eine responsive Expo-/Android-App für persönliche Lernziele, zuve
 - interaktive Wochen-, Monats- und Jahresdiagramme
 - Statistiken für Lernzeit, Sessions, Durchschnitt, Fächer, Ziele, Streaks und Vorperioden
 - exakte Freundessuche per eindeutigem Benutzernamen sowie Anfragen, Annahme, Ablehnung und Entfernen
-- private Freundesprofile mit getrennten Timer-, manuellen und Gesamtwerten für sechs Zeiträume
-- gemeinsame Lernziele pro Person oder als Team mit serverseitig berechnetem Fortschritt
-- getrennte, standardmäßig deaktivierte Datenschutzfreigaben pro Lernzeitquelle
+- kompakte Freundesprofile mit Lernstatus, letzter allgemeiner Aktivität, Wochenzeit und Streak
+- gemeinsame Tages- oder Wochenziele pro Person oder als Team mit serverseitig berechnetem Fortschritt
+- private Lerngruppen mit ausdrücklich zugeordneten Zielen und Sessions
+- planbare oder sofort startende gemeinsame Lern-Sessions mit Status und Dauer pro Teilnehmer
+- strikte Trennung: Fächer, Aufgaben, Notizen, Noten und private Sessionverläufe werden nie im Social-Bereich ausgegeben
 - Smartphone-/Tablet-Layouts im durchgängig hellen Retro-Design (kein Dark Mode)
 - lokaler Gaststart ohne Anmeldung sowie kontogetrennte Persistenz bei freiwilliger Kontoverbindung
 
