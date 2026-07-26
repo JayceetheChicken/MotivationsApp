@@ -179,10 +179,10 @@ async function run() {
     assert.deepEqual(rows, [], `${table} exposed another user's private rows`);
   };
 
-  const assertServiceRows = async (table, column, value, expectedCount) => {
+  const assertOwnRows = async (client, table, column, value, expectedCount) => {
     const data = await must(
-      admin.from(table).select('*').eq(column, value),
-      `verify ${table} fixture with service role`,
+      client.from(table).select('*').eq(column, value),
+      `verify own ${table} fixture`,
     );
     assert.equal(data.length, expectedCount, `${table} fixture count`);
   };
@@ -581,7 +581,7 @@ async function run() {
       assert.equal(forbiddenKey in bobOverview, false, `friend overview exposed ${forbiddenKey}`);
     }
 
-    const serviceFixtures = [
+    const ownPrivateFixtures = [
       ['profiles', 'id', bobUser.id, 1],
       ['privacy_settings', 'user_id', bobUser.id, 1],
       ['subjects', 'owner_id', bobUser.id, 1],
@@ -593,8 +593,8 @@ async function run() {
       ['grades', 'user_id', bobUser.id, 1],
       ['grade_sessions', 'user_id', bobUser.id, 1],
     ];
-    for (const [table, column, value, expectedCount] of serviceFixtures) {
-      await assertServiceRows(table, column, value, expectedCount);
+    for (const [table, column, value, expectedCount] of ownPrivateFixtures) {
+      await assertOwnRows(bob, table, column, value, expectedCount);
     }
 
     const foreignPrivateFixtures = [
