@@ -2,7 +2,6 @@ import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import type {
   AccountStudyUser,
   FriendOverview,
-  FriendProfileStatistics,
   FriendSearchResult,
   FriendshipConnection,
   GoalStatus,
@@ -162,7 +161,6 @@ export interface SocialRepository {
   removeFriendship(friendshipId: string, signal?: AbortSignal): Promise<void>;
   getFriendOverview(friendId: string, signal?: AbortSignal): Promise<FriendOverview>;
   listFriendOverviews(signal?: AbortSignal): Promise<readonly FriendOverview[]>;
-  getFriendProfileStats(friendId: string, signal?: AbortSignal): Promise<FriendProfileStatistics>;
   createSharedGoal(input: CreateSharedGoalInput, signal?: AbortSignal): Promise<StudyChallenge>;
   respondSharedGoalInvitation(
     goalId: string,

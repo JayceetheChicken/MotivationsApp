@@ -202,14 +202,6 @@ export interface Friend {
   stats?: FriendStudySnapshot;
 }
 
-export type FriendStatsPeriod =
-  | 'today'
-  | 'yesterday'
-  | 'this_week'
-  | 'last_week'
-  | 'this_month'
-  | 'last_month';
-
 /**
  * Remote privacy grants. `friendComparisonsEnabled` deliberately is not part
  * of this object because it is only a local display preference.
@@ -223,51 +215,13 @@ export interface StudySharingPreferences {
   updatedAt: ISODateTime;
 }
 
-export interface FriendPeriodStatistics {
-  period: FriendStatsPeriod;
-  startsAt: ISODateTime;
-  endsAt: ISODateTime;
-  timerMinutes: number | null;
-  timerSessionCount: number | null;
-  manualMinutes: number | null;
-  manualSessionCount: number | null;
-  totalMinutes: number | null;
-  totalSessionCount: number | null;
-}
-
-export interface FriendGoalVisibility {
-  reached: boolean;
-  achievedGoalCount: number;
-  evaluatedGoalCount: number;
-}
-
-export interface FriendProfileStatistics {
-  friend: AccountStudyUser;
-  periods: Readonly<Record<FriendStatsPeriod, FriendPeriodStatistics>>;
-  streakDays: number | null;
-  goals: FriendGoalVisibility | null;
-  /** True values describe grants, while nullable metrics distinguish hidden from zero. */
-  visibility: Readonly<{
-    timer: boolean;
-    manual: boolean;
-    goals: boolean;
-    streak: boolean;
-  }>;
-}
-
-export type FriendLearningStatus =
-  | 'learning_now'
-  | 'learned_today'
-  | 'not_learned_today';
+export type FriendPresenceStatus = 'learning' | 'online' | 'offline';
 
 /** Privacy-safe friend projection. It deliberately contains no study-detail fields. */
 export interface FriendOverview {
   friend: StudyUser;
-  learningStatus: FriendLearningStatus;
-  activeSince: ISODateTime | null;
-  lastStudyAt: ISODateTime | null;
-  weekMinutes: number;
-  streakDays: number;
+  presenceStatus: FriendPresenceStatus;
+  lastActiveAt: ISODateTime | null;
   sharedGoalIds: readonly string[];
   sharedSessionIds: readonly string[];
   groupIds: readonly string[];

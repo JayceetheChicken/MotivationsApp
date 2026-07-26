@@ -129,6 +129,17 @@ export function SharedGoalSummaryCard({
 
       {goal.ownProgress ? (
         <GoalProgress label="Dein Fortschritt" progress={goal.ownProgress} targetType={goal.targetType} />
+      ) : goal.ownContribution !== null && goal.ownContribution !== undefined ? (
+        <View style={styles.contributionRow}>
+          <Text selectable style={[theme.typography.label, { color: theme.colors.text }]}>
+            Dein Beitrag
+          </Text>
+          <Text
+            selectable
+            style={[theme.typography.label, styles.numeric, { color: theme.colors.primaryText }]}>
+            {formatSharedGoalValue(goal.ownContribution, goal.targetType)}
+          </Text>
+        </View>
       ) : null}
       {goal.teamProgress ? (
         <GoalProgress label="Gemeinsam" progress={goal.teamProgress} targetType={goal.targetType} />
@@ -183,6 +194,13 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     justifyContent: 'space-between',
     flexWrap: 'wrap',
+    gap: 8,
+  },
+  contributionRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
     gap: 8,
   },
   numeric: {

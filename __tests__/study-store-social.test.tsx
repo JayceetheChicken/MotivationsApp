@@ -39,11 +39,8 @@ const sharing: StudySharingPreferences = {
 };
 const friendOverview: FriendOverview = {
   friend: { id: 'friend-id', username: 'mia', displayName: 'Mia' },
-  learningStatus: 'learning_now',
-  activeSince: now,
-  lastStudyAt: now,
-  weekMinutes: 120,
-  streakDays: 3,
+  presenceStatus: 'learning',
+  lastActiveAt: now,
   sharedGoalIds: ['goal-id'],
   sharedSessionIds: ['shared-session-id'],
   groupIds: ['group-id'],
@@ -259,6 +256,31 @@ describe('StudyStoreProvider social learning infrastructure', () => {
       expect(result.current.sharedStudySessions).toEqual([sharedSession]);
       expect(result.current.sharedGoalProgressById).toEqual({ 'goal-id': progress });
     });
+  });
+
+  it('keeps idle presence fresh while the signed-in app remains open', async () => {
+    const intervalSpy = jest.spyOn(globalThis, 'setInterval');
+    const hook = await renderHook(() => useStudyStore(), { wrapper });
+
+    await waitFor(() => {
+      expect(hook.result.current.hydrated).toBe(true);
+      expect(mockUpdatePresence).toHaveBeenCalledWith('idle', null);
+      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 120_000);
+    });
+
+    const heartbeat = intervalSpy.mock.calls.find(([, delay]) => delay === 120_000)?.[0];
+    expect(heartbeat).toEqual(expect.any(Function));
+    mockUpdatePresence.mockClear();
+    const dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 120_001);
+    await act(async () => {
+      (heartbeat as () => void)();
+      await Promise.resolve();
+    });
+    expect(mockUpdatePresence).toHaveBeenCalledWith('idle', null);
+
+    await hook.unmount();
+    dateNowSpy.mockRestore();
+    intervalSpy.mockRestore();
   });
 
   it('serializes timer participant actions and publishes privacy-safe presence', async () => {

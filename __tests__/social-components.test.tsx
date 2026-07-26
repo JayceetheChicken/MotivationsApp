@@ -4,23 +4,16 @@ import { fireEvent, render } from '@testing-library/react-native';
 
 import {
   AccountRequiredCta,
-  ActiveFriendsList,
-  FriendStatusCard,
-  FriendStatsGrid,
-  LearningStatusBadge,
+  FriendPresenceRow,
+  FriendSearch,
   ParticipantAvatarStack,
   PlannedSessionCard,
   PrivacySourceToggles,
   SharedGoalCard,
   SharedGoalFormFields,
   SharedGoalSummaryCard,
-  SocialConnectionsList,
   SocialPrivacyNote,
-  SocialQuickActions,
   StudyGroupCard,
-  UsernameSearch,
-  type FriendStatusViewModel,
-  type FriendStatsPeriod,
   type PlannedSessionViewModel,
   type PrivacySourceKey,
   type PrivacySourceValues,
@@ -61,20 +54,6 @@ const bob: SocialUserSummary = {
   displayName: 'Bob Beispiel',
 };
 
-const friendPeriods: readonly FriendStatsPeriod[] = [
-  'today',
-  'yesterday',
-  'this_week',
-  'last_week',
-  'this_month',
-  'last_month',
-].map((key, index) => ({
-  key: key as FriendStatsPeriod['key'],
-  timer: { minutes: 30 + index, sessionCount: 1 },
-  manual: index === 0 ? null : { minutes: 15, sessionCount: 1 },
-  total: index === 0 ? null : { minutes: 45 + index, sessionCount: 2 },
-}));
-
 const initialFormValue: SharedGoalFormValue = {
   title: '',
   description: '',
@@ -106,62 +85,76 @@ describe('Social UI components', () => {
     await rendered.unmount();
   });
 
-  it('submits an exact username and exposes result actions', async () => {
+  it('supports exact username search and a result action', async () => {
+    const onQueryChange = jest.fn();
     const onSubmit = jest.fn();
     const onResultAction = jest.fn();
     const rendered = await render(
-      <UsernameSearch
-        actionLabel="Anfrage senden"
-        onQueryChange={jest.fn()}
+      <FriendSearch
+        actionLabel="Hinzufügen"
+        onQueryChange={onQueryChange}
         onResultAction={onResultAction}
         onSubmit={onSubmit}
-        query="alice"
-        result={{ user: alice, relationship: 'none' }}
+        query="berta"
+        result={{ user: bob, relationship: 'none' }}
         status="ready"
       />,
     );
 
+    await fireEvent.changeText(
+      rendered.getByLabelText('Eindeutigen Benutzernamen suchen'),
+      'berta2',
+    );
     await fireEvent.press(rendered.getByRole('button', { name: 'Suchen' }));
-    await fireEvent.press(rendered.getByRole('button', { name: 'Anfrage senden' }));
+    await fireEvent.press(rendered.getByRole('button', { name: 'Hinzufügen' }));
 
+    expect(onQueryChange).toHaveBeenCalledWith('berta2');
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onResultAction).toHaveBeenCalledTimes(1);
-    expect(rendered.getByText('@alice · Noch nicht verbunden')).toBeTruthy();
-    expect(containsImageUri(
-      rendered.getByLabelText('Profilbild von Alice Beispiel'),
-      alice.avatarUrl,
-    )).toBe(true);
-    expect(rendered.queryByText('AB')).toBeNull();
+    expect(rendered.getByText(/Noch nicht verbunden/)).toBeTruthy();
+
+    const longestUsername = 'a'.repeat(30);
+    await fireEvent.changeText(
+      rendered.getByLabelText('Eindeutigen Benutzernamen suchen'),
+      `@${longestUsername}`,
+    );
+    expect(onQueryChange).toHaveBeenLastCalledWith(longestUsername);
     await rendered.unmount();
   });
 
-  it('renders incoming requests and accepted friends with their permitted actions', async () => {
-    const onAccept = jest.fn();
-    const onDecline = jest.fn();
+  it('shows presence and last activity without private friend statistics', async () => {
     const onRemove = jest.fn();
-    const incoming = { id: 'request-1', user: alice, status: 'pending_received' as const };
-    const accepted = { id: 'friend-1', user: bob, status: 'accepted' as const };
+    const privateDetails = {
+      subject: 'Private Analysis-Notizen',
+      weeklyMinutes: 999,
+      streak: 99,
+    };
     const rendered = await render(
-      <SocialConnectionsList
-        connections={[incoming, accepted]}
-        onAccept={onAccept}
-        onDecline={onDecline}
+      <FriendPresenceRow
+        now={new Date('2026-07-22T08:42:00.000Z')}
         onRemove={onRemove}
+        overview={{
+          friend: {
+            id: alice.id,
+            username: alice.username,
+            displayName: alice.displayName,
+            avatarUrl: alice.avatarUrl,
+          },
+          presenceStatus: 'online',
+          lastActiveAt: '2026-07-22T08:40:00.000Z',
+        }}
       />,
     );
 
-    await fireEvent.press(rendered.getByRole('button', { name: 'Annehmen' }));
-    await fireEvent.press(rendered.getByRole('button', { name: 'Ablehnen' }));
-    await fireEvent.press(rendered.getByRole('button', { name: 'Entfernen' }));
-
-    expect(onAccept).toHaveBeenCalledWith(incoming);
-    expect(onDecline).toHaveBeenCalledWith(incoming);
-    expect(onRemove).toHaveBeenCalledWith(accepted);
-    expect(containsImageUri(
-      rendered.getByLabelText('Profilbild von Alice Beispiel'),
-      alice.avatarUrl,
-    )).toBe(true);
-    expect(rendered.getByText('BB')).toBeTruthy();
+    expect(rendered.getByText('Online')).toBeTruthy();
+    expect(rendered.getByText(/Zuletzt aktiv vor 2 Min\./)).toBeTruthy();
+    expect(rendered.queryByText(privateDetails.subject)).toBeNull();
+    expect(rendered.queryByText(String(privateDetails.weeklyMinutes))).toBeNull();
+    expect(rendered.queryByText(String(privateDetails.streak))).toBeNull();
+    await fireEvent.press(rendered.getByRole('button', {
+      name: 'Freundschaft mit Alice Beispiel entfernen',
+    }));
+    expect(onRemove).toHaveBeenCalledTimes(1);
     await rendered.unmount();
   });
 
@@ -184,38 +177,6 @@ describe('Social UI components', () => {
     expect(onChange).toHaveBeenNthCalledWith(2, 'shareManualStats', true);
     expect(rendered.getByText(/Gesamtwert wird Freunden nur angezeigt/)).toBeTruthy();
     await rendered.unmount();
-  });
-
-  it.each([
-    [390, '100%'],
-    [1024, '31%'],
-  ])('shows all six stat periods responsively at %ipx', async (width, expectedBasis) => {
-    setWindowWidth(width);
-    const rendered = await render(
-      <FriendStatsGrid goalReached={false} periods={friendPeriods} streakDays={4} />,
-    );
-
-    expect(rendered.getAllByRole('header')).toHaveLength(6);
-    expect(rendered.getAllByText('Nicht freigegeben').length).toBeGreaterThanOrEqual(2);
-    expect(rendered.getByText('4 Tage')).toBeTruthy();
-    expect(StyleSheet.flatten(rendered.getByLabelText('Heute').props.style).flexBasis).toBe(
-      expectedBasis,
-    );
-    await rendered.unmount();
-  });
-
-  it('renders explicit loading and retryable error states for friend stats', async () => {
-    const onRetry = jest.fn();
-    const loading = await render(<FriendStatsGrid periods={[]} state="loading" />);
-    expect(loading.getByText(/werden geladen/)).toBeTruthy();
-    await loading.unmount();
-
-    const failed = await render(
-      <FriendStatsGrid onRetry={onRetry} periods={[]} state="error" />,
-    );
-    await fireEvent.press(failed.getByRole('button', { name: 'Erneut versuchen' }));
-    expect(onRetry).toHaveBeenCalledTimes(1);
-    await failed.unmount();
   });
 
   it('shows individual contributions and one distinct shared team summary', async () => {
@@ -312,92 +273,6 @@ describe('Social UI components', () => {
       alice.avatarUrl,
     )).toBe(true);
     expect(rendered.getByText('BB')).toBeTruthy();
-    await rendered.unmount();
-  });
-
-  it('renders general friend status and aggregates without leaking private learning details', async () => {
-    const friend = {
-      user: alice,
-      status: 'learning_now',
-      activeSince: '2026-07-22T08:00:00.000Z',
-      lastStudyAt: '2026-07-22T08:00:00.000Z',
-      weekMinutes: 125,
-      streakDays: 4,
-      privateSubject: 'Analysis II',
-      privateTask: 'Übungsblatt 7 lösen',
-      privateNote: 'Schwierige Integrale wiederholen',
-    } satisfies FriendStatusViewModel & {
-      privateSubject: string;
-      privateTask: string;
-      privateNote: string;
-    };
-    const rendered = await render(
-      <FriendStatusCard friend={friend} now={new Date('2026-07-22T08:42:00.000Z')} />,
-    );
-
-    expect(rendered.getByText('Lernt gerade')).toBeTruthy();
-    expect(rendered.getByText('Lernt seit 42 Min.')).toBeTruthy();
-    expect(rendered.getByText('2 Std. 5 Min.')).toBeTruthy();
-    expect(rendered.getByText('4 Tage')).toBeTruthy();
-    expect(rendered.queryByText(friend.privateSubject)).toBeNull();
-    expect(rendered.queryByText(friend.privateTask)).toBeNull();
-    expect(rendered.queryByText(friend.privateNote)).toBeNull();
-    await rendered.unmount();
-  });
-
-  it('sorts current learners first and exposes all three status labels', async () => {
-    const friends: readonly FriendStatusViewModel[] = [
-      {
-        user: bob,
-        status: 'not_learned_today',
-        lastStudyAt: '2026-07-21T08:00:00.000Z',
-        weekMinutes: 30,
-        streakDays: 1,
-      },
-      {
-        user: alice,
-        status: 'learning_now',
-        activeSince: '2026-07-22T08:30:00.000Z',
-        lastStudyAt: '2026-07-22T08:30:00.000Z',
-        weekMinutes: 90,
-        streakDays: 3,
-      },
-    ];
-    const rendered = await render(
-      <>
-        <ActiveFriendsList friends={friends} now={new Date('2026-07-22T09:00:00.000Z')} />
-        <LearningStatusBadge status="learned_today" />
-      </>,
-    );
-
-    expect(rendered.getAllByTestId(/friend-status-/).map((node) => node.props.testID)).toEqual([
-      'friend-status-alice-id',
-      'friend-status-bob-id',
-    ]);
-    expect(rendered.getByText('Heute bereits gelernt')).toBeTruthy();
-    expect(rendered.getByText('Heute noch nicht gelernt')).toBeTruthy();
-    await rendered.unmount();
-  });
-
-  it('binds the three social quick actions', async () => {
-    const onAddFriend = jest.fn();
-    const onCreateGroup = jest.fn();
-    const onStartSession = jest.fn();
-    const rendered = await render(
-      <SocialQuickActions
-        onAddFriend={onAddFriend}
-        onCreateGroup={onCreateGroup}
-        onStartSession={onStartSession}
-      />,
-    );
-
-    await fireEvent.press(rendered.getByRole('button', { name: 'Freund hinzufügen' }));
-    await fireEvent.press(rendered.getByRole('button', { name: 'Gruppe erstellen' }));
-    await fireEvent.press(rendered.getByRole('button', { name: 'Gemeinsam lernen' }));
-
-    expect(onAddFriend).toHaveBeenCalledTimes(1);
-    expect(onCreateGroup).toHaveBeenCalledTimes(1);
-    expect(onStartSession).toHaveBeenCalledTimes(1);
     await rendered.unmount();
   });
 

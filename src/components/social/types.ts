@@ -5,44 +5,7 @@ export type SocialUserSummary = Readonly<{
   avatarUrl?: string;
 }>;
 
-export type FriendLearningStatus =
-  | 'learning_now'
-  | 'learned_today'
-  | 'not_learned_today';
-
-/**
- * Deliberately narrow projection for social surfaces. Private subjects, tasks,
- * notes and session details have no place in this view model.
- */
-export type FriendStatusViewModel = Readonly<{
-  user: SocialUserSummary;
-  status: FriendLearningStatus;
-  activeSince?: string | null;
-  lastStudyAt?: string | null;
-  weekMinutes: number | null;
-  streakDays: number | null;
-}>;
-
 export type SocialActionState = 'idle' | 'loading' | 'disabled';
-
-export type UsernameSearchRelationship =
-  | 'none'
-  | 'pending_sent'
-  | 'pending_received'
-  | 'accepted';
-
-export type UsernameSearchResult = Readonly<{
-  user: SocialUserSummary;
-  relationship: UsernameSearchRelationship;
-}>;
-
-export type SocialConnectionStatus = 'accepted' | 'pending_sent' | 'pending_received';
-
-export type SocialConnection = Readonly<{
-  id: string;
-  user: SocialUserSummary;
-  status: SocialConnectionStatus;
-}>;
 
 export type PrivacySourceKey =
   | 'shareTimerStats'
@@ -51,28 +14,6 @@ export type PrivacySourceKey =
   | 'shareStreak';
 
 export type PrivacySourceValues = Readonly<Record<PrivacySourceKey, boolean>>;
-
-export type FriendStatsPeriodKey =
-  | 'today'
-  | 'yesterday'
-  | 'this_week'
-  | 'last_week'
-  | 'this_month'
-  | 'last_month';
-
-export type FriendStatsMetric = Readonly<{
-  minutes: number;
-  sessionCount: number;
-}>;
-
-export type FriendStatsPeriod = Readonly<{
-  key: FriendStatsPeriodKey;
-  timer: FriendStatsMetric | null;
-  manual: FriendStatsMetric | null;
-  total: FriendStatsMetric | null;
-}>;
-
-export type FriendStatsLoadState = 'loading' | 'ready' | 'error';
 
 export type SharedGoalMode = 'per_participant' | 'shared';
 export type SharedGoalTargetType = 'duration' | 'sessions';
@@ -101,6 +42,8 @@ export type SharedGoalSummaryViewModel = Readonly<{
   remainingLabel?: string;
   participants: readonly SocialUserSummary[];
   ownProgress?: SharedGoalProgressValues | null;
+  /** Authorized contribution to a shared team target, even without an individual target. */
+  ownContribution?: number | null;
   teamProgress?: SharedGoalProgressValues | null;
 }>;
 

@@ -10,6 +10,7 @@ import {
   useState,
 } from 'react';
 import { randomUUID } from 'expo-crypto';
+import { AppState, type AppStateStatus } from 'react-native';
 
 import { supabase } from '@/auth/supabase';
 import { createInitialData, subjectColorPalette } from '@/data/initial-data';
@@ -54,7 +55,6 @@ import type {
   ChallengeMode,
   ChallengeParticipant,
   FriendOverview,
-  FriendProfileStatistics,
   FriendSearchResult,
   FriendshipConnection,
   Friend,
@@ -338,7 +338,6 @@ export interface StudyStoreValue extends StudyState {
   declineFriendRequest: (friendshipId: string) => Promise<void>;
   removeFriendship: (friendshipId: string) => Promise<void>;
   getFriendOverview: (friendId: string) => Promise<FriendOverview | null>;
-  getFriendProfileStats: (friendId: string) => Promise<FriendProfileStatistics>;
   createSharedGoal: (input: CreateSharedGoalInput) => Promise<StudyChallenge | null>;
   respondSharedGoalInvitation: (
     goalId: string,
@@ -1544,6 +1543,11 @@ export function StudyStoreProvider({
     Record<string, SharedGoalProgress>
   >>({});
   const [sharingPreferences, setSharingPreferences] = useState<StudySharingPreferences | null>(null);
+  const [appState, setAppState] = useState<AppStateStatus>(
+    AppState.currentState === 'background' || AppState.currentState === 'inactive'
+      ? AppState.currentState
+      : 'active',
+  );
   const online = useNetworkStatus();
   const storageKey = scopedStorageKey(storageScope);
   const sharedSessionActionStorageKey = accountUserId
@@ -1551,20 +1555,28 @@ export function StudyStoreProvider({
     : null;
   const stateRef = useRef(state);
   const stateGenerationRef = useRef(0);
+  const socialRefreshGenerationRef = useRef(0);
   const persistenceTailRef = useRef<Promise<void>>(Promise.resolve());
   const sharedSessionActionDrainTailRef = useRef<Promise<void>>(Promise.resolve());
+  const [initialSharedSessionActionOutbox] = useState(() => ({
+    storageKey: sharedSessionActionStorageKey,
+    actions: sharedSessionActionStorageKey
+      ? readSharedSessionActionOutbox(sharedSessionActionStorageKey)
+      : [],
+  }));
   const sharedSessionActionOutboxRef = useRef<{
     storageKey: string | null;
     actions: PendingSharedSessionAction[];
-  } | null>(null);
-  if (sharedSessionActionOutboxRef.current?.storageKey !== sharedSessionActionStorageKey) {
+  } | null>(initialSharedSessionActionOutbox);
+  useEffect(() => {
+    if (sharedSessionActionOutboxRef.current?.storageKey === sharedSessionActionStorageKey) return;
     sharedSessionActionOutboxRef.current = {
       storageKey: sharedSessionActionStorageKey,
       actions: sharedSessionActionStorageKey
         ? readSharedSessionActionOutbox(sharedSessionActionStorageKey)
         : [],
     };
-  }
+  }, [sharedSessionActionStorageKey]);
   const lastPresenceHeartbeatRef = useRef<Readonly<{
     state: 'idle' | 'learning' | 'paused';
     activeSince: string | null;
@@ -1798,6 +1810,7 @@ export function StudyStoreProvider({
     options: { silent?: boolean } = {},
   ): Promise<void> => {
     if (repository.mode !== 'supabase') return;
+    const generation = ++socialRefreshGenerationRef.current;
     const silent = options.silent === true;
     if (!silent) setSocialLoading(true);
     setSocialError(null);
@@ -1819,6 +1832,7 @@ export function StudyStoreProvider({
         repository.social.listStudyGroups(),
         repository.social.listSharedStudySessions(),
       ]);
+      if (generation !== socialRefreshGenerationRef.current) return;
       setSharingPreferences(sharing);
       setFriendConnections(connections);
       setFriendOverviews(overviews);
@@ -1829,11 +1843,18 @@ export function StudyStoreProvider({
       ));
       applyAccountProfile(profile, sharing);
     } catch (error) {
-      setSocialError(asRepositoryError(error).message);
+      if (generation === socialRefreshGenerationRef.current) {
+        setSocialError(asRepositoryError(error).message);
+      }
     } finally {
       if (!silent) setSocialLoading(false);
     }
   }, [applyAccountProfile, repository]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppState);
+    return () => subscription.remove();
+  }, []);
 
   const getFriendOverviewCommand = useCallback(async (friendId: string) => {
     try {
@@ -1846,13 +1867,6 @@ export function StudyStoreProvider({
       return null;
     }
   }, [repository, runSocialOperation, upsertFriendOverview]);
-
-  const getFriendProfileStatsCommand = useCallback(
-    (friendId: string) => runSocialOperation(
-      () => repository.social.getFriendProfileStats(friendId),
-    ),
-    [repository, runSocialOperation],
-  );
 
   const getSharedGoalDetailsCommand = useCallback(async (goalId: string) => {
     try {
@@ -2044,7 +2058,7 @@ export function StudyStoreProvider({
   }, [hydrated, refreshSocial, repository.mode, retrySync]);
 
   useEffect(() => {
-    if (!hydrated || repository.mode !== 'supabase' || !online) return;
+    if (!hydrated || repository.mode !== 'supabase' || !online || appState !== 'active') return;
     const timer = state.data.activeTimer;
     const presence = {
       state: timer?.status === 'running'
@@ -2070,11 +2084,11 @@ export function StudyStoreProvider({
     };
 
     sendPresence();
-    if (presence.state !== 'learning') return;
     const heartbeat = setInterval(sendPresence, 120_000);
     return () => clearInterval(heartbeat);
   }, [
     hydrated,
+    appState,
     online,
     repository,
     state.data.activeTimer,
@@ -2576,7 +2590,6 @@ export function StudyStoreProvider({
         await refreshSocial();
       },
       getFriendOverview: getFriendOverviewCommand,
-      getFriendProfileStats: getFriendProfileStatsCommand,
       createSharedGoal: async (input) => {
         try {
           const challenge = await runSocialOperation(
@@ -2760,7 +2773,6 @@ export function StudyStoreProvider({
     sharedGoalProgressById,
     fireSharedSessionParticipantAction,
     getFriendOverviewCommand,
-    getFriendProfileStatsCommand,
     getSharedStudySessionDetailsCommand,
     getStudyGroupDetailsCommand,
     getSharedGoalDetailsCommand,

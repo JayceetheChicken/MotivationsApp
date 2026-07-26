@@ -1,5 +1,5 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
-import { Dimensions } from 'react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { Alert, Dimensions } from 'react-native';
 
 import FriendProfileScreen from '@/app/(tabs)/(friends)/friend/[user-id]';
 import FriendsScreen from '@/app/(tabs)/(friends)/friends';
@@ -13,6 +13,7 @@ import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import type {
   FriendOverview,
+  FriendSearchResult,
   FriendshipConnection,
   SharedGoalProgress,
   SharedStudySession,
@@ -27,12 +28,11 @@ const mockReplace = jest.fn();
 let mockLocalSearchParams: Record<string, string | readonly string[] | undefined> = {};
 
 const mockRefreshSocial = jest.fn<Promise<void>, []>();
-const mockFindFriendByUsername = jest.fn();
+const mockFindFriendByUsername = jest.fn<Promise<FriendSearchResult | null>, [string]>();
 const mockSendFriendRequest = jest.fn<Promise<void>, [string]>();
 const mockAcceptFriendRequest = jest.fn<Promise<void>, [string]>();
 const mockDeclineFriendRequest = jest.fn<Promise<void>, [string]>();
 const mockRemoveFriendship = jest.fn<Promise<void>, [string]>();
-const mockGetFriendProfileStats = jest.fn();
 const mockGetFriendOverview = jest.fn();
 const mockCreateSharedGoal = jest.fn();
 const mockRespondSharedGoalInvitation = jest.fn();
@@ -57,6 +57,7 @@ jest.mock('expo-router', () => ({
     push: (...args: unknown[]) => mockPush(...args),
     replace: (...args: unknown[]) => mockReplace(...args),
   },
+  useFocusEffect: jest.fn(),
   useLocalSearchParams: () => mockLocalSearchParams,
 }));
 
@@ -110,6 +111,17 @@ const acceptedConnection: FriendshipConnection = {
   otherUser: friendUser,
   createdAt: '2026-07-01T08:00:00.000Z',
   respondedAt: '2026-07-01T09:00:00.000Z',
+};
+
+const incomingRequest: FriendshipConnection = {
+  id: 'friendship-berta-alice',
+  requesterId: friendUser.id,
+  addresseeId: currentUser.id,
+  status: 'pending',
+  direction: 'incoming',
+  otherUser: friendUser,
+  createdAt: '2026-07-22T08:00:00.000Z',
+  respondedAt: null,
 };
 
 const teamGoal: StudyChallenge = {
@@ -250,11 +262,8 @@ const sharedStudySession: SharedStudySession = {
 
 const friendOverview: FriendOverview = {
   friend: friendUser,
-  learningStatus: 'learning_now',
-  activeSince: '2026-07-22T08:00:00.000Z',
-  lastStudyAt: '2026-07-22T08:00:00.000Z',
-  weekMinutes: 185,
-  streakDays: 6,
+  presenceStatus: 'learning',
+  lastActiveAt: '2026-07-22T08:59:00.000Z',
   sharedGoalIds: [teamGoal.id],
   sharedSessionIds: [sharedStudySession.id],
   groupIds: [studyGroup.id],
@@ -325,7 +334,6 @@ function setStudyStore(overrides: Record<string, unknown> = {}) {
     acceptFriendRequest: mockAcceptFriendRequest,
     declineFriendRequest: mockDeclineFriendRequest,
     removeFriendship: mockRemoveFriendship,
-    getFriendProfileStats: mockGetFriendProfileStats,
     getFriendOverview: mockGetFriendOverview,
     createSharedGoal: mockCreateSharedGoal,
     respondSharedGoalInvitation: mockRespondSharedGoalInvitation,
@@ -354,6 +362,7 @@ beforeEach(() => {
   setAuthMode('supabase');
 
   mockRefreshSocial.mockResolvedValue(undefined);
+  mockFindFriendByUsername.mockResolvedValue(null);
   mockSendFriendRequest.mockResolvedValue(undefined);
   mockAcceptFriendRequest.mockResolvedValue(undefined);
   mockDeclineFriendRequest.mockResolvedValue(undefined);
@@ -377,37 +386,25 @@ beforeEach(() => {
 });
 
 describe('Social routes', () => {
-  it('gates the friends route in guest mode and keeps both account entry points working', async () => {
+  it('requires an online account before exposing friend data', async () => {
     setAuthMode('none');
     const rendered = await render(<FriendsScreen />);
 
     expect(rendered.getByText('Online-Konto erforderlich')).toBeTruthy();
     expect(rendered.queryByLabelText('Eindeutigen Benutzernamen suchen')).toBeNull();
-
-    await fireEvent.press(rendered.getByRole('button', { name: 'Online-Konto anmelden' }));
-    await fireEvent.press(rendered.getByRole('button', { name: 'Online-Konto erstellen' }));
-
-    expect(mockPush).toHaveBeenNthCalledWith(1, '/login');
-    expect(mockPush).toHaveBeenNthCalledWith(2, '/register');
     expect(mockRefreshSocial).not.toHaveBeenCalled();
     await rendered.unmount();
   });
 
-  it('normalizes an exact username search and sends a request through the store facade', async () => {
+  it('searches by exact username and sends a friend request', async () => {
     mockFindFriendByUsername
       .mockResolvedValueOnce({ user: friendUser, connection: null })
       .mockResolvedValueOnce({
         user: friendUser,
-        connection: {
-          id: acceptedConnection.id,
-          status: 'pending',
-          direction: 'outgoing',
-        },
-    });
+        connection: { id: incomingRequest.id, status: 'pending', direction: 'outgoing' },
+      });
     const rendered = await render(<FriendsScreen />);
 
-    expect(rendered.queryByLabelText('Eindeutigen Benutzernamen suchen')).toBeNull();
-    await fireEvent.press(rendered.getByRole('button', { name: 'Freund hinzufügen' }));
     await fireEvent.changeText(
       rendered.getByLabelText('Eindeutigen Benutzernamen suchen'),
       '@BeRtA',
@@ -416,47 +413,181 @@ describe('Social routes', () => {
 
     await waitFor(() => {
       expect(mockFindFriendByUsername).toHaveBeenCalledWith('berta');
-      expect(rendered.getByText('@berta · Noch nicht verbunden')).toBeTruthy();
+      expect(rendered.getByText('Berta Beispiel')).toBeTruthy();
+      expect(rendered.getByText(/Noch nicht verbunden/)).toBeTruthy();
     });
-    expect(containsImageUri(
-      rendered.getByLabelText('Profilbild von Berta Beispiel'),
-      friendUser.avatarUrl,
-    )).toBe(true);
-
-    await fireEvent.press(rendered.getByRole('button', { name: 'Anfragen' }));
+    await fireEvent.press(rendered.getByRole('button', { name: 'Hinzufügen' }));
 
     await waitFor(() => {
-      expect(mockSendFriendRequest).toHaveBeenCalledWith('berta');
-      expect(mockFindFriendByUsername).toHaveBeenNthCalledWith(2, 'berta');
-      expect(rendered.getByText('@berta · Anfrage gesendet')).toBeTruthy();
+      expect(mockSendFriendRequest).toHaveBeenCalledWith(friendUser.username);
+      expect(mockFindFriendByUsername).toHaveBeenLastCalledWith(friendUser.username);
+      expect(rendered.getByText(/Anfrage gesendet/)).toBeTruthy();
     });
     await rendered.unmount();
   });
 
-  it('keeps avatar URLs when store connections become friend-list rows', async () => {
-    setStudyStore({ friendConnections: [acceptedConnection] });
+  it('does not apply a stale request error to a newer search query', async () => {
+    let rejectRequest!: (reason?: unknown) => void;
+    mockFindFriendByUsername.mockResolvedValueOnce({ user: friendUser, connection: null });
+    mockSendFriendRequest.mockImplementationOnce(() => new Promise((_, reject) => {
+      rejectRequest = reject;
+    }));
+    const rendered = await render(<FriendsScreen />);
+
+    await fireEvent.changeText(
+      rendered.getByLabelText('Eindeutigen Benutzernamen suchen'),
+      'berta',
+    );
+    await fireEvent.press(rendered.getByRole('button', { name: 'Suchen' }));
+    await waitFor(() => expect(rendered.getByRole('button', { name: 'Hinzufügen' })).toBeTruthy());
+    await fireEvent.press(rendered.getByRole('button', { name: 'Hinzufügen' }));
+    await fireEvent.changeText(
+      rendered.getByLabelText('Eindeutigen Benutzernamen suchen'),
+      'carla',
+    );
+
+    await act(async () => {
+      rejectRequest(new Error('Veralteter Anfragefehler'));
+      await Promise.resolve();
+    });
+
+    expect(rendered.getByDisplayValue('carla')).toBeTruthy();
+    expect(rendered.queryByText('Veralteter Anfragefehler')).toBeNull();
+    await rendered.unmount();
+  });
+
+  it('handles incoming requests, removals, presence, shared sessions and shared progress', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    setStudyStore({
+      data: {
+        ...emptyData,
+        challenges: [teamGoal],
+        goals: [{
+          id: 'private-goal',
+          userId: currentUser.id,
+          title: 'Unsichtbares privates Lernziel',
+          type: 'duration',
+          targetMinutes: 240,
+          period: 'weekly',
+          sourcePolicy: 'all',
+          status: 'active',
+          createdAt: '2026-07-22T08:00:00.000Z',
+        }],
+      },
+      friendConnections: [acceptedConnection, incomingRequest],
+      friendOverviews: [friendOverview],
+      sharedStudySessions: [sharedStudySession],
+      sharedGoalProgressById: { [teamGoal.id]: teamProgress },
+    });
     const rendered = await render(<FriendsScreen />);
 
     await waitFor(() => {
-      expect(rendered.getAllByTestId(`friend-status-${friendUser.id}`)).toHaveLength(2);
+      expect(rendered.getByTestId(`friend-request-${incomingRequest.id}`)).toBeTruthy();
+      expect(rendered.getByTestId(`friend-presence-${friendUser.id}`)).toBeTruthy();
+      expect(rendered.getByText('Lernt gerade')).toBeTruthy();
+      expect(rendered.getByText(/Zuletzt aktiv/)).toBeTruthy();
+      expect(rendered.getByText('Gemeinsamer Fortschritt')).toBeTruthy();
+      expect(rendered.getByText('Dein Beitrag')).toBeTruthy();
+      expect(rendered.getByText('40 Min.')).toBeTruthy();
+      expect(rendered.getByTestId(`planned-session-${sharedStudySession.id}`)).toBeTruthy();
     });
-    expect(rendered.getAllByLabelText('Profilbild von Berta Beispiel').some((avatar) => (
-      containsImageUri(avatar, friendUser.avatarUrl)
-    ))).toBe(true);
+    expect(rendered.queryByText('Unsichtbares privates Lernziel')).toBeNull();
+    expect(rendered.queryByText('3 Std. 5 Min.')).toBeNull();
+    expect(rendered.queryByText('6 Tage')).toBeNull();
+
+    await fireEvent.press(rendered.getByRole('button', {
+      name: 'Anfrage von Berta Beispiel annehmen',
+    }));
+    await waitFor(() => expect(mockAcceptFriendRequest).toHaveBeenCalledWith(incomingRequest.id));
+    await fireEvent.press(rendered.getByRole('button', {
+      name: 'Anfrage von Berta Beispiel ablehnen',
+    }));
+    await waitFor(() => expect(mockDeclineFriendRequest).toHaveBeenCalledWith(incomingRequest.id));
+
+    await fireEvent.press(rendered.getByRole('button', { name: 'Gemeinsame Session erstellen' }));
+    expect(mockPush).toHaveBeenCalledWith('/(tabs)/(friends)/shared-session/create');
+
+    await fireEvent.press(rendered.getByRole('button', {
+      name: 'Freundschaft mit Berta Beispiel entfernen',
+    }));
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Freund entfernen?',
+      expect.any(String),
+      expect.any(Array),
+    );
+    const removalButtons = alertSpy.mock.calls[0]?.[2];
+    const confirmButton = removalButtons?.find((button) => button.style === 'destructive');
+    await act(async () => {
+      confirmButton?.onPress?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(mockRemoveFriendship).toHaveBeenCalledWith(acceptedConnection.id));
+
+    alertSpy.mockRestore();
+    await rendered.unmount();
+  });
+
+  it('orders friends by learning, online and offline presence', async () => {
+    const onlineUser: StudyUser = {
+      id: 'account-carla',
+      username: 'carla',
+      displayName: 'Carla Beispiel',
+    };
+    const offlineUser: StudyUser = {
+      id: 'account-dora',
+      username: 'dora',
+      displayName: 'Dora Beispiel',
+    };
+    const connectionFor = (user: StudyUser): FriendshipConnection => ({
+      id: `friendship-${user.id}`,
+      requesterId: currentUser.id,
+      addresseeId: user.id,
+      status: 'accepted',
+      direction: 'outgoing',
+      otherUser: user,
+      createdAt: '2026-07-01T08:00:00.000Z',
+      respondedAt: '2026-07-01T09:00:00.000Z',
+    });
+    const overviewFor = (
+      user: StudyUser,
+      presenceStatus: FriendOverview['presenceStatus'],
+      lastActiveAt: string | null,
+    ): FriendOverview => ({
+      friend: user,
+      presenceStatus,
+      lastActiveAt,
+      sharedGoalIds: [],
+      sharedSessionIds: [],
+      groupIds: [],
+    });
+    setStudyStore({
+      friendConnections: [
+        connectionFor(offlineUser),
+        acceptedConnection,
+        connectionFor(onlineUser),
+      ],
+      friendOverviews: [
+        overviewFor(offlineUser, 'offline', '2026-07-20T08:00:00.000Z'),
+        friendOverview,
+        overviewFor(onlineUser, 'online', '2026-07-22T08:58:00.000Z'),
+      ],
+    });
+    const rendered = await render(<FriendsScreen />);
+
+    expect(rendered.getAllByTestId(/^friend-presence-/).map((row) => row.props.testID)).toEqual([
+      `friend-presence-${friendUser.id}`,
+      `friend-presence-${onlineUser.id}`,
+      `friend-presence-${offlineUser.id}`,
+    ]);
+    expect(rendered.getByText('Lernt gerade')).toBeTruthy();
+    expect(rendered.getByText('Online')).toBeTruthy();
+    expect(rendered.getByText('Offline')).toBeTruthy();
     await rendered.unmount();
   });
 
   it('shows only the compact privacy-safe friend overview and common social content', async () => {
     mockLocalSearchParams = { 'user-id': friendUser.id };
     mockGetFriendOverview.mockResolvedValue(friendOverview);
-    mockGetFriendProfileStats.mockResolvedValue({
-      timerMinutes: 111,
-      manualMinutes: 74,
-      sessionCount: 9,
-      privateGoalTitle: 'Privates Mathe-Abi-Ziel',
-      subject: 'Analysis',
-      notes: 'Kapitel 4 Notizen',
-    });
     setStudyStore({
       data: { ...emptyData, challenges: [teamGoal] },
       friendConnections: [acceptedConnection],
@@ -469,10 +600,9 @@ describe('Social routes', () => {
 
     await waitFor(() => {
       expect(mockGetFriendOverview).toHaveBeenCalledWith(friendUser.id);
-      expect(rendered.getByTestId(`friend-status-${friendUser.id}`)).toBeTruthy();
+      expect(rendered.getByTestId(`friend-presence-${friendUser.id}`)).toBeTruthy();
       expect(rendered.getByText('Lernt gerade')).toBeTruthy();
-      expect(rendered.getByText('3 Std. 5 Min.')).toBeTruthy();
-      expect(rendered.getByText('6')).toBeTruthy();
+      expect(rendered.getByText(/Zuletzt aktiv/)).toBeTruthy();
       expect(rendered.getByTestId(`shared-goal-summary-${teamGoal.id}`)).toBeTruthy();
       expect(rendered.getByTestId(`planned-session-${sharedStudySession.id}`)).toBeTruthy();
       expect(rendered.getByTestId(`study-group-${studyGroup.id}`)).toBeTruthy();
@@ -481,6 +611,8 @@ describe('Social routes', () => {
       rendered.getByLabelText('Profilbild von Berta Beispiel'),
       friendUser.avatarUrl,
     )).toBe(true);
+    expect(rendered.queryByText('3 Std. 5 Min.')).toBeNull();
+    expect(rendered.queryByText('6 Tage')).toBeNull();
 
     for (const privateLabel of [
       /^Timer$/,
@@ -495,7 +627,6 @@ describe('Social routes', () => {
     ]) {
       expect(rendered.queryByText(privateLabel)).toBeNull();
     }
-    expect(mockGetFriendProfileStats).not.toHaveBeenCalled();
     await rendered.unmount();
   });
 
@@ -667,6 +798,42 @@ describe('Social routes', () => {
       pathname: '/(tabs)/(friends)/shared-session/[session-id]',
       params: { 'session-id': sharedStudySession.id },
     });
+    await rendered.unmount();
+  });
+
+  it('starts a shared session with multiple selected friends', async () => {
+    const carla: StudyUser = {
+      id: 'account-carla-session',
+      username: 'carla_session',
+      displayName: 'Carla Beispiel',
+    };
+    const carlaConnection: FriendshipConnection = {
+      id: 'friendship-alice-carla',
+      requesterId: currentUser.id,
+      addresseeId: carla.id,
+      status: 'accepted',
+      direction: 'outgoing',
+      otherUser: carla,
+      createdAt: '2026-07-01T08:00:00.000Z',
+      respondedAt: '2026-07-01T09:00:00.000Z',
+    };
+    mockCreateSharedStudySession.mockResolvedValue(sharedStudySession);
+    setStudyStore({ friendConnections: [acceptedConnection, carlaConnection] });
+    const rendered = await render(<CreateSharedStudySessionScreen />);
+
+    await fireEvent.press(
+      rendered.getByRole('checkbox', { name: 'Berta Beispiel zur Session einladen' }),
+    );
+    await fireEvent.press(
+      rendered.getByRole('checkbox', { name: 'Carla Beispiel zur Session einladen' }),
+    );
+    await fireEvent.press(rendered.getByRole('button', { name: 'Session starten und einladen' }));
+
+    await waitFor(() => expect(mockCreateSharedStudySession).toHaveBeenCalledTimes(1));
+    expect(mockCreateSharedStudySession.mock.calls[0][0]).toEqual(expect.objectContaining({
+      inviteeIds: [friendUser.id, carla.id],
+      session: expect.objectContaining({ startNow: true }),
+    }));
     await rendered.unmount();
   });
 

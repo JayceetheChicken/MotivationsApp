@@ -11,12 +11,11 @@ import {
 import { EmptyState } from '@/components/empty-state';
 import {
   AccountRequiredCta,
-  FriendStatusCard,
+  FriendPresenceRow,
   PlannedSessionCard,
   SharedGoalSummaryCard,
   SocialPrivacyNote,
   StudyGroupCard,
-  type FriendStatusViewModel,
   type PlannedSessionViewModel,
   type SharedGoalProgressValues,
   type SharedGoalSummaryViewModel,
@@ -26,8 +25,6 @@ import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
 import { SectionHeader } from '@/components/ui/section-header';
-import { useCurrentDate } from '@/hooks/use-current-date';
-import { formatMinutes } from '@/lib/format';
 import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
@@ -44,17 +41,6 @@ function singleParam(value: string | readonly string[] | undefined): string | nu
 
 function socialUser(user: StudyUser) {
   return { id: user.id, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl };
-}
-
-function friendView(overview: FriendOverview): FriendStatusViewModel {
-  return {
-    user: socialUser(overview.friend),
-    status: overview.learningStatus,
-    activeSince: overview.activeSince,
-    lastStudyAt: overview.lastStudyAt,
-    weekMinutes: overview.weekMinutes,
-    streakDays: overview.streakDays,
-  };
 }
 
 function individualProgress(participant: ChallengeParticipantProgress | undefined): SharedGoalProgressValues | null {
@@ -90,7 +76,6 @@ function remainingLabel(endsAt: string): string {
 
 export default function FriendProfileScreen() {
   const theme = useAppTheme();
-  const currentTime = useCurrentDate();
   const auth = useAuthStore();
   const params = useLocalSearchParams();
   const friendId = singleParam(params['user-id'] as string | readonly string[] | undefined);
@@ -264,22 +249,9 @@ export default function FriendProfileScreen() {
       ) : null}
 
       {currentOverview ? (
-        <>
-          <FriendStatusCard friend={friendView(currentOverview)} now={currentTime} showMetrics={false} />
-
-          <View style={styles.metrics}>
-            <AppCard padding="lg" style={styles.metricCard} variant="subtle">
-              <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Diese Woche</Text>
-              <Text selectable style={[theme.typography.metric, styles.numeric, { color: theme.colors.text }]}>{formatMinutes(currentOverview.weekMinutes, true)}</Text>
-              <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>gesamte Lernzeit</Text>
-            </AppCard>
-            <AppCard padding="lg" style={styles.metricCard} variant="subtle">
-              <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Aktueller Streak</Text>
-              <Text selectable style={[theme.typography.metric, styles.numeric, { color: theme.colors.accentOlive }]}>{currentOverview.streakDays}</Text>
-              <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{currentOverview.streakDays === 1 ? 'Tag' : 'Tage'}</Text>
-            </AppCard>
-          </View>
-        </>
+        <AppCard padding="none">
+          <FriendPresenceRow overview={currentOverview} />
+        </AppCard>
       ) : null}
 
       <View style={styles.section}>
@@ -325,9 +297,6 @@ export default function FriendProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  metrics: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  metricCard: { minWidth: 210, flex: 1, gap: 3 },
-  numeric: { fontVariant: ['tabular-nums'] },
   section: { width: '100%', gap: 14 },
   list: { width: '100%', gap: 14 },
 });

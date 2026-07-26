@@ -4,11 +4,8 @@ import type {
   ChallengeParticipant,
   ChallengeParticipantProgress,
   FriendOverview,
-  FriendPeriodStatistics,
-  FriendProfileStatistics,
   FriendSearchResult,
   FriendshipConnection,
-  FriendStatsPeriod,
   SharedGoalProgress,
   SharedGoalTeamProgress,
   SharedStudySession,
@@ -27,15 +24,6 @@ import type {
 import { StudyRepositoryError } from '@/data/repositories/repository-error';
 
 type UnknownRecord = Record<string, unknown>;
-
-const FRIEND_PERIODS: readonly FriendStatsPeriod[] = [
-  'today',
-  'yesterday',
-  'this_week',
-  'last_week',
-  'this_month',
-  'last_month',
-];
 
 function record(value: unknown, context: string): UnknownRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -384,103 +372,22 @@ export function mapFriendshipConnection(value: unknown): FriendshipConnection {
   };
 }
 
-function hiddenPeriod(period: FriendStatsPeriod): FriendPeriodStatistics {
-  return {
-    period,
-    startsAt: new Date(0).toISOString(),
-    endsAt: new Date(0).toISOString(),
-    timerMinutes: null,
-    timerSessionCount: null,
-    manualMinutes: null,
-    manualSessionCount: null,
-    totalMinutes: null,
-    totalSessionCount: null,
-  };
-}
-
-function mapFriendPeriod(value: unknown, period: FriendStatsPeriod): FriendPeriodStatistics {
-  const row = record(value, `Freundesstatistik ${period}`);
-  return {
-    period,
-    startsAt: requiredString(row, `Freundesstatistik ${period}`, 'starts_at', 'startsAt'),
-    endsAt: requiredString(row, `Freundesstatistik ${period}`, 'ends_at', 'endsAt'),
-    timerMinutes: nullableMetric(row, 'timer_minutes', 'timerMinutes'),
-    timerSessionCount: nullableMetric(row, 'timer_session_count', 'timerSessionCount'),
-    manualMinutes: nullableMetric(row, 'manual_minutes', 'manualMinutes'),
-    manualSessionCount: nullableMetric(row, 'manual_session_count', 'manualSessionCount'),
-    totalMinutes: nullableMetric(row, 'total_minutes', 'totalMinutes'),
-    totalSessionCount: nullableMetric(row, 'total_session_count', 'totalSessionCount'),
-  };
-}
-
-export function mapFriendProfileStatistics(value: unknown): FriendProfileStatistics {
-  const row = record(value, 'Freundesprofil');
-  const rawPeriods = valueOf(row, 'periods');
-  const periodRecord = optionalRecord(rawPeriods);
-  const periodList = list(rawPeriods);
-  const periods = Object.fromEntries(FRIEND_PERIODS.map((period) => {
-    const fromRecord = periodRecord?.[period];
-    const fromList = periodList.find((entry) => {
-      const candidate = optionalRecord(entry);
-      return candidate?.period === period || candidate?.key === period;
-    });
-    return [period, fromRecord || fromList ? mapFriendPeriod(fromRecord ?? fromList, period) : hiddenPeriod(period)];
-  })) as Record<FriendStatsPeriod, FriendPeriodStatistics>;
-  const visibilityRow = optionalRecord(valueOf(row, 'visibility', 'permissions')) ?? {};
-  const goalsRow = optionalRecord(valueOf(row, 'goals'));
-  const goalReached = valueOf(row, 'goal_reached', 'goalReached');
-
-  return {
-    friend: mapAccountProfile(valueOf(row, 'friend', 'profile')),
-    periods,
-    streakDays: nullableMetric(row, 'streak_days', 'streakDays'),
-    goals: goalsRow || typeof goalReached === 'boolean' ? {
-      reached: typeof goalReached === 'boolean'
-        ? goalReached
-        : finiteNumber(goalsRow ?? {}, 0, 'achieved_goal_count', 'achievedGoalCount') > 0,
-      achievedGoalCount: goalsRow
-        ? finiteNumber(goalsRow, 0, 'achieved_goal_count', 'achievedGoalCount')
-        : goalReached === true ? 1 : 0,
-      evaluatedGoalCount: goalsRow
-        ? finiteNumber(goalsRow, 0, 'evaluated_goal_count', 'evaluatedGoalCount')
-        : 1,
-    } : null,
-    visibility: {
-      timer: booleanValue(visibilityRow, false, 'timer'),
-      manual: booleanValue(visibilityRow, false, 'manual'),
-      goals: booleanValue(visibilityRow, false, 'goals', 'goal_progress'),
-      streak: booleanValue(visibilityRow, false, 'streak'),
-    },
-  };
-}
-
 export function mapFriendOverview(value: unknown): FriendOverview {
   const row = record(value, 'Freundesüberblick');
   const summary = optionalRecord(valueOf(row, 'overview', 'summary', 'visibility')) ?? row;
-  const rawStatus = valueOf(summary, 'learning_status', 'learningStatus', 'status');
-  const learningStatus = rawStatus === 'learning_now' || rawStatus === 'learning'
-    ? 'learning_now'
-    : rawStatus === 'learned_today'
-      ? 'learned_today'
-      : 'not_learned_today';
-  const rawWeekMinutes = valueOf(summary, 'week_minutes', 'weekMinutes');
-  const weekMinutes = rawWeekMinutes == null
-    ? finiteNumber(summary, 0, 'week_seconds', 'weekSeconds') / 60
-    : finiteNumber(summary, 0, 'week_minutes', 'weekMinutes');
+  const rawPresenceStatus = valueOf(summary, 'presence_status', 'presenceStatus');
+  const legacyLearningStatus = valueOf(summary, 'learning_status', 'learningStatus', 'status');
+  const presenceStatus = rawPresenceStatus === 'learning' || legacyLearningStatus === 'learning'
+    || legacyLearningStatus === 'learning_now'
+    ? 'learning'
+    : rawPresenceStatus === 'online'
+      ? 'online'
+      : 'offline';
 
   return {
     friend: mapBasicUser(optionalRecord(valueOf(row, 'friend', 'profile', 'user')) ?? row),
-    learningStatus,
-    activeSince: optionalString(summary, 'active_since', 'activeSince'),
-    lastStudyAt: optionalString(
-      summary,
-      'last_study_at',
-      'lastStudyAt',
-      'last_learned_at',
-      'lastLearnedAt',
-    ),
-    weekMinutes: Math.max(0, weekMinutes),
-    streakDays: Math.max(0, finiteNumber(summary, 0, 'streak_days', 'streakDays')),
+    presenceStatus,
+    lastActiveAt: optionalString(summary, 'last_active_at', 'lastActiveAt', 'last_seen_at', 'lastSeenAt'),
     sharedGoalIds: stringList(valueOf(row, 'shared_goal_ids', 'sharedGoalIds')),
     sharedSessionIds: stringList(valueOf(row, 'shared_session_ids', 'sharedSessionIds')),
     groupIds: stringList(valueOf(row, 'group_ids', 'groupIds', 'shared_group_ids', 'sharedGroupIds')),

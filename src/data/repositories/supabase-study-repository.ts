@@ -5,7 +5,6 @@ import type { Database, Json } from '@/types/database.generated';
 import {
   mapAccountProfile,
   mapFriendOverview,
-  mapFriendProfileStatistics,
   mapFriendSearchResult,
   mapFriendshipConnection,
   mapPullStudyChanges,
@@ -505,9 +504,6 @@ export class SupabaseStudyRepository implements StudyRepository {
       removeFriendship: async (friendshipId, signal) => {
         await this.rpc('remove_friendship', { p_friendship_id: friendshipId }, signal);
       },
-      getFriendProfileStats: async (friendId, signal) => mapFriendProfileStatistics(await this.rpc('get_friend_profile_stats', {
-        p_friend_id: friendId,
-      }, signal)),
       getFriendOverview: async (friendId, signal) => mapFriendOverview(await this.rpc('get_friend_overview', {
         p_friend_id: friendId,
       }, signal)),

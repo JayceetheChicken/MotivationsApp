@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(82);
+select plan(85);
 
 select has_table('public', 'learning_presence', 'learning presence exists');
 select results_eq(
@@ -62,6 +62,12 @@ select ok(
     'authenticated', 'public.get_friend_overview(uuid)', 'execute'
   ),
   'authenticated users can execute the redacted friend overview RPC'
+);
+select ok(
+  not pg_catalog.has_function_privilege(
+    'authenticated', 'private.friend_overview_read_model(uuid,uuid)', 'execute'
+  ),
+  'authenticated users cannot spoof the actor of the private friend overview helper'
 );
 select ok(
   not pg_catalog.has_table_privilege('authenticated', 'public.learning_presence', 'select')
@@ -157,7 +163,7 @@ select is(
 );
 select is(
   public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
-    ->> 'learning_status',
+    ->> 'presence_status',
   'learning',
   'fresh learning presence is projected as learning'
 );
@@ -170,21 +176,55 @@ select ok(
   )::text) = 0
   and position('goal_reached' in public.get_friend_overview(
     'b2222222-2222-4222-8222-222222222222'
-  )::text) = 0,
-  'friend overview omits timezone, detailed periods and private goal status'
-);
-select is(
-  (
+  )::text) = 0
+  and not (
     public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
-      ->> 'week_minutes'
-  )::integer % 5,
-  0,
-  'friend week minutes are rounded to five-minute increments'
+      ?| array['last_study_at', 'week_minutes', 'streak_days', 'active_since']
+  ),
+  'friend overview omits private study activity, statistics and goal status'
 );
+reset role;
+select is(
+  (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
+    ->> 'last_active_at')::timestamptz,
+  (
+    select lp.last_seen_at
+    from public.learning_presence lp
+    where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
+  ),
+  'friend overview exposes server-observed last activity instead of study history'
+);
+set local role authenticated;
 select is(
   public.list_friend_overviews() -> 'friends' -> 0 -> 'friend' ->> 'id',
   'b2222222-2222-4222-8222-222222222222',
   'actively learning friends are ordered first'
+);
+
+select set_config(
+  'request.jwt.claim.sub', 'b2222222-2222-4222-8222-222222222222', true
+);
+select public.update_learning_presence('idle', null);
+select set_config(
+  'request.jwt.claim.sub', 'a1111111-1111-4111-8111-111111111111', true
+);
+select is(
+  public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
+    ->> 'presence_status',
+  'online',
+  'fresh idle presence is projected as online'
+);
+
+reset role;
+update public.learning_presence
+set expires_at = clock_timestamp() - interval '1 second'
+where user_id = 'b2222222-2222-4222-8222-222222222222';
+set local role authenticated;
+select is(
+  public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
+    ->> 'presence_status',
+  'offline',
+  'expired presence is projected as offline'
 );
 
 select set_config(
@@ -747,11 +787,14 @@ select ok(
 select set_config(
   'request.jwt.claim.sub', 'a1111111-1111-4111-8111-111111111111', true
 );
-select ok(
-  not pg_catalog.has_table_privilege(
-    'authenticated', 'public.study_sessions', 'select'
+select is(
+  (
+    select count(*)
+    from public.study_sessions ss
+    where ss.user_id = 'b2222222-2222-4222-8222-222222222222'
   ),
-  'authenticated clients cannot query private session rows directly'
+  0::bigint,
+  'RLS hides another user''s private session rows'
 );
 select ok(
   (

@@ -1,27 +1,19 @@
 export { AccountRequiredCta, type AccountRequiredCtaProps } from './account-required-cta';
 export {
-  ActiveFriendsList,
-  type ActiveFriendsListProps,
-} from './active-friends-list';
+  FriendPresenceRow,
+  type FriendPresenceRowProps,
+} from './friend-presence-row';
 export {
-  FriendList,
-  type FriendListProps,
-} from './friend-list';
+  FriendRequestRow,
+  type FriendRequestRowProps,
+} from './friend-request-row';
 export {
-  FriendStatusCard,
-  formatSocialRelativeTime,
-  type FriendStatusCardProps,
-} from './friend-status-card';
-export {
-  FriendStatsGrid,
-  FRIEND_STATS_PERIOD_LABELS,
-  type FriendStatsGridProps,
-} from './friend-stats-grid';
-export {
-  FRIEND_LEARNING_STATUS_LABELS,
-  LearningStatusBadge,
-  type LearningStatusBadgeProps,
-} from './learning-status-badge';
+  FriendSearch,
+  type FriendSearchProps,
+  type FriendSearchRelationship,
+  type FriendSearchViewResult,
+} from './friend-search';
+export { formatSocialRelativeTime } from './format-social-relative-time';
 export {
   ParticipantAvatarStack,
   type ParticipantAvatarStackProps,
@@ -56,35 +48,14 @@ export {
   type SharedGoalTeamSummaryProps,
 } from './shared-goal-progress';
 export {
-  SocialConnectionsList,
-  type SocialConnectionsListProps,
-} from './social-connections-list';
-export {
   SocialPrivacyNote,
   type SocialPrivacyNoteProps,
 } from './social-privacy-note';
 export {
-  SocialQuickActions,
-  type SocialQuickActionKey,
-  type SocialQuickActionsProps,
-} from './social-quick-actions';
-export {
   StudyGroupCard,
   type StudyGroupCardProps,
 } from './study-group-card';
-export {
-  UsernameSearch,
-  UsernameSearchResultCard,
-  type UsernameSearchProps,
-  type UsernameSearchResultCardProps,
-} from './username-search';
 export type {
-  FriendLearningStatus,
-  FriendStatusViewModel,
-  FriendStatsLoadState,
-  FriendStatsMetric,
-  FriendStatsPeriod,
-  FriendStatsPeriodKey,
   PlannedSessionViewModel,
   PrivacySourceKey,
   PrivacySourceValues,
@@ -101,10 +72,6 @@ export type {
   SharedGoalTargetType,
   SharedSessionStatus,
   SocialActionState,
-  SocialConnection,
-  SocialConnectionStatus,
   SocialUserSummary,
   StudyGroupViewModel,
-  UsernameSearchRelationship,
-  UsernameSearchResult,
 } from './types';

@@ -215,14 +215,6 @@ describe('SupabaseStudyRepository RPC contract', () => {
     ]);
 
     rpc.mockResolvedValueOnce({
-      data: { friend: rawUser, periods: [], permissions: {} },
-      error: null,
-    });
-    await expect(repository.social.getFriendProfileStats('friend')).resolves.toMatchObject({
-      friend: { avatarUrl },
-    });
-
-    rpc.mockResolvedValueOnce({
       data: {
         goal: {
           id: 'shared-avatar', creator_id: 'account-id', title: 'Avatar-Team',
@@ -264,6 +256,7 @@ describe('SupabaseStudyRepository RPC contract', () => {
     rpc.mockResolvedValueOnce({
       data: { friends: [{
         friend: { id: 'friend', username: 'mia', display_name: 'Mia' },
+        presence_status: 'online', last_active_at: now,
         learning_status: 'learned_today', active_since: null, last_study_at: now,
         week_minutes: 90, streak_days: 2, shared_goal_ids: [],
         shared_session_ids: [], shared_group_ids: ['group-id'],
@@ -271,7 +264,11 @@ describe('SupabaseStudyRepository RPC contract', () => {
       error: null,
     });
     await expect(repository.social.listFriendOverviews()).resolves.toEqual([
-      expect.objectContaining({ learningStatus: 'learned_today', groupIds: ['group-id'] }),
+      expect.objectContaining({
+        presenceStatus: 'online',
+        lastActiveAt: now,
+        groupIds: ['group-id'],
+      }),
     ]);
 
     rpc.mockResolvedValueOnce({

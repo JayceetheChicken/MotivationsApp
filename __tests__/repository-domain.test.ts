@@ -3,7 +3,6 @@ import { StudyRepositoryError } from '@/data/repositories/repository-error';
 import type { CoreMutation } from '@/data/repositories/study-repository';
 import {
   mapFriendOverview,
-  mapFriendProfileStatistics,
   mapFriendSearchResult,
   mapFriendshipConnection,
   mapPullStudyChanges,
@@ -357,14 +356,6 @@ describe('repository domain infrastructure', () => {
       otherUser: { id: 'friend', avatarUrl },
     });
 
-    expect(mapFriendProfileStatistics({
-      friend: rawUser,
-      periods: [],
-      permissions: {},
-    })).toMatchObject({
-      friend: { id: 'friend', avatarUrl },
-    });
-
     expect(mapStudyChallenge({
       goal: {
         id: 'shared-avatar', creator_id: 'account-id', title: 'Avatar-Team',
@@ -389,7 +380,7 @@ describe('repository domain infrastructure', () => {
     });
   });
 
-  it('maps privacy-safe friend, group and shared-session read models', () => {
+  it('maps privacy-safe presence and ignores private friend activity fields', () => {
     const mia = {
       id: 'friend',
       username: 'mia',
@@ -399,6 +390,8 @@ describe('repository domain infrastructure', () => {
 
     expect(mapFriendOverview({
       friend: mia,
+      presence_status: 'learning',
+      last_active_at: '2026-07-18T09:45:00.000Z',
       learning_status: 'learning',
       active_since: '2026-07-18T09:45:00.000Z',
       last_study_at: '2026-07-18T09:30:00.000Z',
@@ -414,11 +407,8 @@ describe('repository domain infrastructure', () => {
         displayName: 'Mia Muster',
         avatarUrl: 'https://cdn.example.com/avatars/friend/avatar.jpg',
       },
-      learningStatus: 'learning_now',
-      activeSince: '2026-07-18T09:45:00.000Z',
-      lastStudyAt: '2026-07-18T09:30:00.000Z',
-      weekMinutes: 235,
-      streakDays: 4,
+      presenceStatus: 'learning',
+      lastActiveAt: '2026-07-18T09:45:00.000Z',
       sharedGoalIds: ['goal-1'],
       sharedSessionIds: ['shared-session-1'],
       groupIds: ['group-1'],
@@ -539,21 +529,6 @@ describe('repository domain infrastructure', () => {
       user: { id: 'friend', displayName: 'Mia' },
       connection: { id: 'connection', status: 'pending', direction: 'incoming' },
     });
-
-    const stats = mapFriendProfileStatistics({
-      friend: { id: 'friend', username: 'mia', display_name: 'Mia', avatar_url: null },
-      permissions: { timer: true, manual: false, goal_progress: true, streak: false },
-      periods: [{
-        key: 'today', starts_at: '2026-07-17T22:00:00.000Z', ends_at: '2026-07-18T22:00:00.000Z',
-        timer_minutes: 30, timer_session_count: 1, manual_minutes: null,
-        manual_session_count: null, total_minutes: null, total_session_count: null,
-      }],
-      streak_days: null,
-      goal_reached: false,
-    });
-    expect(stats.periods.today).toMatchObject({ timerMinutes: 30, manualMinutes: null, totalMinutes: null });
-    expect(stats.visibility).toEqual({ timer: true, manual: false, goals: true, streak: false });
-    expect(stats.goals).toMatchObject({ reached: false, evaluatedGoalCount: 1 });
 
     const shared = mapSharedGoalProgress({
       goal_id: 'goal-id', type: 'duration', mode: 'shared', target: 120,
