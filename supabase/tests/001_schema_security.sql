@@ -83,8 +83,19 @@ select has_index('public', 'profiles', 'profiles_username_unique', 'username uni
 select has_index('public', 'friendships', 'friendships_one_active_pair', 'active friendship pair is unique');
 select has_index('public', 'study_sessions', 'study_sessions_goal_time_idx', 'goal progress lookup is indexed');
 
-select has_check(
-  'public', 'profiles', 'profiles_username_format',
+select ok(
+  exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    join pg_catalog.pg_class table_row
+      on table_row.oid = constraint_row.conrelid
+    join pg_catalog.pg_namespace schema_row
+      on schema_row.oid = table_row.relnamespace
+    where schema_row.nspname = 'public'
+      and table_row.relname = 'profiles'
+      and constraint_row.conname = 'profiles_username_format'
+      and constraint_row.contype = 'c'
+  ),
   'profile username format is enforced by a named constraint'
 );
 

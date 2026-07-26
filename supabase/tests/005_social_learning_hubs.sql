@@ -4,17 +4,13 @@ create extension if not exists pgtap with schema extensions;
 select plan(93);
 
 select has_table('public', 'learning_presence', 'learning presence exists');
-select results_eq(
-  $$
-    select c.column_name::text
+select is(
+  (
+    select jsonb_agg(c.column_name order by c.ordinal_position)
     from information_schema.columns c
     where c.table_schema = 'public' and c.table_name = 'learning_presence'
-    order by c.ordinal_position
-  $$,
-  array[
-    'user_id'::text, 'state', 'active_since', 'last_study_at',
-    'last_seen_at', 'expires_at', 'device_id'
-  ],
+  ),
+  '["user_id","state","active_since","last_study_at","last_seen_at","expires_at","device_id"]'::jsonb,
   'learning presence is device-scoped and stores no private learning fields'
 );
 select has_table('public', 'study_groups', 'study groups exist');

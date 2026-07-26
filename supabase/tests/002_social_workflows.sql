@@ -374,7 +374,7 @@ select throws_ok(
 select throws_ok(
   $$select public.get_shared_goal_details('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2')$$,
   '42501',
-  'goal_invitation_required',
+  'accepted_or_invited_participation_required',
   'non-participants cannot read shared goal details'
 );
 

@@ -220,14 +220,15 @@ select throws_ok(
   'avatar insert policy rejects files above the five MiB limit'
 );
 
+with updated as (
+  update storage.objects
+  set metadata = '{"marker":"own-tampered","mimetype":"image/jpeg","size":256}'::jsonb
+  where bucket_id = 'avatars'
+    and name = '55555555-5555-4555-8555-555555555555/profile/77777777-7777-4777-8777-777777777777.jpg'
+  returning 1
+)
 select is(
-  (with updated as (
-     update storage.objects
-     set metadata = '{"marker":"own-tampered","mimetype":"image/jpeg","size":256}'::jsonb
-     where bucket_id = 'avatars'
-       and name = '55555555-5555-4555-8555-555555555555/profile/77777777-7777-4777-8777-777777777777.jpg'
-     returning 1
-   ) select count(*)::integer from updated),
+  (select count(*)::integer from updated),
   0,
   'authenticated users cannot mutate an uploaded avatar object'
 );
@@ -239,14 +240,15 @@ select is(
   'own-original',
   'the immutable own avatar remains unchanged after an update attempt'
 );
+with updated as (
+  update storage.objects
+  set metadata = '{"marker":"foreign-tampered"}'::jsonb
+  where bucket_id = 'avatars'
+    and name = '66666666-6666-4666-8666-666666666666/profile/88888888-8888-4888-8888-888888888888.jpg'
+  returning 1
+)
 select is(
-  (with updated as (
-     update storage.objects
-     set metadata = '{"marker":"foreign-tampered"}'::jsonb
-     where bucket_id = 'avatars'
-       and name = '66666666-6666-4666-8666-666666666666/profile/88888888-8888-4888-8888-888888888888.jpg'
-     returning 1
-   ) select count(*)::integer from updated),
+  (select count(*)::integer from updated),
   0,
   'authenticated users cannot update another users avatar'
 );
@@ -261,13 +263,14 @@ select lives_ok(
   )$$,
   'an uploaded canonical object can become the current avatar'
 );
+with deleted as (
+  delete from storage.objects
+  where bucket_id = 'avatars'
+    and name = '55555555-5555-4555-8555-555555555555/profile/77777777-7777-4777-8777-777777777777.jpg'
+  returning 1
+)
 select is(
-  (with deleted as (
-     delete from storage.objects
-     where bucket_id = 'avatars'
-       and name = '55555555-5555-4555-8555-555555555555/profile/77777777-7777-4777-8777-777777777777.jpg'
-     returning 1
-   ) select count(*)::integer from deleted),
+  (select count(*)::integer from deleted),
   0,
   'the Storage delete policy protects the current avatar from delayed cleanup'
 );
@@ -286,23 +289,25 @@ select lives_ok(
   )$$,
   'the replacement can atomically become the current avatar'
 );
+with deleted as (
+  delete from storage.objects
+  where bucket_id = 'avatars'
+    and name = '55555555-5555-4555-8555-555555555555/avatar.jpg'
+  returning 1
+)
 select is(
-  (with deleted as (
-     delete from storage.objects
-     where bucket_id = 'avatars'
-       and name = '55555555-5555-4555-8555-555555555555/avatar.jpg'
-     returning 1
-   ) select count(*)::integer from deleted),
+  (select count(*)::integer from deleted),
   1,
   'authenticated users can delete their own legacy avatar during replacement'
 );
+with deleted as (
+  delete from storage.objects
+  where bucket_id = 'avatars'
+    and name = '55555555-5555-4555-8555-555555555555/profile/77777777-7777-4777-8777-777777777777.jpg'
+  returning 1
+)
 select is(
-  (with deleted as (
-     delete from storage.objects
-     where bucket_id = 'avatars'
-       and name = '55555555-5555-4555-8555-555555555555/profile/77777777-7777-4777-8777-777777777777.jpg'
-     returning 1
-   ) select count(*)::integer from deleted),
+  (select count(*)::integer from deleted),
   1,
   'authenticated users can delete their own canonical avatar'
 );
@@ -314,13 +319,14 @@ select is(
   1,
   'cleanup removes old metadata while retaining the protected current avatar'
 );
+with deleted as (
+  delete from storage.objects
+  where bucket_id = 'avatars'
+    and name = '66666666-6666-4666-8666-666666666666/profile/88888888-8888-4888-8888-888888888888.jpg'
+  returning 1
+)
 select is(
-  (with deleted as (
-     delete from storage.objects
-     where bucket_id = 'avatars'
-       and name = '66666666-6666-4666-8666-666666666666/profile/88888888-8888-4888-8888-888888888888.jpg'
-     returning 1
-   ) select count(*)::integer from deleted),
+  (select count(*)::integer from deleted),
   0,
   'authenticated users cannot delete another users avatar'
 );
