@@ -454,6 +454,7 @@ describe('StudyStoreProvider social learning infrastructure', () => {
       && Object.keys(entry).sort().join(',') === 'action,sessionId'
     ))).toBe(true);
 
+    const socialRefreshesBeforeReconnect = mockRepository.social.listFriendOverviews.mock.calls.length;
     mockOnline = true;
     await hook.rerender(undefined);
     await waitFor(() => {
@@ -462,10 +463,15 @@ describe('StudyStoreProvider social learning infrastructure', () => {
       ]);
       expect(storedValues.has(ACTION_OUTBOX_KEY)).toBe(false);
       expect(mockGetSharedStudySessionDetails).toHaveBeenCalledWith('shared-session-id');
+      expect(mockRepository.social.listFriendOverviews.mock.calls.length).toBeGreaterThan(
+        socialRefreshesBeforeReconnect,
+      );
+      expect(hook.result.current.socialLoading).toBe(false);
     });
     expect(storedValues.get(OTHER_ACCOUNT_ACTION_OUTBOX_KEY)).toBe(
       JSON.stringify([{ sessionId: 'other-session', action: 'finish' }]),
     );
+    await hook.unmount();
   });
 
   it('compacts duplicate persisted actions and retries them on the next hydration', async () => {
