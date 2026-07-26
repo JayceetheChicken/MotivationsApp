@@ -263,6 +263,7 @@ select lives_ok(
   )$$,
   'an uploaded canonical object can become the current avatar'
 );
+select set_config('storage.allow_delete_query', 'true', true);
 with deleted as (
   delete from storage.objects
   where bucket_id = 'avatars'
