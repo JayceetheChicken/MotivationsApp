@@ -122,7 +122,7 @@ select lives_ok(
     values (
       'avatars',
       '55555555-5555-4555-8555-555555555555/profile/77777777-7777-4777-8777-777777777777.jpg',
-      '{"marker":"own-original","mimetype":"image/jpeg","size":128}'::jsonb
+      '{"marker":"own-original","mimetype":"image/jpeg","contentLength":128,"size":128}'::jsonb
     )$$,
   'authenticated users can upload a UUID-v4 avatar below their profile folder'
 );
@@ -213,7 +213,7 @@ select throws_ok(
     values (
       'avatars',
       '55555555-5555-4555-8555-555555555555/profile/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jpg',
-      '{"mimetype":"image/jpeg","size":5242881}'::jsonb
+      '{"mimetype":"image/jpeg","contentLength":5242881,"size":5242881}'::jsonb
     )$$,
   '42501',
   'new row violates row-level security policy for table "objects"',
@@ -280,7 +280,7 @@ select lives_ok(
     values (
       'avatars',
       '55555555-5555-4555-8555-555555555555/profile/cccccccc-cccc-4ccc-8ccc-cccccccccccc.png',
-      '{"marker":"replacement","mimetype":"image/png","size":128}'::jsonb
+      '{"marker":"replacement","mimetype":"image/png","contentLength":128,"size":128}'::jsonb
     )$$,
   'a replacement avatar can be uploaded while the current object is protected'
 );
