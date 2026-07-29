@@ -94,7 +94,8 @@ function goalPeriodLabel(goal: StudyChallenge): string {
   return goal.cadence === 'daily' ? 'Täglich' : 'Wöchentlich';
 }
 
-function remainingLabel(endsAt: string, now: number): string | undefined {
+function remainingLabel(endsAt: string | undefined, now: number): string | undefined {
+  if (!endsAt) return undefined;
   const remainingMs = Date.parse(endsAt) - now;
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) return undefined;
   const hours = Math.ceil(remainingMs / 3_600_000);

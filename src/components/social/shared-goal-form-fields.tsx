@@ -207,7 +207,7 @@ export function SharedGoalFormFields({
 
         <View style={[styles.fieldPair, tablet ? styles.fieldPairTablet : undefined]}>
           <View style={styles.pairedField}>
-            <Text selectable style={[theme.typography.label, { color: theme.colors.text }]}>Startdatum</Text>
+            <Text selectable style={[theme.typography.label, { color: theme.colors.text }]}>Startdatum (optional)</Text>
             <TextInput
               accessibilityLabel="Startdatum des gemeinsamen Lernziels"
               autoCorrect={false}
@@ -223,7 +223,7 @@ export function SharedGoalFormFields({
             <FieldError message={errors?.startsOn} />
           </View>
           <View style={styles.pairedField}>
-            <Text selectable style={[theme.typography.label, { color: theme.colors.text }]}>Enddatum</Text>
+            <Text selectable style={[theme.typography.label, { color: theme.colors.text }]}>Enddatum (optional)</Text>
             <TextInput
               accessibilityLabel="Enddatum des gemeinsamen Lernziels"
               autoCorrect={false}

@@ -202,6 +202,35 @@ describe('SupabaseStudyRepository RPC contract', () => {
     }));
   });
 
+  it('sends null date boundaries for an open-ended shared goal', async () => {
+    const { client, rpc } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    await repository.social.createSharedGoal({
+      operationId: '41111111-1111-4111-8111-111111111111',
+      inviteeIds: ['33333333-3333-4333-8333-333333333333'],
+      goal: {
+        id: '42222222-2222-4222-8222-222222222222',
+        title: 'Offenes Ziel',
+        description: '',
+        cadence: 'weekly',
+        period: 'custom',
+        type: 'duration',
+        mode: 'shared',
+        targetMinutes: 120,
+        sourcePolicy: 'all',
+      },
+    });
+
+    expect(rpc).toHaveBeenCalledWith('create_shared_goal', expect.objectContaining({
+      p_goal: expect.objectContaining({ starts_at: null, ends_at: null }),
+    }));
+  });
+
   it('uses entity-keyed import chunks and unwraps finalized status reports', async () => {
     const { client, rpc } = fakeClient();
     const repository = createSupabaseStudyRepository({
@@ -509,6 +538,35 @@ describe('SupabaseStudyRepository RPC contract', () => {
     ]));
     expect(storageRemove).not.toHaveBeenCalledWith([keepPath]);
     expect(storageList).not.toHaveBeenCalled();
+  });
+
+  it('does not expose a raw PostgREST schema-cache error when avatar persistence fails', async () => {
+    const { client, rpc } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+    const technicalMessage = 'Could not find the function public.set_my_avatar(p_object_path) in the schema cache';
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'PGRST202', message: technicalMessage },
+    });
+
+    try {
+      await expect(repository.social.setMyAvatar(
+        'account-id/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg',
+      )).rejects.toMatchObject({
+        message: 'Das Profilbild konnte serverseitig nicht gespeichert werden.',
+      });
+      expect(errorLog).toHaveBeenCalledWith(
+        '[avatar] set_my_avatar fehlgeschlagen',
+        expect.objectContaining({ message: technicalMessage }),
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it('subscribes to the authenticated private social inbox and refetches after reconnect', async () => {

@@ -99,6 +99,8 @@ const SOCIAL_INVALIDATION_KINDS = new Set<SocialInvalidationKind>([
   'social',
 ]);
 
+const AVATAR_SERVER_PERSISTENCE_ERROR_MESSAGE = 'Das Profilbild konnte serverseitig nicht gespeichert werden.';
+
 function socialInvalidationKind(message: unknown): SocialInvalidationKind {
   const payload = asRecord(asRecord(message).payload);
   const kind = readString(payload, 'kind');
@@ -264,6 +266,21 @@ function describeAvatarUploadError(error: unknown): StudyRepositoryError {
     'server_error',
     'Der Upload wurde von Supabase abgelehnt.',
     { cause: error },
+  );
+}
+
+function describeAvatarPersistenceError(error: unknown): StudyRepositoryError {
+  const normalized = asRepositoryError(error);
+  if (normalized.code === 'cancelled') return normalized;
+
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.error('[avatar] set_my_avatar fehlgeschlagen', error);
+  }
+
+  return new StudyRepositoryError(
+    'server_error',
+    AVATAR_SERVER_PERSISTENCE_ERROR_MESSAGE,
+    { cause: error, retryable: normalized.retryable },
   );
 }
 
@@ -729,15 +746,19 @@ export class SupabaseStudyRepository implements StudyRepository {
         return { objectPath: path };
       },
       setMyAvatar: async (objectPath, signal) => {
-        const result = asRecord(await this.rpc(
-          'set_my_avatar',
-          { p_object_path: objectPath },
-          signal,
-        ));
-        return {
-          profile: mapAccountProfile(result),
-          previousAvatarUrl: readString(result, 'previous_avatar_url', 'previousAvatarUrl'),
-        };
+        try {
+          const result = asRecord(await this.rpc(
+            'set_my_avatar',
+            { p_object_path: objectPath },
+            signal,
+          ));
+          return {
+            profile: mapAccountProfile(result),
+            previousAvatarUrl: readString(result, 'previous_avatar_url', 'previousAvatarUrl'),
+          };
+        } catch (error) {
+          throw describeAvatarPersistenceError(error);
+        }
       },
       deleteAvatarObject: async (userId, objectPath, signal) => {
         throwIfAborted(signal);
@@ -856,8 +877,8 @@ export class SupabaseStudyRepository implements StudyRepository {
           group_id: input.goal.groupId ?? null,
           period: input.goal.period,
           source_policy: input.goal.sourcePolicy,
-          starts_at: input.goal.startsAt,
-          ends_at: input.goal.endsAt,
+          starts_at: input.goal.startsAt ?? null,
+          ends_at: input.goal.endsAt ?? null,
           target_minutes: input.goal.targetMinutes,
           target_sessions: input.goal.targetSessions,
           minimum_session_minutes: input.goal.minimumSessionMinutes,

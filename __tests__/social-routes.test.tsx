@@ -781,6 +781,39 @@ describe('Social routes', () => {
     },
   );
 
+  it('creates a shared goal without start and end dates', async () => {
+    mockCreateSharedGoal.mockResolvedValue({ ...teamGoal, endsAt: undefined });
+    setStudyStore({
+      data: emptyData,
+      friendConnections: [acceptedConnection],
+    });
+    const rendered = await render(<CreateSharedGoalScreen />);
+
+    expect(rendered.getByText('Startdatum (optional)')).toBeTruthy();
+    expect(rendered.getByText('Enddatum (optional)')).toBeTruthy();
+    expect(rendered.getByText('Ab Erstellung, ohne Enddatum')).toBeTruthy();
+    expect(rendered.getByLabelText('Startdatum des gemeinsamen Lernziels').props.value).toBe('');
+    expect(rendered.getByLabelText('Enddatum des gemeinsamen Lernziels').props.value).toBe('');
+
+    await fireEvent.changeText(
+      rendered.getByLabelText('Titel des gemeinsamen Lernziels'),
+      teamGoal.title,
+    );
+    await fireEvent.changeText(rendered.getByLabelText('Zielwert in Stunden'), '2');
+    await fireEvent.press(rendered.getByRole('checkbox', { name: 'Berta Beispiel einladen' }));
+    await fireEvent.press(rendered.getByRole('button', { name: 'Ziel erstellen und einladen' }));
+
+    await waitFor(() => expect(mockCreateSharedGoal).toHaveBeenCalledTimes(1));
+    const submittedGoal = mockCreateSharedGoal.mock.calls[0][0].goal;
+    expect(submittedGoal).not.toHaveProperty('startsAt');
+    expect(submittedGoal).not.toHaveProperty('endsAt');
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/(tabs)/(friends)/shared-goal/[goal-id]',
+      params: { 'goal-id': teamGoal.id },
+    });
+    await rendered.unmount();
+  });
+
   it('creates a study group with selected accepted friends', async () => {
     mockCreateStudyGroup.mockResolvedValue(studyGroup);
     setStudyStore({ friendConnections: [acceptedConnection] });
