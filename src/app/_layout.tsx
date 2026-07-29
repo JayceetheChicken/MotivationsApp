@@ -72,11 +72,12 @@ function AccountStudyBridge() {
 }
 
 function ScopedStudyStore({ children }: PropsWithChildren) {
-  const { activeMode, user } = useAuthStore();
+  const { activeMode, session, user } = useAuthStore();
   const storage = getStudyStorageConfiguration(activeMode, user?.id);
 
   return (
     <StudyStoreProvider
+      accountAccessToken={session?.access_token}
       accountUserId={storage.accountUserId}
       importStorageScope={storage.importStorageScope}
       key={storage.storageScope}

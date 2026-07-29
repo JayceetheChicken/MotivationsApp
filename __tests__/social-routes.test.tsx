@@ -329,6 +329,7 @@ function setStudyStore(overrides: Record<string, unknown> = {}) {
     },
     socialLoading: false,
     socialError: null,
+    socialRealtimeUnavailable: false,
     friendConnections: [],
     friendOverviews: [],
     studyGroups: [],
@@ -428,6 +429,31 @@ describe('Social routes', () => {
       expect(mockSendFriendRequest).toHaveBeenCalledWith(friendUser.username);
       expect(mockFindFriendByUsername).toHaveBeenLastCalledWith(friendUser.username);
       expect(rendered.getByText(/Anfrage gesendet/)).toBeTruthy();
+    });
+    await rendered.unmount();
+  });
+
+  it('keeps friend search usable while realtime is degraded and never renders raw backend errors', async () => {
+    setStudyStore({
+      socialRealtimeUnavailable: true,
+      socialError: 'MissingPartition: Realtime was unable to find the expected messages partition',
+    });
+    mockFindFriendByUsername.mockResolvedValueOnce({ user: friendUser, connection: null });
+    const rendered = await render(<FriendsScreen />);
+
+    expect(rendered.getByTestId('social-realtime-unavailable')).toHaveTextContent(
+      'Der Live-Status ist momentan nicht verfügbar. Die Freundesfunktionen können weiterhin verwendet werden.',
+    );
+    expect(rendered.queryByText(/MissingPartition|expected messages partition/i)).toBeNull();
+
+    await fireEvent.changeText(
+      rendered.getByLabelText('Eindeutigen Benutzernamen suchen'),
+      'berta',
+    );
+    await fireEvent.press(rendered.getByRole('button', { name: 'Suchen' }));
+    await waitFor(() => {
+      expect(mockFindFriendByUsername).toHaveBeenCalledWith('berta');
+      expect(rendered.getByText('Berta Beispiel')).toBeTruthy();
     });
     await rendered.unmount();
   });

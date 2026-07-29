@@ -109,7 +109,10 @@ let serverProfile: AccountStudyUser;
 
 function wrapper({ children }: PropsWithChildren) {
   return (
-    <StudyStoreProvider accountUserId="user-123" storageScope="account-user-123">
+    <StudyStoreProvider
+      accountAccessToken="access-token"
+      accountUserId="user-123"
+      storageScope="account-user-123">
       {children}
     </StudyStoreProvider>
   );
