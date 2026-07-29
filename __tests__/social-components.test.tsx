@@ -269,6 +269,8 @@ describe('Social UI components', () => {
     expect(rendered.getByLabelText('Rhythmus des gemeinsamen Lernziels')).toBeTruthy();
     expect(rendered.getByLabelText('Startdatum des gemeinsamen Lernziels')).toBeTruthy();
     expect(rendered.getByLabelText('Enddatum des gemeinsamen Lernziels')).toBeTruthy();
+    expect(rendered.getByText('Startdatum (optional)')).toBeTruthy();
+    expect(rendered.getByText('Enddatum (optional)')).toBeTruthy();
 
     await fireEvent.changeText(
       rendered.getByLabelText('Titel des gemeinsamen Lernziels'),

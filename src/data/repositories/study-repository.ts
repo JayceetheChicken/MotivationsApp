@@ -116,8 +116,8 @@ export interface CreateSharedGoalInput {
     targetSessions?: number;
     minimumSessionMinutes?: number;
     sourcePolicy: 'all' | 'timer_only';
-    startsAt: string;
-    endsAt: string;
+    startsAt?: string;
+    endsAt?: string;
   }>;
 }
 

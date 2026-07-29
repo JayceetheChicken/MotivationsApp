@@ -633,11 +633,11 @@ export function mapStudyChallenge(value: unknown): StudyChallenge {
     period === 'day' ? 'daily' : 'weekly',
   );
   const startsAt = requiredString(goal, 'Gemeinsames Lernziel', 'starts_at', 'startsAt');
-  const endsAt = requiredString(goal, 'Gemeinsames Lernziel', 'ends_at', 'endsAt');
+  const endsAt = optionalString(goal, 'ends_at', 'endsAt') ?? undefined;
   const rawStatus = optionalString(goal, 'status');
   const challengeStatus = rawStatus === 'completed' || rawStatus === 'archived'
     ? 'completed'
-    : Date.parse(endsAt) <= Date.now()
+    : endsAt && Date.parse(endsAt) <= Date.now()
       ? 'completed'
       : Date.parse(startsAt) > Date.now()
         ? 'upcoming'
@@ -749,7 +749,7 @@ export function mapSharedGoalProgress(value: unknown): SharedGoalProgress {
     mode,
     sourcePolicy: statusValue(valueOf(row, 'source_policy', 'sourcePolicy'), ['all', 'timer_only'] as const, 'all'),
     startsAt: optionalString(row, 'starts_at', 'startsAt') ?? '',
-    endsAt: optionalString(row, 'ends_at', 'endsAt') ?? '',
+    endsAt: optionalString(row, 'ends_at', 'endsAt') ?? undefined,
     revision: finiteNumber(row, 0, 'revision'),
     participants,
     team: mappedTeam,

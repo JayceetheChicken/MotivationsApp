@@ -1210,7 +1210,7 @@ function parseChallenge(value: unknown): StudyChallenge | null {
     !isString(value.title) ||
     !isString(value.description) ||
     !isIsoDate(value.startsAt) ||
-    !isIsoDate(value.endsAt) ||
+    (value.endsAt !== undefined && value.endsAt !== null && !isIsoDate(value.endsAt)) ||
     (value.sourcePolicy !== 'all' && value.sourcePolicy !== 'timer_only') ||
     (value.status !== 'upcoming' && value.status !== 'active' && value.status !== 'completed') ||
     (value.target.mode !== 'shared' && value.target.mode !== 'per_participant')
@@ -1269,7 +1269,7 @@ function parseChallenge(value: unknown): StudyChallenge | null {
     target,
     sourcePolicy: value.sourcePolicy,
     startsAt: value.startsAt,
-    endsAt: value.endsAt,
+    endsAt: isIsoDate(value.endsAt) ? value.endsAt : undefined,
     status: value.status,
     participants,
   };
