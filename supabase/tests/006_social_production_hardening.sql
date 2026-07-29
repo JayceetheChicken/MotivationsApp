@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(28);
+select plan(33);
 
 insert into auth.users(
   id, aud, role, email, raw_user_meta_data, created_at, updated_at
@@ -154,17 +154,86 @@ select is(
 );
 select ok(
   coalesce((
-    select qual::text ~ 'realtime\.topic\(\)[[:space:]]*='
+    select position('realtime.topic()' in qual::text) > 0
       and position('social:user:' in qual::text) > 0
       and position('auth.uid()' in qual::text) > 0
-      and position('~~' in qual::text) = 0
-      and position('similar' in lower(qual::text)) = 0
+      and position('friendships' in qual::text) > 0
+      and position('requester_id' in qual::text) > 0
+      and position('addressee_id' in qual::text) > 0
+      and position('accepted' in qual::text) > 0
+      and position('deleted_at' in qual::text) > 0
+      and position('broadcast' in qual::text) > 0
     from pg_catalog.pg_policies
     where schemaname = 'realtime'
       and tablename = 'messages'
       and policyname = 'social_user_can_receive'
   ), false),
-  'private realtime authorization requires equality with the exact own user topic'
+  'private realtime authorization is limited to own or accepted-friend broadcast topics'
+);
+select is(
+  (
+    select count(*)::integer
+    from pg_catalog.pg_policies
+    where schemaname = 'realtime'
+      and tablename = 'messages'
+      and policyname like 'social_user%'
+      and cmd = 'INSERT'
+  ),
+  0,
+  'social clients cannot insert broadcast or presence messages'
+);
+select ok(
+  coalesce((
+    select position('true' in lower(qual::text)) = 0
+    from pg_catalog.pg_policies
+    where schemaname = 'realtime'
+      and tablename = 'messages'
+      and policyname = 'social_user_can_receive'
+  ), false),
+  'social realtime authorization has no global allow expression'
+);
+
+create function pg_temp.social_topic_allowed(p_actor uuid, p_topic text)
+returns boolean
+language sql
+stable
+as $$
+  select p_topic ~ '^social:user:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    and (
+      p_topic = 'social:user:' || p_actor::text
+      or exists (
+        select 1
+        from public.friendships f
+        where f.status = 'accepted'
+          and f.deleted_at is null
+          and (
+            (f.requester_id = p_actor and f.addressee_id = split_part(p_topic, ':', 3)::uuid)
+            or (f.addressee_id = p_actor and f.requester_id = split_part(p_topic, ':', 3)::uuid)
+          )
+      )
+    );
+$$;
+
+select ok(
+  pg_temp.social_topic_allowed(
+    'e1111111-1111-4111-8111-111111111111',
+    'social:user:e1111111-1111-4111-8111-111111111111'
+  ),
+  'an authenticated user can receive the own social topic'
+);
+select ok(
+  pg_temp.social_topic_allowed(
+    'e1111111-1111-4111-8111-111111111111',
+    'social:user:e2222222-2222-4222-8222-222222222222'
+  ),
+  'an accepted friend can receive the friend social topic'
+);
+select ok(
+  not pg_temp.social_topic_allowed(
+    'e1111111-1111-4111-8111-111111111111',
+    'social:user:e3333333-3333-4333-8333-333333333333'
+  ),
+  'a stranger without an accepted friendship cannot receive the social topic'
 );
 select is(
   (

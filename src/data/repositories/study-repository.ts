@@ -168,6 +168,7 @@ export type SocialInvalidationKind =
 export type SocialUpdatesListener = Readonly<{
   onInvalidated: (kind: SocialInvalidationKind) => void;
   onError?: (error: Error) => void;
+  onSubscribed?: () => void;
 }>;
 
 export interface SocialRepository {
