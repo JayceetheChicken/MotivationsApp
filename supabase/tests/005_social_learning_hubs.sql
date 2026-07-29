@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(93);
+select plan(97);
 
 select has_table('public', 'learning_presence', 'learning presence exists');
 select is(
@@ -802,6 +802,40 @@ select is(
   ) -> 'goal' ->> 'id',
   'b7300000-0000-4000-8000-000000000001',
   'a weekly shared goal can be created with a confirmed friend'
+);
+select is(
+  public.create_shared_goal(
+    jsonb_build_object(
+      'id', 'b7400000-0000-4000-8000-000000000001',
+      'title', 'Offenes gemeinsames Ziel',
+      'description', '',
+      'type', 'duration',
+      'mode', 'per_participant',
+      'targetMinutes', 60,
+      'sourcePolicy', 'all',
+      'period', 'custom',
+      'cadence', 'weekly'
+    ),
+    array['a1111111-1111-4111-8111-111111111111'::uuid],
+    'b7400000-0000-4000-8000-000000000002'::uuid
+  ) -> 'goal' ->> 'ends_at',
+  null::text,
+  'a shared goal can be created without start and end dates'
+);
+select ok(
+  (public.get_shared_goal_details('b7400000-0000-4000-8000-000000000001')
+    -> 'goal' ->> 'starts_at')::timestamptz <= clock_timestamp(),
+  'an omitted shared-goal start defaults to creation time'
+);
+select is(
+  (public.get_shared_goal_details('b7400000-0000-4000-8000-000000000001')
+    -> 'goal' ->> 'expired')::boolean,
+  false,
+  'an open-ended shared goal is not expired'
+);
+select lives_ok(
+  $$select public.get_shared_goal_progress('b7400000-0000-4000-8000-000000000001')$$,
+  'progress remains available for an open-ended shared goal'
 );
 select lives_ok(
   $$

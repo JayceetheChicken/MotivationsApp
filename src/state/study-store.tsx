@@ -336,6 +336,7 @@ export interface StudyStoreValue extends StudyState {
   retrySync: () => Promise<void>;
   socialLoading: boolean;
   socialError: string | null;
+  socialRealtimeUnavailable: boolean;
   friendConnections: readonly FriendshipConnection[];
   friendOverviews: readonly FriendOverview[];
   studyGroups: readonly StudyGroup[];
@@ -1209,7 +1210,7 @@ function parseChallenge(value: unknown): StudyChallenge | null {
     !isString(value.title) ||
     !isString(value.description) ||
     !isIsoDate(value.startsAt) ||
-    !isIsoDate(value.endsAt) ||
+    (value.endsAt !== undefined && value.endsAt !== null && !isIsoDate(value.endsAt)) ||
     (value.sourcePolicy !== 'all' && value.sourcePolicy !== 'timer_only') ||
     (value.status !== 'upcoming' && value.status !== 'active' && value.status !== 'completed') ||
     (value.target.mode !== 'shared' && value.target.mode !== 'per_participant')
@@ -1268,7 +1269,7 @@ function parseChallenge(value: unknown): StudyChallenge | null {
     target,
     sourcePolicy: value.sourcePolicy,
     startsAt: value.startsAt,
-    endsAt: value.endsAt,
+    endsAt: isIsoDate(value.endsAt) ? value.endsAt : undefined,
     status: value.status,
     participants,
   };
@@ -1407,6 +1408,8 @@ interface StudyStoreProviderProps extends PropsWithChildren {
   importStorageScope?: string;
   /** Authenticated owner used to rebind imported device records. */
   accountUserId?: string;
+  /** Current session token; changing it replaces and re-authenticates private channels. */
+  accountAccessToken?: string;
 }
 
 function scopedStorageKey(storageScope: string): string {
@@ -1558,6 +1561,7 @@ const INITIAL_SYNC_STATUS: Readonly<SyncStatus> = {
 };
 
 export function StudyStoreProvider({
+  accountAccessToken,
   accountUserId,
   children,
   importStorageScope,
@@ -1573,6 +1577,7 @@ export function StudyStoreProvider({
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(INITIAL_SYNC_STATUS);
   const [socialLoading, setSocialLoading] = useState(false);
   const [socialError, setSocialError] = useState<string | null>(null);
+  const [socialRealtimeUnavailable, setSocialRealtimeUnavailable] = useState(false);
   const [avatarMaintenanceError, setAvatarMaintenanceError] = useState<string | null>(null);
   const [friendConnections, setFriendConnections] = useState<readonly FriendshipConnection[]>([]);
   const [friendOverviews, setFriendOverviews] = useState<readonly FriendOverview[]>([]);
@@ -1634,7 +1639,7 @@ export function StudyStoreProvider({
     ? `${IMPORT_DECISION_KEY_PREFIX}.${accountUserId}`
     : null;
   const repository = useMemo<StudyRepository>(() => {
-    if (accountUserId && supabase) {
+    if (accountAccessToken && accountUserId && supabase) {
       return createSupabaseStudyRepository({
         accountId: accountUserId,
         cacheSnapshotKey: storageKey,
@@ -1650,7 +1655,7 @@ export function StudyStoreProvider({
       storageScope,
       storeSchemaVersion: CURRENT_SCHEMA_VERSION,
     });
-  }, [accountUserId, storageKey, storageScope]);
+  }, [accountAccessToken, accountUserId, storageKey, storageScope]);
 
   useEffect(() => {
     stateRef.current = state;
@@ -2351,12 +2356,16 @@ export function StudyStoreProvider({
     };
     void repository.subscribeSocialUpdates({
       onInvalidated: invalidate,
-      onError: (error) => setSocialError(error.message),
+      onError: () => setSocialRealtimeUnavailable(true),
+      onSubscribed: () => setSocialRealtimeUnavailable(false),
     }, controller.signal).then((nextCleanup) => {
       if (controller.signal.aborted) void nextCleanup();
       else cleanup = nextCleanup;
     }).catch((error: unknown) => {
-      if (!controller.signal.aborted) setSocialError(asRepositoryError(error).message);
+      const normalized = asRepositoryError(error);
+      if (!controller.signal.aborted && normalized.code !== 'cancelled') {
+        setSocialRealtimeUnavailable(true);
+      }
     });
     return () => {
       controller.abort();
@@ -2868,6 +2877,7 @@ export function StudyStoreProvider({
       retrySync,
       socialLoading,
       socialError: socialError ?? avatarMaintenanceError,
+      socialRealtimeUnavailable,
       friendConnections,
       friendOverviews,
       studyGroups,
@@ -3208,6 +3218,7 @@ export function StudyStoreProvider({
     runSocialOperation,
     sharingPreferences,
     socialError,
+    socialRealtimeUnavailable,
     socialLoading,
     state,
     storageKey,

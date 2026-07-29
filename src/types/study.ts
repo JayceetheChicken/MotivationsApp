@@ -301,7 +301,7 @@ export interface SharedGoalProgress {
   mode: ChallengeMode;
   sourcePolicy: GoalSourcePolicy;
   startsAt: ISODateTime;
-  endsAt: ISODateTime;
+  endsAt?: ISODateTime;
   revision: number;
   participants: readonly ChallengeParticipantProgress[];
   /** Non-null exactly when `mode` is `shared`. */
@@ -321,7 +321,7 @@ export interface StudyChallenge {
   target: ChallengeTarget;
   sourcePolicy: GoalSourcePolicy;
   startsAt: ISODateTime;
-  endsAt: ISODateTime;
+  endsAt?: ISODateTime;
   status: 'upcoming' | 'active' | 'completed';
   participants: readonly ChallengeParticipant[];
   revision?: number;

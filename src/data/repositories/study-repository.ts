@@ -116,8 +116,8 @@ export interface CreateSharedGoalInput {
     targetSessions?: number;
     minimumSessionMinutes?: number;
     sourcePolicy: 'all' | 'timer_only';
-    startsAt: string;
-    endsAt: string;
+    startsAt?: string;
+    endsAt?: string;
   }>;
 }
 
@@ -168,6 +168,7 @@ export type SocialInvalidationKind =
 export type SocialUpdatesListener = Readonly<{
   onInvalidated: (kind: SocialInvalidationKind) => void;
   onError?: (error: Error) => void;
+  onSubscribed?: () => void;
 }>;
 
 export interface SocialRepository {

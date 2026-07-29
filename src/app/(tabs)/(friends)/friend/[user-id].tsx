@@ -69,7 +69,8 @@ function teamProgress(progress: SharedGoalProgress | undefined): SharedGoalProgr
   };
 }
 
-function remainingLabel(endsAt: string): string {
+function remainingLabel(endsAt: string | undefined): string | undefined {
+  if (!endsAt) return undefined;
   const hours = Math.ceil((Date.parse(endsAt) - Date.now()) / 3_600_000);
   if (!Number.isFinite(hours) || hours <= 0) return 'Zeitraum beendet';
   return hours < 48 ? `Noch ${hours} Std.` : `Noch ${Math.ceil(hours / 24)} Tage`;
