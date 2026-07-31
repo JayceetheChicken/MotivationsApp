@@ -10,6 +10,8 @@ import {
   useState,
 } from 'react';
 
+import { requestOnlineAccountDeletion } from '@/auth/account-deletion';
+import { clearAccountLocalData } from '@/auth/account-local-cleanup';
 import { authStorage } from '@/auth/storage';
 import { isPasswordRecoveryUrl } from '@/auth/navigation';
 import {
@@ -75,6 +77,7 @@ export type AuthPendingAction =
   | 'reset-password'
   | 'update-password'
   | 'sign-out'
+  | 'delete-account'
   | 'save-local-profile'
   | 'remove-local-profile';
 
@@ -97,6 +100,7 @@ interface AuthStoreValue {
   sendPasswordReset: (email: string) => Promise<AuthActionResult>;
   updatePassword: (password: string) => Promise<AuthActionResult>;
   signOut: () => Promise<AuthActionResult>;
+  deleteAccount: () => Promise<AuthActionResult>;
   saveLocalProfile: (input: LocalProfileInput) => Promise<AuthActionResult>;
   removeLocalProfile: () => Promise<AuthActionResult>;
   clearFeedback: () => void;
@@ -425,6 +429,70 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     }
   }, [configurationFailure]);
 
+  const deleteAccount = useCallback(async (): Promise<AuthActionResult> => {
+    if (!supabase) return configurationFailure();
+    const activeSession = session;
+    if (!activeSession?.access_token || !activeSession.user.id) {
+      const message = 'Für die Kontolöschung musst du mit einem Online-Konto angemeldet sein.';
+      setError(message);
+      setNotice(null);
+      return { ok: false, message };
+    }
+
+    setPendingAction('delete-account');
+    setError(null);
+    setNotice(null);
+
+    try {
+      await requestOnlineAccountDeletion(supabase, activeSession.access_token);
+
+      const browserStorage = typeof globalThis.localStorage === 'undefined'
+        ? null
+        : globalThis.localStorage;
+      const failedKeys = clearAccountLocalData(browserStorage, activeSession.user.id);
+      let localCleanupIncomplete = failedKeys.length > 0;
+
+      try {
+        await authStorage.removeItem(LOCAL_PROFILE_STORAGE_KEY);
+      } catch {
+        localCleanupIncomplete = true;
+      }
+      try {
+        await supabase.removeAllChannels();
+      } catch {
+        // Repository disposal repeats channel cleanup when the provider remounts.
+      }
+      try {
+        const { error: localSignOutError } = await supabase.auth.signOut({ scope: 'local' });
+        if (localSignOutError) throw localSignOutError;
+      } catch {
+        // The server-side user no longer exists. Local React state is still
+        // cleared below; Supabase's local sign-out is a best-effort storage wipe.
+        localCleanupIncomplete = true;
+      }
+
+      setSession(null);
+      setLocalProfile(null);
+      setPasswordRecoveryPending(false);
+      const message = localCleanupIncomplete
+        ? 'Dein Online-Konto wurde gelöscht. Einige lokale Anmeldedaten konnten nicht bestätigt bereinigt werden; lösche bei Bedarf die App-Daten in den Geräteeinstellungen.'
+        : 'Dein Online-Konto und die zugehörigen Daten wurden dauerhaft gelöscht. Du nutzt Lernzeit jetzt als Gast.';
+      setNotice(message);
+      return { ok: true, message };
+    } catch (deletionError) {
+      const candidate = errorMessage(deletionError);
+      const message = candidate?.startsWith('Deine Anmeldung ist abgelaufen')
+        || candidate?.startsWith('Das Online-Konto konnte')
+        || candidate?.startsWith('Für die Kontolöschung fehlt')
+        ? candidate
+        : 'Das Online-Konto konnte nicht gelöscht werden. Bitte versuche es später erneut.';
+      setError(message);
+      return { ok: false, message };
+    } finally {
+      setPendingAction(null);
+    }
+  }, [configurationFailure, session]);
+
   const saveLocalProfile = useCallback(async (input: LocalProfileInput): Promise<AuthActionResult> => {
     const validationMessage =
       displayNameError(input.displayName) ??
@@ -505,6 +573,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       sendPasswordReset,
       updatePassword,
       signOut,
+      deleteAccount,
       saveLocalProfile,
       removeLocalProfile,
       clearFeedback,
@@ -523,6 +592,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     session,
     signIn,
     signOut,
+    deleteAccount,
     signUp,
     updatePassword,
   ]);

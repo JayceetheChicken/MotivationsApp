@@ -2,6 +2,16 @@
 
 Lernzeit ist eine responsive Expo-/Android-App für persönliche Lernziele, zuverlässig gemessene Fokus-Sessions und motivierendes gemeinsames Lernen im privaten Freundeskreis. Der Erststart ist vollständig leer: Es gibt keine Beispielkonten, Fächer, Sessions, Ziele, Freunde oder Challenges.
 
+## Lizenzstatus
+
+Für den eigenen Lernzeit-Anwendungscode ist derzeit keine allgemeine
+Open-Source-Lizenz erteilt. Die frühere Expo-Template-`LICENSE` wurde entfernt,
+weil sie fälschlich wie eine Lizenz für das Gesamtprojekt wirkte. Rechtlich
+erforderliche Hinweise für Expo-/Template- und Drittbestandteile bleiben in
+[`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) erhalten. Der
+Repository-Inhaber muss die gewünschte Lizenzierung und die derzeit öffentliche
+GitHub-Sichtbarkeit ausdrücklich bestätigen.
+
 ## Funktionen
 
 - Timer-Sessions mit Fachauswahl, Pause, Fortsetzen und Wiederherstellung

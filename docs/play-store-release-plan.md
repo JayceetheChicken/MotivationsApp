@@ -1,10 +1,13 @@
 # Google-Play-Release-Plan für Lernzeit
 
-Stand: 29. Juli 2026
+Stand: 31. Juli 2026
 
 ## Ziel und Abgrenzung
 
-Dieser Plan behandelt ausschließlich den Android-Veröffentlichungsprozess. Die normalen App-Funktionen, das bestehende UI-Design und ein allgemeines Sicherheits-Audit sind nicht Bestandteil dieses Release-Schritts. Es wurde kein Build hochgeladen und keine Veröffentlichung ausgelöst.
+Dieser Plan fasst die Android-Veröffentlichung nach dem abschließenden
+Security-, Datenschutz- und Release-Hardening zusammen. Das bestehende
+UI-Design wurde nur für Kontolöschung und rechtliche Seiten erweitert. Es wurde
+kein Build erzeugt oder hochgeladen und keine Veröffentlichung ausgelöst.
 
 ## 1. Release-Konfiguration: Ist-Stand
 
@@ -16,7 +19,7 @@ Dieser Plan behandelt ausschließlich den Android-Veröffentlichungsprozess. Die
 | Android `versionCode` | Nicht lokal in `app.json` gesetzt | `eas.json` verwendet jetzt `appVersionSource: "remote"` und `autoIncrement: true`. EAS initialisiert den ersten Remote-Wert bei fehlendem lokalen Wert mit `1` und erhöht ihn bei weiteren Production-Builds. Vor dem ersten Build im EAS-Dashboard oder mit `eas build:version:get -p android` kontrollieren. |
 | Allgemeines App-Icon | `assets/images/icon.png`, 1024 × 1024 | Technisch eingebunden, visuell aber ein Expo-Platzhalter. Vor Veröffentlichung durch ein endgültiges Lernzeit-Icon ersetzen. Für den Store zusätzlich eine 512 × 512 PNG-Datei mit höchstens 1 MB bereitstellen. |
 | Adaptive Icon | Vordergrund, Hintergrund und Monochrom-Asset sind eingebunden | Technisch vollständig, visuell ebenfalls Expo-/Template-Material. Alle drei Ebenen vor dem Release durch die endgültige Lernzeit-Marke ersetzen und auf runden, squircle- und monochromen Masken prüfen. |
-| Splashscreen | `expo-splash-screen` mit Hintergrund `#B44D2B` | Gültiger einfarbiger Splashscreen. `assets/images/splash-icon.png` ist vorhanden, aber nicht eingebunden. Entscheiden, ob der farbige Splash bewusst final ist; eine Bildänderung wurde nicht vorgenommen. |
+| Splashscreen | `expo-splash-screen` mit Hintergrund `#B44D2B` | Technisch gültiger einfarbiger Splashscreen ohne Bild. Das ungenutzte Expo-Template-`splash-icon.png` wurde entfernt. Vor Release bewusst bestätigen oder durch ein finales Lernzeit-Splashkonzept ersetzen. |
 | Production-Profil | `eas.json` wurde ergänzt | Erzeugt explizit ein Android App Bundle, verwaltet `versionCode` remote und konfiguriert Submit nur für `internal` mit Status `draft`. |
 | EAS-Projektverknüpfung | Kein `extra.eas.projectId` in `app.json` | Vor dem ersten Cloud-Build mit `npx eas-cli@latest init` beziehungsweise `eas init` verknüpfen. Dies wurde nicht ausgeführt. |
 | Production-Umgebung | Supabase-Werte liegen lokal in einer ignorierten `.env.local` | Die Werte werden so nicht verlässlich in den EAS-Cloud-Build übernommen. `EXPO_PUBLIC_SUPABASE_URL` und der Publishable-/Anon-Key müssen im EAS-Environment `production` hinterlegt werden. Keine geheimen Service-Role-Keys in die App übernehmen. |
@@ -35,7 +38,11 @@ eas build --platform android --profile production
 eas submit --platform android
 ```
 
-Sie wurden nicht ausgeführt. Auf diesem Windows-System blockiert die PowerShell-Ausführungsrichtlinie `npx.ps1`. In PowerShell funktionieren stattdessen die `.cmd`-Varianten; alternativ die obigen Befehle in `cmd.exe` ausführen:
+`npx.cmd expo-doctor` wurde im Hardening ausgeführt und bestand 20/20 Checks.
+EAS Build und Submit wurden bewusst nicht ausgeführt. Auf diesem
+Windows-System blockiert die PowerShell-Ausführungsrichtlinie `npx.ps1`; in
+PowerShell funktionieren stattdessen die `.cmd`-Varianten, alternativ die
+EAS-Befehle in `cmd.exe` ausführen:
 
 ```powershell
 npx.cmd expo-doctor
@@ -55,7 +62,7 @@ Wichtig: `eas submit` lädt tatsächlich zu Google Play hoch. Erst ausführen, w
 4. Endgültige Lernzeit-Icons erstellen und die vorhandenen Expo-Platzhalter ersetzen.
 5. Festlegen, ob der Splashscreen bewusst nur die Farbe `#B44D2B` zeigen soll.
 6. Datenschutzerklärung unter einer öffentlichen HTTPS-URL veröffentlichen.
-7. Da die App Online-Konten anlegen kann, einen leicht auffindbaren Löschweg in der App und eine externe HTTPS-Seite zur Kontolöschung bereitstellen. Beide fehlen derzeit und sind vor Produktion erforderlich.
+7. Den vorbereiteten In-App-Löschweg und `/konto-loeschen` nach Function-Deployment end-to-end testen; die externe Seite unter einer stabilen öffentlichen HTTPS-URL hosten und in der Play Console eintragen.
 8. Dauerhaft nutzbaren Demo-Zugang für Google anlegen; idealerweise mit vorbereiteten Lerninhalten, Freundschaft, Gruppe, gemeinsamem Ziel und gemeinsamer Session.
 9. Support-E-Mail, Zielgruppe, Länder/Regionen und die Entscheidung „kostenlos oder kostenpflichtig“ festlegen.
 10. Store-Grafiken und Screenshots gemäß `store-listing-content.md` erstellen.
@@ -185,10 +192,11 @@ Dieser Schritt ist zwingend für neue persönliche Konten; bei älteren persönl
 - Finale Lernzeit-Icons statt der Expo-Platzhalter.
 - Entscheidung über den farbigen Splashscreen.
 - EAS-Projektverknüpfung und Production-Environment-Variablen.
-- Erfolgreicher `expo-doctor`-Lauf und Production-AAB.
+- Production-AAB; `expo-doctor` bestand im Hardening 20/20 Checks.
 - Play-Developer-Konto und vollständig angelegte Play-App.
 - Support-E-Mail, veröffentlichte Datenschutzerklärung und externe Kontolöschseite.
-- In-App-Weg zur Löschung eines Online-Kontos.
+- Deployment und End-to-End-Test der vorbereiteten Edge Function `delete-account`.
+- Öffentliches HTTPS-Hosting der vorbereiteten Datenschutz- und Kontolöschseiten.
 - Reviewer-Demo-Konto mit stabilen Zugangsdaten.
 - Feature-Grafik sowie Smartphone- und Tablet-Screenshots.
 - Vollständig und wahrheitsgemäß ausgefüllte Play-Console-Formulare.
@@ -196,8 +204,8 @@ Dieser Schritt ist zwingend für neue persönliche Konten; bei älteren persönl
 
 ## 6. Mögliche Release-Blocker
 
-1. **Kontolöschung:** Online-Registrierung ist vorhanden, aber ein In-App-Löschweg und eine externe Löschseite wurden nicht gefunden. Google verlangt beides.
-2. **Datenschutz:** Es wurde keine veröffentlichte Datenschutzerklärungs-URL gefunden.
+1. **Kontolöschung:** In-App-UI, Edge-Function-Code und statische Seite sind vorbereitet, aber die Function ist nicht deployed und die Seite nicht öffentlich gehostet.
+2. **Datenschutz:** Die deutsche Entwurfsseite ist vorbereitet, enthält aber Pflichtplatzhalter, ist nicht rechtlich freigegeben und nicht öffentlich gehostet.
 3. **Branding:** Die aktuellen App- und Adaptive-Icon-Dateien zeigen Expo-/Template-Material und sind nicht als finale Lernzeit-Marke geeignet.
 4. **Reviewer-Zugang:** Für kontogebundene Social-Funktionen fehlen dauerhaft gültige Demo-Zugangsdaten.
 5. **EAS Cloud:** Projekt-ID und Production-Environment fehlen; dadurch kann der Cloud-Build unvollständig konfiguriert sein.

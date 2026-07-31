@@ -611,8 +611,13 @@ describe('StudyStoreProvider social learning infrastructure', () => {
           rejection = error;
         }
       });
-      expect(rejection).toEqual(expect.objectContaining({ message }));
-      expect(result.current.socialError).toBe(message);
+      expect(rejection).toEqual(expect.objectContaining({
+        message: 'Die Anfrage konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
+      }));
+      expect(result.current.socialError).toBe(
+        'Die Anfrage konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
+      );
+      expect(result.current.socialError).not.toContain(message);
     }
   });
 });

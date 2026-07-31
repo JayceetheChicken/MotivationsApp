@@ -3,84 +3,42 @@ import 'react-native-url-polyfill/auto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import { authStorage } from '@/auth/storage';
+import {
+  resolveSupabaseEnvironment,
+  type SupabaseConfiguration,
+} from '@/auth/supabase-configuration';
 import type { Database } from '@/types/database.generated';
 
-export type SupabaseConfiguration = Readonly<{
-  isConfigured: boolean;
-  mode: 'supabase' | 'local-development';
-  message: string;
-}>;
+export type { SupabaseConfiguration } from '@/auth/supabase-configuration';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim();
-const supabasePublishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
-const supabasePublicKey = supabasePublishableKey || supabaseAnonKey;
-
-function validateUrl(value: string): string | null {
-  try {
-    const parsedUrl = new URL(value);
-    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-      return 'EXPO_PUBLIC_SUPABASE_URL muss mit https:// oder http:// beginnen.';
-    }
-  } catch {
-    return 'EXPO_PUBLIC_SUPABASE_URL ist keine gültige URL.';
-  }
-
-  return null;
-}
-
-function missingConfigurationMessage(): string {
-  if (!supabaseUrl && !supabasePublicKey) {
-    return 'Supabase ist noch nicht konfiguriert. Hinterlege EXPO_PUBLIC_SUPABASE_URL und EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY und starte Expo anschließend neu.';
-  }
-
-  if (!supabaseUrl) {
-    return 'EXPO_PUBLIC_SUPABASE_URL fehlt. Kontoaktionen bleiben deaktiviert.';
-  }
-
-  return 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY beziehungsweise EXPO_PUBLIC_SUPABASE_ANON_KEY fehlt. Kontoaktionen bleiben deaktiviert.';
-}
+const environment = resolveSupabaseEnvironment({
+  url: process.env.EXPO_PUBLIC_SUPABASE_URL,
+  anonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+  publishableKey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+});
 
 let client: SupabaseClient<Database> | null = null;
 let configuration: SupabaseConfiguration;
 
-if (!supabaseUrl || !supabasePublicKey) {
-  configuration = {
-    isConfigured: false,
-    mode: 'local-development',
-    message: missingConfigurationMessage(),
-  };
+if (!environment.configuration.isConfigured || !environment.url || !environment.publicKey) {
+  configuration = environment.configuration;
 } else {
-  const urlError = validateUrl(supabaseUrl);
-
-  if (urlError) {
+  try {
+    client = createClient<Database>(environment.url, environment.publicKey, {
+      auth: {
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        persistSession: true,
+        storage: authStorage,
+      },
+    });
+    configuration = environment.configuration;
+  } catch {
     configuration = {
       isConfigured: false,
       mode: 'local-development',
-      message: urlError,
+      message: 'Die Supabase-Konfiguration konnte nicht geladen werden. Prüfe URL und öffentlichen Publishable-Key.',
     };
-  } else {
-    try {
-      client = createClient<Database>(supabaseUrl, supabasePublicKey, {
-        auth: {
-          autoRefreshToken: true,
-          detectSessionInUrl: false,
-          persistSession: true,
-          storage: authStorage,
-        },
-      });
-      configuration = {
-        isConfigured: true,
-        mode: 'supabase',
-        message: 'Supabase-Authentifizierung ist konfiguriert.',
-      };
-    } catch {
-      configuration = {
-        isConfigured: false,
-        mode: 'local-development',
-        message: 'Die Supabase-Konfiguration konnte nicht geladen werden. Prüfe URL und öffentlichen Publishable-Key.',
-      };
-    }
   }
 }
 

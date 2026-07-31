@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -24,6 +24,7 @@ export default function ProfileScreen() {
   const theme = useAppTheme();
   const auth = useAuthStore();
   const saveLocalProfile = auth.saveLocalProfile;
+  const deleteAccount = auth.deleteAccount;
   const {
     data,
     lastSyncError = null,
@@ -78,6 +79,9 @@ export default function ProfileScreen() {
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [avatarPreviewUri, setAvatarPreviewUri] = useState<string | null>(null);
   const [avatarPreviewBase, setAvatarPreviewBase] = useState(persistedAvatarUrl);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const avatarActionInFlightRef = useRef(false);
   const pendingRecoveryModeRef = useRef<string | null>(null);
   const accountProfileRef = useRef(accountProfile);
@@ -295,6 +299,17 @@ export default function ProfileScreen() {
     if (result.ok) router.replace('/');
   };
 
+  const permanentlyDeleteAccount = async () => {
+    if (deleteConfirmation !== 'LÖSCHEN') return;
+    setDeleteError(null);
+    const result = await deleteAccount();
+    if (result.ok) {
+      router.replace('/');
+      return;
+    }
+    setDeleteError(result.message);
+  };
+
   return (
     <Screen contentContainerStyle={styles.content} maxWidth={760}>
       <AppCard
@@ -485,6 +500,87 @@ export default function ProfileScreen() {
           <AppButton fullWidth label="Abmelden" loading={auth.pendingAction === 'sign-out'} onPress={() => void signOut()} variant="outline" />
         ) : null}
       </View>
+
+      {isAccount ? (
+        <View style={styles.section}>
+          <SectionHeader
+            description="Dieser Vorgang kann nicht rückgängig gemacht werden."
+            eyebrow="Dauerhafte Löschung"
+            title="Konto löschen"
+          />
+          <AppCard
+            style={[styles.deleteCard, { backgroundColor: theme.colors.dangerMuted, borderColor: theme.colors.danger }]}
+            variant="outlined">
+            <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Was dauerhaft gelöscht wird</Text>
+            <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Dein Online-Profil und Profilbild, synchronisierte Lernzeiten und Sessionsegmente, Fächer, Noten, persönliche und gemeinsame Ziele, Freundschaften, Gruppen, gemeinsame Sessions, Presence-, Import- und Outbox-Daten sowie der Supabase-Login.</Text>
+            <Text selectable style={[theme.typography.caption, { color: theme.colors.danger }]}>Noch nicht synchronisierte Änderungen dieses Kontos gehen ebenfalls verloren. Lokale Gastdaten sind davon nicht betroffen.</Text>
+
+            {!deleteConfirmationOpen ? (
+              <AppButton
+                fullWidth
+                label="Konto löschen"
+                onPress={() => {
+                  setDeleteConfirmationOpen(true);
+                  setDeleteConfirmation('');
+                  setDeleteError(null);
+                }}
+                variant="danger"
+              />
+            ) : (
+              <View style={styles.deleteConfirmation}>
+                <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Bestätige erneut: Gib LÖSCHEN ein.</Text>
+                <TextInput
+                  accessibilityLabel="LÖSCHEN zur Bestätigung eingeben"
+                  autoCapitalize="characters"
+                  editable={auth.pendingAction !== 'delete-account'}
+                  onChangeText={(value) => {
+                    setDeleteConfirmation(value.toLocaleUpperCase('de-DE'));
+                    if (deleteError) setDeleteError(null);
+                  }}
+                  placeholder="LÖSCHEN"
+                  placeholderTextColor={theme.colors.textSubtle}
+                  style={[styles.input, theme.typography.body, { backgroundColor: theme.colors.surface, borderColor: theme.colors.danger, color: theme.colors.text }]}
+                  value={deleteConfirmation}
+                />
+                {deleteError ? (
+                  <Text accessibilityRole="alert" selectable style={[theme.typography.caption, { color: theme.colors.danger }]}>{deleteError}</Text>
+                ) : null}
+                <AppButton
+                  disabled={deleteConfirmation !== 'LÖSCHEN'}
+                  fullWidth
+                  label="Konto dauerhaft löschen"
+                  loading={auth.pendingAction === 'delete-account'}
+                  onPress={() => void permanentlyDeleteAccount()}
+                  variant="danger"
+                />
+                <AppButton
+                  disabled={auth.pendingAction === 'delete-account'}
+                  fullWidth
+                  label="Abbrechen"
+                  onPress={() => {
+                    setDeleteConfirmationOpen(false);
+                    setDeleteConfirmation('');
+                    setDeleteError(null);
+                  }}
+                  variant="outline"
+                />
+              </View>
+            )}
+          </AppCard>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <SectionHeader
+          description="Öffentliche Informationen, die auch ohne App-Installation über die Web-Version erreichbar sein sollen."
+          eyebrow="Rechtliches"
+          title="Datenschutz & Kontolöschung"
+        />
+        <AppCard style={styles.accountActions} variant="subtle">
+          <AppButton fullWidth label="Datenschutzerklärung" onPress={() => router.push('/datenschutz' as Href)} variant="outline" />
+          <AppButton fullWidth label="Informationen zur Kontolöschung" onPress={() => router.push('/konto-loeschen' as Href)} variant="outline" />
+        </AppCard>
+      </View>
     </Screen>
   );
 }
@@ -506,4 +602,6 @@ const styles = StyleSheet.create({
   field: { gap: 6 },
   input: { minHeight: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   accountActions: { gap: 10 },
+  deleteCard: { gap: 14 },
+  deleteConfirmation: { gap: 10 },
 });

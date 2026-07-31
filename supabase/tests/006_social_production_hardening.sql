@@ -157,18 +157,15 @@ select ok(
     select position('realtime.topic()' in qual::text) > 0
       and position('social:user:' in qual::text) > 0
       and position('auth.uid()' in qual::text) > 0
-      and position('friendships' in qual::text) > 0
-      and position('requester_id' in qual::text) > 0
-      and position('addressee_id' in qual::text) > 0
-      and position('accepted' in qual::text) > 0
-      and position('deleted_at' in qual::text) > 0
-      and position('broadcast' in qual::text) > 0
+      and position('friendships' in qual::text) = 0
+      and position('requester_id' in qual::text) = 0
+      and position('addressee_id' in qual::text) = 0
     from pg_catalog.pg_policies
     where schemaname = 'realtime'
       and tablename = 'messages'
       and policyname = 'social_user_can_receive'
   ), false),
-  'private realtime authorization is limited to own or accepted-friend broadcast topics'
+  'private realtime authorization is limited to the users own social inbox'
 );
 select is(
   (
@@ -176,11 +173,11 @@ select is(
     from pg_catalog.pg_policies
     where schemaname = 'realtime'
       and tablename = 'messages'
-      and policyname like 'social_user%'
       and cmd = 'INSERT'
+      and roles @> array['authenticated']::name[]
   ),
   0,
-  'social clients cannot insert broadcast or presence messages'
+  'authenticated clients cannot insert realtime messages'
 );
 select ok(
   coalesce((
@@ -198,20 +195,7 @@ returns boolean
 language sql
 stable
 as $$
-  select p_topic ~ '^social:user:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-    and (
-      p_topic = 'social:user:' || p_actor::text
-      or exists (
-        select 1
-        from public.friendships f
-        where f.status = 'accepted'
-          and f.deleted_at is null
-          and (
-            (f.requester_id = p_actor and f.addressee_id = split_part(p_topic, ':', 3)::uuid)
-            or (f.addressee_id = p_actor and f.requester_id = split_part(p_topic, ':', 3)::uuid)
-          )
-      )
-    );
+  select p_topic = 'social:user:' || p_actor::text;
 $$;
 
 select ok(
@@ -222,11 +206,11 @@ select ok(
   'an authenticated user can receive the own social topic'
 );
 select ok(
-  pg_temp.social_topic_allowed(
+  not pg_temp.social_topic_allowed(
     'e1111111-1111-4111-8111-111111111111',
     'social:user:e2222222-2222-4222-8222-222222222222'
   ),
-  'an accepted friend can receive the friend social topic'
+  'an accepted friend cannot receive the friends social topic'
 );
 select ok(
   not pg_temp.social_topic_allowed(

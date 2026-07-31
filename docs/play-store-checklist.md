@@ -137,7 +137,10 @@ Da Lernzeit innerhalb der App Online-Konten erstellen kann, gelten die Anforderu
 - [ ] URL im Data-Safety-/Kontolöschformular eingetragen.
 - [ ] Prozess end-to-end mit einem Testkonto verifiziert.
 
-**Aktueller Status: BLOCKIERT.** Im App-Profil wurde nur Abmelden sowie das Entfernen eines rein lokalen Profils gefunden, nicht die Löschung des Supabase-Online-Kontos. Eine externe Löschseite wurde ebenfalls nicht gefunden.
+**Aktueller Status: TECHNISCH VORBEREITET, NOCH BLOCKIERT.** Der In-App-Weg,
+die serverseitige Function und `/konto-loeschen` liegen im Release-Branch. Vor
+Abschluss müssen die Function deployed, die Platzhalter ausgefüllt, die Seite
+öffentlich per HTTPS gehostet und der Prozess end-to-end geprüft werden.
 
 Quelle: [Google – Anforderungen zur Kontolöschung](https://support.google.com/googleplay/android-developer/answer/13327111?hl=de).
 
@@ -153,7 +156,10 @@ Quelle: [Google – Anforderungen zur Kontolöschung](https://support.google.com
 - [ ] Richtlinie stimmt mit Data Safety und Kontolöschseite überein.
 - [ ] URL in `Policy > App content > Privacy policy` und gegebenenfalls im Store-Eintrag hinterlegt.
 
-**Aktueller Status: BLOCKIERT.** Es wurde keine veröffentlichte Datenschutz-URL gefunden.
+**Aktueller Status: ENTWURF VORBEREITET, NOCH BLOCKIERT.** `/datenschutz` und
+die redaktionelle Entwurfsfassung sind vorhanden. Verantwortlicher, Kontakt,
+Rechtsgrundlagen, Dienstleister-/Transferangaben, Logs und Aufbewahrung müssen
+ausgefüllt, rechtlich geprüft und öffentlich per HTTPS gehostet werden.
 
 ## J. Kategorie und Tags
 

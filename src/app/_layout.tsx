@@ -201,6 +201,8 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
             ),
           }}
         />
+        <Stack.Screen name="datenschutz" options={{ title: 'Datenschutz' }} />
+        <Stack.Screen name="konto-loeschen" options={{ title: 'Konto löschen' }} />
         <Stack.Screen
           name="import-local-data"
           options={{

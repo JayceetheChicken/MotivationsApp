@@ -1,6 +1,6 @@
 # Store-Listing-Inhalte für Lernzeit
 
-Stand: 29. Juli 2026
+Stand: 31. Juli 2026
 
 ## Statusübersicht
 
@@ -14,8 +14,8 @@ Stand: 29. Juli 2026
 | Smartphone-Screenshots | Fehlen | Mindestens 2, empfohlen 4–8 echte Screenshots |
 | Tablet-Screenshots | Fehlen | Empfohlen mindestens 4 je verwendeter Tablet-Klasse |
 | Support-E-Mail | Fehlt | Öffentliche, überwachte Support-Adresse |
-| Datenschutzerklärung | Fehlt | Öffentliche HTTPS-URL |
-| Externe Kontolöschung | Fehlt | Öffentliche HTTPS-Seite mit Löschanfrage |
+| Datenschutzerklärung | Entwurf vorbereitet | Pflichtplatzhalter ausfüllen, rechtlich freigeben und öffentliche HTTPS-URL hosten |
+| Externe Kontolöschung | Technisch vorbereitet | Function deployen, End-to-End-Test und öffentliche HTTPS-Route hosten |
 | Demo-Zugang | Fehlt | Dauerhaftes Reviewer-Konto und englische Anleitung |
 | Versionshinweise | Entwurf fertig | Siehe `release-notes.md` |
 
@@ -137,7 +137,8 @@ Die Adresse muss dauerhaft überwacht werden und sollte nicht identisch mit dem 
 
 ## Datenschutzerklärung
 
-Noch zu veröffentlichen und einzutragen:
+Die statische Route `/datenschutz` und der deutsche Entwurf sind vorbereitet.
+Nach Ausfüllen und rechtlicher Prüfung noch zu veröffentlichen und einzutragen:
 
 ```text
 [https://DEINE-DOMAIN.example/datenschutz]
@@ -147,15 +148,22 @@ Die Seite muss Lernzeit beziehungsweise den Store-Entwicklernamen nennen und Gas
 
 ## Externe Seite zur Kontolöschung
 
-Noch zu erstellen:
+Die statische Route `/konto-loeschen` und der sichere authentifizierte
+In-App-Prozess sind vorbereitet. Nach Function-Deployment und End-to-End-Test
+noch öffentlich zu hosten und einzutragen:
 
 ```text
 [https://DEINE-DOMAIN.example/konto-loeschen]
 ```
 
-Die Seite muss ohne installierte App erreichbar sein und eine tatsächliche Löschanfrage ermöglichen, etwa über ein authentifiziertes Webformular oder einen klaren Support-Workflow. Sie muss erklären, welche Konto- und Nutzerdaten gelöscht werden, was aus rechtlichen Gründen gegebenenfalls aufbewahrt wird und was der Nutzer nach der Anfrage erwarten kann.
+Die Seite muss ohne installierte App erreichbar sein und leitet zum
+authentifizierten Web-/App-Prozess. Sie erklärt Löschumfang, gemeinsame Inhalte
+und noch zu bestätigende Aufbewahrung. Der Kontaktplatzhalter muss durch einen
+funktionierenden, identitätsprüfenden Supportweg ersetzt werden.
 
-Zusätzlich ist in der App ein leicht auffindbarer Weg zur Online-Kontolöschung erforderlich. Das bloße Abmelden oder Entfernen eines lokalen Profils erfüllt diese Anforderung nicht.
+Zusätzlich enthält die App jetzt den Bereich `Konto löschen` mit Warnung,
+zweistufiger Bestätigung und serverseitiger Löschung. Das Deployment ist noch
+auszuführen.
 
 ## Demo-Zugang für die Google-Prüfung
 

@@ -1,3 +1,15 @@
+# Third-party notices
+
+Der Anwendungscode von **Lernzeit** wird durch diese Datei nicht unter eine
+Open-Source-Lizenz gestellt. Eine Lizenzierung oder Veröffentlichung des
+eigenen Projektcodes muss der Rechteinhaber ausdrücklich und separat festlegen.
+
+Das Projekt basiert auf Expo und kann weiterhin Bestandteile des Expo-
+Projekt-Templates sowie MIT-lizenzierte Expo-Pakete enthalten. Für solche
+Bestandteile gilt der folgende, auf diese Drittbestandteile begrenzte Hinweis:
+
+## Expo / 650 Industries
+
 The MIT License (MIT)
 
 Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
@@ -19,3 +31,9 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Weitere Abhängigkeiten und ihre jeweiligen Lizenztexte sind über
+`package-lock.json` versioniert beziehungsweise in den veröffentlichten
+Paketinformationen der Abhängigkeiten ausgewiesen. Vor einer Veröffentlichung
+ist eine vollständige Third-Party-Lizenzinventur für das tatsächlich erzeugte
+Artefakt durchzuführen.

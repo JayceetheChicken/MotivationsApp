@@ -593,6 +593,7 @@ describe('SupabaseStudyRepository RPC contract', () => {
     expect(channel).toHaveBeenCalledWith('social:user:account-id', {
       config: { private: true },
     });
+    expect(channel).not.toHaveBeenCalledWith('social:user:friend', expect.anything());
     const broadcastHandler = channelObject.on.mock.calls[0]?.[2] as (
       (message: unknown) => void
     ) | undefined;

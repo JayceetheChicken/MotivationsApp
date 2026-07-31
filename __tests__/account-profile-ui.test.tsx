@@ -11,6 +11,7 @@ const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockUpdateAccountProfile = jest.fn();
 const mockReplaceAccountAvatar = jest.fn();
+const mockDeleteAccount = jest.fn();
 
 jest.mock('expo-router', () => ({
   router: {
@@ -76,6 +77,7 @@ function configureAccountStores(profileOverrides: Partial<AccountStudyUser> | nu
     saveLocalProfile: jest.fn(),
     clearFeedback: jest.fn(),
     signOut: jest.fn(),
+    deleteAccount: mockDeleteAccount,
     removeLocalProfile: jest.fn(),
   } as unknown as ReturnType<typeof useAuthStore>);
 
@@ -110,6 +112,11 @@ describe('online account profile screen', () => {
     mockedGetPendingResult.mockReset();
     mockReplaceAccountAvatar.mockReset();
     mockUpdateAccountProfile.mockReset();
+    mockDeleteAccount.mockReset();
+    mockDeleteAccount.mockResolvedValue({
+      ok: true,
+      message: 'Dein Online-Konto wurde dauerhaft gelöscht.',
+    });
     mockedGetPendingResult.mockResolvedValue(null);
     configureAccountStores();
   });
@@ -135,6 +142,49 @@ describe('online account profile screen', () => {
     expect(rendered.queryByRole('button', { name: 'Alle lokalen Lerndaten löschen' })).toBeNull();
     expect(rendered.queryByRole('button', { name: 'Lokales Profil und Daten löschen' })).toBeNull();
     expect(rendered.getByRole('button', { name: 'Abmelden' })).toBeTruthy();
+    expect(rendered.getByRole('button', { name: 'Konto löschen' })).toBeTruthy();
+    await rendered.unmount();
+  });
+
+  it('requires a two-step typed confirmation before deleting the online account', async () => {
+    const rendered = await render(<ProfileScreen />);
+
+    expect(rendered.queryByLabelText('LÖSCHEN zur Bestätigung eingeben')).toBeNull();
+    await fireEvent.press(rendered.getByRole('button', { name: 'Konto löschen' }));
+
+    const finalButton = rendered.getByRole('button', { name: 'Konto dauerhaft löschen' });
+    expect(finalButton.props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
+    expect(rendered.getByText(/Profilbild, synchronisierte Lernzeiten/)).toBeTruthy();
+
+    await fireEvent.changeText(
+      rendered.getByLabelText('LÖSCHEN zur Bestätigung eingeben'),
+      'löschen',
+    );
+    await fireEvent.press(rendered.getByRole('button', { name: 'Konto dauerhaft löschen' }));
+
+    await waitFor(() => expect(mockDeleteAccount).toHaveBeenCalledTimes(1));
+    expect(mockReplace).toHaveBeenCalledWith('/');
+    await rendered.unmount();
+  });
+
+  it('keeps the confirmation open and shows a friendly deletion error', async () => {
+    mockDeleteAccount.mockResolvedValueOnce({
+      ok: false,
+      message: 'Das Online-Konto konnte nicht gelöscht werden. Bitte versuche es später erneut.',
+    });
+    const rendered = await render(<ProfileScreen />);
+
+    await fireEvent.press(rendered.getByRole('button', { name: 'Konto löschen' }));
+    await fireEvent.changeText(
+      rendered.getByLabelText('LÖSCHEN zur Bestätigung eingeben'),
+      'LÖSCHEN',
+    );
+    await fireEvent.press(rendered.getByRole('button', { name: 'Konto dauerhaft löschen' }));
+
+    expect(await rendered.findByRole('alert')).toHaveTextContent(
+      'Das Online-Konto konnte nicht gelöscht werden. Bitte versuche es später erneut.',
+    );
+    expect(mockReplace).not.toHaveBeenCalled();
     await rendered.unmount();
   });
 

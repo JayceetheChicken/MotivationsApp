@@ -274,7 +274,7 @@ function describeAvatarPersistenceError(error: unknown): StudyRepositoryError {
   if (normalized.code === 'cancelled') return normalized;
 
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
-    console.error('[avatar] set_my_avatar fehlgeschlagen', error);
+    console.error('[avatar] set_my_avatar fehlgeschlagen', normalized.cause ?? error);
   }
 
   return new StudyRepositoryError(

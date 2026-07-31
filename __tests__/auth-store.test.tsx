@@ -9,6 +9,11 @@ const mockExchangeCodeForSession = jest.fn();
 const mockSetSession = jest.fn();
 const mockStorageGetItem = jest.fn<Promise<string | null>, [string]>();
 const mockStorageSetItem = jest.fn<Promise<void>, [string, string]>();
+const mockStorageRemoveItem = jest.fn<Promise<void>, [string]>();
+const mockDeleteRequest = jest.fn<Promise<void>, [unknown, string]>();
+const mockClearAccountLocalData = jest.fn<readonly string[], [unknown, string]>();
+const mockRemoveAllChannels = jest.fn<Promise<unknown>, []>();
+const mockSignOut = jest.fn();
 
 const mockRecoverySession = {
   access_token: 'access',
@@ -31,9 +36,19 @@ jest.mock('expo-linking', () => ({
 jest.mock('@/auth/storage', () => ({
   authStorage: {
     getItem: (key: string) => mockStorageGetItem(key),
-    removeItem: jest.fn(),
+    removeItem: (key: string) => mockStorageRemoveItem(key),
     setItem: (key: string, value: string) => mockStorageSetItem(key, value),
   },
+}));
+
+jest.mock('@/auth/account-deletion', () => ({
+  requestOnlineAccountDeletion: (client: unknown, token: string) => mockDeleteRequest(client, token),
+}));
+
+jest.mock('@/auth/account-local-cleanup', () => ({
+  clearAccountLocalData: (storage: unknown, accountId: string) => (
+    mockClearAccountLocalData(storage, accountId)
+  ),
 }));
 
 jest.mock('@/auth/supabase', () => ({
@@ -45,7 +60,9 @@ jest.mock('@/auth/supabase', () => ({
         data: { subscription: { unsubscribe: jest.fn() } },
       })),
       setSession: (tokens: unknown) => mockSetSession(tokens),
+      signOut: (options: unknown) => mockSignOut(options),
     },
+    removeAllChannels: () => mockRemoveAllChannels(),
   },
   supabaseConfiguration: {
     isConfigured: true,
@@ -59,12 +76,23 @@ function wrapper({ children }: PropsWithChildren) {
 }
 
 describe('AuthStoreProvider startup', () => {
+  const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockStorageGetItem.mockResolvedValue(null);
     mockStorageSetItem.mockResolvedValue();
+    mockStorageRemoveItem.mockResolvedValue();
+    mockDeleteRequest.mockResolvedValue();
+    mockClearAccountLocalData.mockReturnValue([]);
+    mockRemoveAllChannels.mockResolvedValue([]);
+    mockSignOut.mockResolvedValue({ error: null });
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: { removeItem: jest.fn() },
+    });
     mockGetInitialURL.mockResolvedValue(null);
     mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
     mockExchangeCodeForSession.mockResolvedValue({ data: { session: null }, error: null });
@@ -73,6 +101,11 @@ describe('AuthStoreProvider startup', () => {
 
   afterAll(() => {
     jest.restoreAllMocks();
+    if (originalLocalStorage) {
+      Object.defineProperty(globalThis, 'localStorage', originalLocalStorage);
+    } else {
+      Reflect.deleteProperty(globalThis, 'localStorage');
+    }
   });
 
   it('hydrates first start and restart directly as a guest without a profile', async () => {
@@ -146,5 +179,63 @@ describe('AuthStoreProvider startup', () => {
     expect(corrupt.result.current.activeMode).toBe('none');
     expect(corrupt.result.current.localProfile).toBeNull();
     await corrupt.unmount();
+  });
+
+  it('deletes an authenticated account, clears local account state and enters guest mode', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    const account = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(account.result.current.activeMode).toBe('supabase'));
+
+    let deletionResult: Awaited<ReturnType<typeof account.result.current.deleteAccount>> | null = null;
+    await act(async () => {
+      deletionResult = await account.result.current.deleteAccount();
+    });
+
+    expect(deletionResult).toEqual(expect.objectContaining({ ok: true }));
+    expect(mockDeleteRequest).toHaveBeenCalledWith(expect.anything(), 'access');
+    expect(mockClearAccountLocalData).toHaveBeenCalledWith(expect.anything(), 'account-123');
+    expect(mockStorageRemoveItem).toHaveBeenCalledWith('lernzeit.local-profile.v1');
+    expect(mockRemoveAllChannels).toHaveBeenCalledTimes(1);
+    expect(mockSignOut).toHaveBeenCalledWith({ scope: 'local' });
+    expect(account.result.current.activeMode).toBe('none');
+    expect(account.result.current.user).toBeNull();
+    expect(account.result.current.pendingAction).toBeNull();
+    await account.unmount();
+  });
+
+  it('keeps the session and local caches when server-side deletion fails', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    mockDeleteRequest.mockRejectedValueOnce(
+      new Error('Das Online-Konto konnte nicht gelöscht werden. Bitte versuche es später erneut.'),
+    );
+    const account = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(account.result.current.activeMode).toBe('supabase'));
+
+    let deletionResult: Awaited<ReturnType<typeof account.result.current.deleteAccount>> | null = null;
+    await act(async () => {
+      deletionResult = await account.result.current.deleteAccount();
+    });
+
+    expect(deletionResult).toEqual(expect.objectContaining({ ok: false }));
+    expect(account.result.current.activeMode).toBe('supabase');
+    expect(mockClearAccountLocalData).not.toHaveBeenCalled();
+    expect(mockStorageRemoveItem).not.toHaveBeenCalled();
+    expect(mockSignOut).not.toHaveBeenCalled();
+    await account.unmount();
+  });
+
+  it('rejects account deletion without an authenticated online account', async () => {
+    const guest = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(guest.result.current.hydrated).toBe(true));
+
+    let deletionResult: Awaited<ReturnType<typeof guest.result.current.deleteAccount>> | null = null;
+    await act(async () => {
+      deletionResult = await guest.result.current.deleteAccount();
+    });
+
+    expect(deletionResult).toEqual(expect.objectContaining({ ok: false }));
+    expect(mockDeleteRequest).not.toHaveBeenCalled();
+    expect(guest.result.current.activeMode).toBe('none');
+    await guest.unmount();
   });
 });
