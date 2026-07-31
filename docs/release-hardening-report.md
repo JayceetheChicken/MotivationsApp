@@ -80,6 +80,8 @@ weiterhin ausdrücklich blockiert.
 | `git diff --check` | Bestanden. |
 | Secret-Mustersuche in getrackten Dateien | Keine eingecheckten Secret-/Service-Role-Werte gefunden. |
 | `supabase migration list --linked` | Gelesen; lokal/remote gleich bis `20260729000200`, neue Migration `20260731000100` nur lokal. |
+| GitHub Actions `App quality` | Bestanden unter Ubuntu/Node 24: Clean Install, Typecheck, 285 Tests, Lint und Expo Doctor. |
+| GitHub Actions `Supabase database` | Bestanden: lokaler Supabase-Start, Reset/Migrationen/Seed, DB-Lint, pgTAP und API-E2E. |
 
 ### Analysierte npm-Audit-Hinweise
 
@@ -106,11 +108,12 @@ Primärquellen: [CVE-2026-14257 / brace-expansion](https://github.com/advisories
 Die Upstream-Pakete und Audit-Metadaten sind vor dem finalen AAB erneut zu
 prüfen.
 
-Nicht ausgeführt wurden `supabase start`, `supabase db reset`, lokaler DB-Lint,
-pgTAP und Supabase-E2E, weil kein erreichbarer Docker-Daemon vorhanden ist. Das
-ist ein offener Verifikationspunkt und kein stillschweigend ignorierter Erfolg.
-Ebenfalls nicht ausgeführt wurden Webexport/Hosting, `eas init`, EAS Build,
-Google-Play-Upload, Submit oder Veröffentlichung.
+Auf dem Windows-Arbeitsrechner konnten `supabase start`, Reset, DB-Lint, pgTAP
+und Supabase-E2E mangels erreichbarem Docker-Daemon nicht laufen. Dieselbe
+Pipeline bestand anschließend im GitHub-Actions-Ubuntu-Runner; offen bleibt der
+End-to-End-Test nach einem später freigegebenen Deployment in der tatsächlichen
+Supabase-Zielumgebung. Nicht ausgeführt wurden Webexport/Hosting, `eas init`,
+EAS Build, Google-Play-Upload, Submit oder Veröffentlichung.
 
 ## 6. Erst nach ausdrücklicher Freigabe auszuführende Befehle
 
