@@ -69,7 +69,7 @@ weiterhin ausdrücklich blockiert.
 
 | Prüfung | Ergebnis |
 |---|---|
-| `npm ci --no-audit --no-fund --loglevel=error` | Bestanden; 1.119 Pakete aus dem finalen Lockfile installiert. |
+| `npm ci --no-audit --no-fund --loglevel=error` | Bestanden; 1.121 Pakete aus dem finalen, plattformübergreifenden Lockfile installiert. |
 | `npm run typecheck` | Bestanden. |
 | `npm test -- --runInBand` | Bestanden; 34/34 Suites, 285/285 Tests. |
 | `npm run lint` | Bestanden, ohne Warnungen. |
