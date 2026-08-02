@@ -29,13 +29,13 @@ insert into expected_public_tables(name) values
 
 select results_eq(
   $$
-    select c.relname::text
+    select c.relname::text collate "C" as name
     from pg_catalog.pg_class c
     join pg_catalog.pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'public' and c.relkind in ('r', 'p')
     order by c.relname
   $$,
-  $$select name from expected_public_tables order by name$$,
+  $$select name collate "C" as name from expected_public_tables order by name$$,
   'every exposed table is explicitly inventoried'
 );
 

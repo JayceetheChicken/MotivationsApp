@@ -133,6 +133,84 @@ as $$
   );
 $$;
 
+-- The prior generic quota trigger referenced fields from multiple record
+-- shapes in combined boolean expressions. PostgreSQL can resolve those fields
+-- before short-circuiting, so keep every table-specific record access inside
+-- its own branch.
+create or replace function private.enforce_social_row_quota()
+returns trigger
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  existing_count integer;
+  quota_key text;
+begin
+  if tg_table_schema <> 'public' or tg_op <> 'INSERT' then
+    raise exception using errcode = '0A000', message = 'invalid_quota_trigger';
+  end if;
+
+  if tg_table_name = 'study_groups' then
+    quota_key := 'study_groups:' || new.creator_id::text;
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(quota_key, 0));
+    select pg_catalog.count(*) into existing_count
+    from public.study_groups value where value.creator_id = new.creator_id;
+    if existing_count >= 100 then
+      raise exception using errcode = '54000', message = 'study_group_account_limit';
+    end if;
+  elsif tg_table_name = 'shared_study_sessions' then
+    quota_key := 'shared_sessions:' || new.creator_id::text;
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(quota_key, 0));
+    select pg_catalog.count(*) into existing_count
+    from public.shared_study_sessions value
+    where value.creator_id = new.creator_id and value.status in ('planned', 'active');
+    if existing_count >= 100 then
+      raise exception using errcode = '54000', message = 'shared_session_account_limit';
+    end if;
+  elsif tg_table_name = 'goals' then
+    if new.scope = 'shared' then
+      quota_key := 'shared_goals:' || new.creator_id::text;
+      perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(quota_key, 0));
+      select pg_catalog.count(*) into existing_count
+      from public.goals value
+      where value.creator_id = new.creator_id
+        and value.scope = 'shared'
+        and value.deleted_at is null
+        and value.status in ('active', 'paused');
+      if existing_count >= 100 then
+        raise exception using errcode = '54000', message = 'shared_goal_account_limit';
+      end if;
+    end if;
+  elsif tg_table_name = 'friendships' then
+    if new.status = 'pending' then
+      perform pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('friendships:out:' || new.requester_id::text, 0)
+      );
+      perform pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('friendships:in:' || new.addressee_id::text, 0)
+      );
+      select pg_catalog.count(*) into existing_count
+      from public.friendships value
+      where value.requester_id = new.requester_id
+        and value.status = 'pending' and value.deleted_at is null;
+      if existing_count >= 50 then
+        raise exception using errcode = '54000', message = 'outgoing_friend_request_limit';
+      end if;
+      select pg_catalog.count(*) into existing_count
+      from public.friendships value
+      where value.addressee_id = new.addressee_id
+        and value.status = 'pending' and value.deleted_at is null;
+      if existing_count >= 100 then
+        raise exception using errcode = '54000', message = 'incoming_friend_request_limit';
+      end if;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
 create or replace function public.accept_community_rules(p_version text)
 returns jsonb
 language plpgsql
@@ -274,7 +352,10 @@ on storage.objects for insert
 to authenticated
 with check (
   bucket_id = 'avatars'
-  and private.has_current_community_rules_acceptance((select auth.uid()))
+  and coalesce(
+    (public.get_community_rules_acceptance() ->> 'accepted')::boolean,
+    false
+  )
   and (storage.foldername(name))[1] = (select auth.uid()::text)
   and (storage.foldername(name))[2] = 'profile'
   and array_length(storage.foldername(name), 1) = 2
@@ -1133,6 +1214,12 @@ $$;
 
 revoke all on function private.is_blocked_between(uuid, uuid) from public, anon, authenticated;
 revoke all on function private.has_current_community_rules_acceptance(uuid) from public, anon, authenticated;
+revoke all on function private.enforce_social_row_quota() from public, anon, authenticated;
+revoke all on function private.require_rules_for_shared_content() from public, anon, authenticated;
+revoke all on function private.require_rules_for_shared_goal() from public, anon, authenticated;
+revoke all on function private.reject_blocked_goal_invitation() from public, anon, authenticated;
+revoke all on function private.reject_blocked_group_invitation() from public, anon, authenticated;
+revoke all on function private.reject_blocked_session_invitation() from public, anon, authenticated;
 revoke all on function public.accept_community_rules(text) from public, anon, authenticated;
 revoke all on function public.get_community_rules_acceptance() from public, anon, authenticated;
 revoke all on function public.update_privacy_settings(boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, integer) from public, anon, authenticated;

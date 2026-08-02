@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(30);
+select plan(32);
 
 insert into auth.users(id, aud, role, email, raw_user_meta_data, created_at, updated_at)
 values
@@ -20,7 +20,7 @@ values
   (
     'c8333333-3333-4333-8333-333333333333', 'authenticated', 'authenticated',
     'cara-privacy@example.test',
-    '{"username":"cara8","display_name":"Cara","time_zone":"Europe/Berlin","community_rules_version":"2026-08-02","community_rules_accepted_at":"2026-08-02T10:00:00Z"}',
+    '{"username":"cara8","display_name":"Cara","time_zone":"Europe/Berlin"}',
     clock_timestamp(), clock_timestamp()
   );
 
@@ -225,6 +225,20 @@ select ok(
 );
 
 select set_config('request.jwt.claim.sub', 'c8333333-3333-4333-8333-333333333333', true);
+select throws_ok(
+  $$select public.create_study_group(
+    '{"id":"c8100000-0000-4000-8000-000000000001","name":"Rules required","icon":"book"}'::jsonb,
+    array[]::uuid[],
+    'c8100000-0000-4000-8000-000000000002'
+  )$$,
+  '42501', 'community_rules_acceptance_required',
+  'shared user content is rejected before explicit community-rules acceptance'
+);
+select is(
+  public.accept_community_rules('2026-08-02') ->> 'accepted',
+  'true',
+  'the current rules version can be accepted explicitly'
+);
 select ok(
   jsonb_array_length(public.export_my_data() -> 'reports') = 0
   and jsonb_array_length(public.export_my_data() -> 'blocks') = 0,

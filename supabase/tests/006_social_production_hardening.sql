@@ -31,6 +31,15 @@ insert into auth.users(
     now(), now()
   );
 
+insert into public.community_rule_acceptances(user_id, version)
+select p.id, '2026-08-02'
+from public.profiles p
+where p.id in (
+  'e1111111-1111-4111-8111-111111111111',
+  'e2222222-2222-4222-8222-222222222222',
+  'e3333333-3333-4333-8333-333333333333'
+);
+
 select is(
   (select avatar_url from public.profiles where id = 'e1111111-1111-4111-8111-111111111111'),
   null,

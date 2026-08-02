@@ -15,6 +15,10 @@ insert into auth.users(
   ('33333333-3333-4333-8333-333333333333', 'authenticated', 'authenticated',
     'cara@example.test', '{"username":"cara","display_name":"Cara"}', now(), now());
 
+insert into public.community_rule_acceptances(user_id, version)
+select p.id, '2026-08-02'
+from public.profiles p;
+
 select is((select count(*)::integer from public.profiles), 3, 'auth trigger provisions profiles');
 select is(
   (select count(*)::integer from public.privacy_settings

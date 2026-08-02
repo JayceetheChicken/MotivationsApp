@@ -128,6 +128,16 @@ insert into auth.users(
     now(), now()
   );
 
+insert into public.community_rule_acceptances(user_id, version)
+select p.id, '2026-08-02'
+from public.profiles p
+where p.id in (
+  'a1111111-1111-4111-8111-111111111111',
+  'b2222222-2222-4222-8222-222222222222',
+  'c3333333-3333-4333-8333-333333333333',
+  'd4444444-4444-4444-8444-444444444444'
+);
+
 insert into public.friendships(
   id, requester_id, addressee_id, status, responded_at
 ) values
