@@ -713,6 +713,7 @@ async function run() {
         `shared progress exposed ${privateValue}`,
       );
     }
+    console.log('[supabase-e2e] shared-goal aggregate projection verified');
 
     bobOverview = await rpc(alice, 'get_friend_overview', {
       p_friend_id: bobUser.id,
@@ -731,6 +732,7 @@ async function run() {
     assert.ok(Number.isInteger(bobOverview.today_minutes));
     assert.ok(Number.isInteger(bobOverview.week_minutes));
     assert.ok(Number.isInteger(bobOverview.streak_days));
+    console.log('[supabase-e2e] friend overview projection verified');
 
     const ownPrivateFixtures = [
       ['profiles', 'id', bobUser.id, 1],
@@ -749,6 +751,7 @@ async function run() {
     for (const [table, column, value, expectedCount] of ownPrivateFixtures) {
       await assertOwnRows(bob, table, column, value, expectedCount);
     }
+    console.log('[supabase-e2e] owner-only fixtures verified');
 
     const foreignPrivateFixtures = [
       ['profiles', 'id', bobUser.id],
@@ -767,6 +770,7 @@ async function run() {
     for (const [table, column, value] of foreignPrivateFixtures) {
       await assertForeignRowsHidden(alice, table, column, value);
     }
+    console.log('[supabase-e2e] foreign-row isolation verified');
 
     console.log('[supabase-e2e] testing granular privacy, blocks, reports, and export');
     await setSocialSharing(bob, false);
