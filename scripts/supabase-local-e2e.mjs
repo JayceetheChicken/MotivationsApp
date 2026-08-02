@@ -765,12 +765,13 @@ async function run() {
       ['study_session_segments', 'user_id', bobUser.id],
       ['grades', 'user_id', bobUser.id],
       ['grade_sessions', 'user_id', bobUser.id],
-      ['friendships', 'id', carolRequest.id],
     ];
     for (const [table, column, value] of foreignPrivateFixtures) {
       await assertForeignRowsHidden(alice, table, column, value);
       console.log(`[supabase-e2e] foreign ${table} rows hidden`);
     }
+    await assertForeignRowsHidden(bob, 'friendships', 'id', carolRequest.id);
+    console.log('[supabase-e2e] foreign friendships rows hidden');
     console.log('[supabase-e2e] foreign-row isolation verified');
 
     console.log('[supabase-e2e] testing granular privacy, blocks, reports, and export');
