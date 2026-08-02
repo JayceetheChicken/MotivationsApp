@@ -138,6 +138,12 @@ where p.id in (
   'd4444444-4444-4444-8444-444444444444'
 );
 
+update public.privacy_settings
+set share_currently_learning = true,
+    share_pause_status = true,
+    share_last_active_at = true
+where user_id = 'b2222222-2222-4222-8222-222222222222';
+
 insert into public.friendships(
   id, requester_id, addressee_id, status, responded_at
 ) values
@@ -224,8 +230,12 @@ select ok(
   )::text) = 0
   and not (
     public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
-      ?| array['last_study_at', 'week_minutes', 'streak_days', 'active_since']
-  ),
+      ?| array['last_study_at', 'active_since']
+  )
+  and public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
+    -> 'week_minutes' = 'null'::jsonb
+  and public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
+    -> 'streak_days' = 'null'::jsonb,
   'friend overview omits private study activity, statistics and goal status'
 );
 reset role;
@@ -233,11 +243,11 @@ select is(
   (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'last_active_at')::timestamptz,
   (
-    select max(lp.last_seen_at)
+    select max(greatest(lp.last_study_at, lp.active_since))
     from public.learning_presence lp
     where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
   ),
-  'friend overview exposes the latest server-observed device activity'
+  'friend overview exposes the latest opted-in learning activity'
 );
 set local role authenticated;
 select is(
@@ -283,7 +293,7 @@ select is(
   (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'last_active_at')::timestamptz,
   (
-    select max(lp.last_seen_at)
+    select max(greatest(lp.last_study_at, lp.active_since))
     from public.learning_presence lp
     where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
   ),
@@ -312,11 +322,11 @@ select is(
   (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'last_active_at')::timestamptz,
   (
-    select max(lp.last_seen_at)
+    select max(greatest(lp.last_study_at, lp.active_since))
     from public.learning_presence lp
     where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
   ),
-  'offline tombstones retain the latest server-observed activity time'
+  'offline tombstones retain the latest opted-in learning activity time'
 );
 set local role authenticated;
 

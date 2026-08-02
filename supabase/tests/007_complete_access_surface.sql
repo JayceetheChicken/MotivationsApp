@@ -78,12 +78,12 @@ select is(
 
 select results_eq(
   $$
-    select expected.name
+    select expected.name collate "C" as name
     from expected_public_tables expected
     where pg_catalog.has_table_privilege(
       'authenticated', pg_catalog.format('public.%I', expected.name), 'SELECT'
     )
-    order by expected.name
+    order by name
   $$,
   array[
     'friendships', 'goal_participants', 'goal_pause_intervals', 'goals',
@@ -121,11 +121,11 @@ select is(
 
 select results_eq(
   $$
-    select distinct p.proname::text
+    select distinct p.proname::text collate "C" as name
     from pg_catalog.pg_proc p
     join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
-    order by p.proname
+    order by 1
   $$,
   array[
     'accept_community_rules', 'accept_friend_request', 'begin_local_import', 'block_user',

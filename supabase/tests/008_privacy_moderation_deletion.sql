@@ -47,11 +47,12 @@ values (
 );
 
 insert into public.learning_presence(
-  user_id, state, active_since, last_study_at, last_seen_at, expires_at
+  user_id, state, active_since, last_study_at, last_seen_at, expires_at, device_id
 ) values (
   'b8222222-2222-4222-8222-222222222222', 'paused',
   clock_timestamp() - interval '10 minutes', clock_timestamp() - interval '2 minutes',
-  clock_timestamp(), clock_timestamp() + interval '5 minutes'
+  clock_timestamp(), clock_timestamp() + interval '5 minutes',
+  'b8000000-0000-4000-8000-000000000001'
 );
 
 select is(

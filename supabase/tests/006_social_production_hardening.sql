@@ -40,6 +40,12 @@ where p.id in (
   'e3333333-3333-4333-8333-333333333333'
 );
 
+update public.privacy_settings
+set share_currently_learning = true,
+    share_pause_status = true,
+    share_last_active_at = true
+where user_id = 'e2222222-2222-4222-8222-222222222222';
+
 select is(
   (select avatar_url from public.profiles where id = 'e1111111-1111-4111-8111-111111111111'),
   null,
@@ -393,8 +399,10 @@ select is(
 select ok(
   public.get_friend_overview('e2222222-2222-4222-8222-222222222222')
     ->> 'last_active_at' is not null
-  and public.get_friend_overview('e2222222-2222-4222-8222-222222222222')
-    -> 'presence_expires_at' = 'null'::jsonb,
+  and not (
+    public.get_friend_overview('e2222222-2222-4222-8222-222222222222')
+      ? 'presence_expires_at'
+  ),
   'offline tombstones retain last active without exposing a fresh expiry'
 );
 

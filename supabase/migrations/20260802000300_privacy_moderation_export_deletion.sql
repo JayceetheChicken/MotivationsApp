@@ -744,9 +744,12 @@ as $$
 declare
   friend_profile public.profiles%rowtype;
   privacy public.privacy_settings%rowtype;
-  presence public.learning_presence%rowtype;
-  presence_fresh boolean := false;
+  observed_at timestamptz := clock_timestamp();
   presence_status_value text := 'offline';
+  last_activity_at_value timestamptz;
+  learning_expires_at_value timestamptz;
+  paused_expires_at_value timestamptz;
+  online_expires_at_value timestamptz;
   today_minutes_value integer;
   week_minutes_value integer;
   streak_value integer;
@@ -762,16 +765,29 @@ begin
 
   select * into friend_profile from public.profiles p where p.id = p_friend_id;
   select * into privacy from public.privacy_settings ps where ps.user_id = p_friend_id;
-  select * into presence from public.learning_presence lp where lp.user_id = p_friend_id;
+  select
+    max(greatest(lp.last_study_at, lp.active_since)),
+    max(lp.expires_at) filter (where lp.state = 'learning'),
+    max(lp.expires_at) filter (where lp.state = 'paused'),
+    max(lp.expires_at)
+  into
+    last_activity_at_value,
+    learning_expires_at_value,
+    paused_expires_at_value,
+    online_expires_at_value
+  from public.learning_presence lp
+  where lp.user_id = p_friend_id;
 
-  presence_fresh := presence.user_id is not null and presence.expires_at > clock_timestamp();
-  if privacy.share_currently_learning and presence_fresh then
-    presence_status_value := case
-      when presence.state = 'learning' then 'learning'
-      when presence.state = 'paused' and privacy.share_pause_status then 'paused'
-      else 'online'
-    end;
-  end if;
+  presence_status_value := case
+    when learning_expires_at_value > observed_at and privacy.share_currently_learning
+      then 'learning'
+    when paused_expires_at_value > observed_at and privacy.share_pause_status
+      then 'paused'
+    when online_expires_at_value > observed_at
+      and (privacy.share_currently_learning or privacy.share_pause_status)
+      then 'online'
+    else 'offline'
+  end;
 
   local_day_start := date_trunc('day', clock_timestamp() at time zone friend_profile.time_zone)
     at time zone friend_profile.time_zone;
@@ -819,7 +835,7 @@ begin
   return jsonb_build_object(
     'friend', private.basic_social_profile(p_friend_id),
     'presence_status', presence_status_value,
-    'last_active_at', case when privacy.share_last_active_at then presence.last_study_at else null end,
+    'last_active_at', case when privacy.share_last_active_at then last_activity_at_value else null end,
     'today_minutes', today_minutes_value,
     'week_minutes', week_minutes_value,
     'streak_days', streak_value,

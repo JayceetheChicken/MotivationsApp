@@ -34,6 +34,14 @@ select is(
   'untrusted signup avatar metadata is not copied into the profile'
 );
 
+update public.privacy_settings
+set share_avatar = true,
+    discoverable_by_username = true
+where user_id in (
+  '11111111-1111-4111-8111-111111111111',
+  '22222222-2222-4222-8222-222222222222'
+);
+
 insert into storage.objects(bucket_id, name, metadata)
 values
   (
@@ -136,7 +144,11 @@ select is(
 );
 
 select is(
-  (public.update_privacy_settings(true, false, false, false, 1)
+  (public.update_privacy_settings(
+    true, false, false, false,
+    false, false, false, false, false, true, true,
+    2
+  )
     ->> 'share_timer_stats')::boolean,
   true,
   'timer statistics can be shared independently'
