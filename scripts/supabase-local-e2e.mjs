@@ -769,6 +769,7 @@ async function run() {
     ];
     for (const [table, column, value] of foreignPrivateFixtures) {
       await assertForeignRowsHidden(alice, table, column, value);
+      console.log(`[supabase-e2e] foreign ${table} rows hidden`);
     }
     console.log('[supabase-e2e] foreign-row isolation verified');
 
