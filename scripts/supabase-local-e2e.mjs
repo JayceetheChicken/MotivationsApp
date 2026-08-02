@@ -724,12 +724,13 @@ async function run() {
       'periods',
       'timer_minutes',
       'manual_minutes',
-      'week_minutes',
-      'streak_days',
       'last_study_at',
     ]) {
       assert.equal(forbiddenKey in bobOverview, false, `friend overview exposed ${forbiddenKey}`);
     }
+    assert.ok(Number.isInteger(bobOverview.today_minutes));
+    assert.ok(Number.isInteger(bobOverview.week_minutes));
+    assert.ok(Number.isInteger(bobOverview.streak_days));
 
     const ownPrivateFixtures = [
       ['profiles', 'id', bobUser.id, 1],
