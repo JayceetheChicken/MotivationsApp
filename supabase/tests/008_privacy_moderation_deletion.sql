@@ -39,12 +39,19 @@ set share_currently_learning = true,
 where user_id = 'b8222222-2222-4222-8222-222222222222';
 
 insert into public.friendships(id, requester_id, addressee_id, status, responded_at)
-values (
-  'f8111111-1111-4111-8111-111111111111',
-  'a8111111-1111-4111-8111-111111111111',
-  'b8222222-2222-4222-8222-222222222222',
-  'accepted', clock_timestamp()
-);
+values
+  (
+    'f8111111-1111-4111-8111-111111111111',
+    'a8111111-1111-4111-8111-111111111111',
+    'b8222222-2222-4222-8222-222222222222',
+    'accepted', clock_timestamp()
+  ),
+  (
+    'f8222222-2222-4222-8222-222222222222',
+    'c8333333-3333-4333-8333-333333333333',
+    'b8222222-2222-4222-8222-222222222222',
+    'accepted', clock_timestamp()
+  );
 
 insert into public.learning_presence(
   user_id, state, active_since, last_study_at, last_seen_at, expires_at, device_id
@@ -229,7 +236,7 @@ select set_config('request.jwt.claim.sub', 'c8333333-3333-4333-8333-333333333333
 select throws_ok(
   $$select public.create_study_group(
     '{"id":"c8100000-0000-4000-8000-000000000001","name":"Rules required","icon":"book"}'::jsonb,
-    array[]::uuid[],
+    array['b8222222-2222-4222-8222-222222222222'::uuid],
     'c8100000-0000-4000-8000-000000000002'
   )$$,
   '42501', 'community_rules_acceptance_required',

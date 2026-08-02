@@ -131,8 +131,8 @@ select results_eq(
     'accept_community_rules', 'accept_friend_request', 'begin_local_import', 'block_user',
     'cancel_shared_study_session',
     'create_shared_goal', 'create_shared_study_session', 'create_study_group',
-    'decline_friend_request', 'discard_local_import', 'finalize_local_import',
-    'export_my_data', 'find_profile_by_exact_username', 'get_community_rules_acceptance',
+    'decline_friend_request', 'discard_local_import', 'export_my_data',
+    'finalize_local_import', 'find_profile_by_exact_username', 'get_community_rules_acceptance',
     'get_friend_overview', 'get_local_import_status', 'get_my_profile',
     'get_shared_goal_details', 'get_shared_goal_progress',
     'get_shared_study_session_details', 'get_study_group_details', 'leave_study_group',
@@ -146,9 +146,9 @@ select results_eq(
     'set_my_avatar', 'soft_delete_grade', 'soft_delete_personal_goal',
     'soft_delete_session', 'soft_delete_subject', 'stage_local_import_chunk',
     'submit_content_report',
-    'transition_personal_goal', 'update_learning_presence', 'update_my_profile',
+    'transition_personal_goal', 'unblock_user', 'update_learning_presence', 'update_my_profile',
     'update_privacy_settings', 'update_shared_study_session_participant',
-    'unblock_user', 'upsert_grade', 'upsert_personal_goal', 'upsert_subject',
+    'upsert_grade', 'upsert_personal_goal', 'upsert_subject',
     'withdraw_from_shared_goal'
   ]::text[] collate "C",
   'every public function name is explicitly inventoried'
