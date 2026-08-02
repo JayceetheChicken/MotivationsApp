@@ -6,6 +6,8 @@ on:
 permissions:
   actions: read
   contents: read
+  # Required by the pinned reusable workflow; SARIF upload stays disabled.
+  security-events: write
 
 jobs:
   scan-pr:
