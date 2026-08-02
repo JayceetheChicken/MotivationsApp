@@ -3,6 +3,8 @@ import {
   getStudyStorageScope,
   HOME_NAVIGATION_ANCHOR,
   isPasswordRecoveryUrl,
+  parsePasswordRecoveryUrl,
+  PASSWORD_RECOVERY_REDIRECT_URL,
   ROOT_NAVIGATION_ANCHOR,
 } from '@/auth/navigation';
 
@@ -31,12 +33,43 @@ describe('optional authentication navigation', () => {
     expect(HOME_NAVIGATION_ANCHOR).toBe('(home)');
   });
 
-  it('recognizes only credential-bearing password recovery deep links', () => {
-    expect(isPasswordRecoveryUrl('lernzeit://update-password?code=pkce-code')).toBe(true);
-    expect(isPasswordRecoveryUrl('https://lernzeit.app/update-password?code=pkce-code')).toBe(true);
-    expect(isPasswordRecoveryUrl('https://lernzeit.app/#type=recovery&access_token=access&refresh_token=refresh')).toBe(true);
-    expect(isPasswordRecoveryUrl('lernzeit://update-password')).toBe(false);
-    expect(isPasswordRecoveryUrl('https://lernzeit.app/?code=ordinary-login')).toBe(false);
-    expect(isPasswordRecoveryUrl(null)).toBe(false);
+  it('accepts only the exact PKCE password-recovery callback', () => {
+    expect(PASSWORD_RECOVERY_REDIRECT_URL).toBe('lernzeit://auth/update-password');
+    expect(parsePasswordRecoveryUrl(
+      'lernzeit://auth/update-password?code=pkce-code&type=recovery',
+    )).toEqual({ kind: 'pkce', code: 'pkce-code' });
+    expect(isPasswordRecoveryUrl(
+      'lernzeit://auth/update-password?code=pkce-code',
+    )).toBe(true);
+  });
+
+  it('accepts a complete recovery token pair with strict metadata', () => {
+    expect(parsePasswordRecoveryUrl(
+      'lernzeit://auth/update-password#access_token=access&refresh_token=refresh&type=recovery&token_type=bearer&expires_in=3600',
+    )).toEqual({ kind: 'tokens', accessToken: 'access', refreshToken: 'refresh' });
+  });
+
+  it.each([
+    ['wrong scheme', 'evil://auth/update-password?code=pkce-code'],
+    ['wrong host', 'lernzeit://attacker/update-password?code=pkce-code'],
+    ['wrong path', 'lernzeit://auth/other?code=pkce-code'],
+    ['code on normal link', 'lernzeit://auth/profile?code=pkce-code'],
+    ['tampered fragment', 'lernzeit://auth/update-password#access_token=a&refresh_token=r&type=signup'],
+    ['access only', 'lernzeit://auth/update-password#access_token=a&type=recovery'],
+    ['refresh only', 'lernzeit://auth/update-password#refresh_token=r&type=recovery'],
+    ['foreign HTTPS domain', 'https://example.test/update-password?code=pkce-code'],
+    ['embedded credentials', 'lernzeit://user:password@auth/update-password?code=pkce-code'],
+    ['encoded traversal', 'lernzeit://auth/%2e%2e/update-password?code=pkce-code'],
+    ['encoded slash', 'lernzeit://auth/update-password%2f..%2fprofile?code=pkce-code'],
+    ['duplicate code', 'lernzeit://auth/update-password?code=one&code=two'],
+    ['conflicting locations', 'lernzeit://auth/update-password?code=one#access_token=a&refresh_token=r&type=recovery'],
+    ['recovery type on wrong route', 'lernzeit://auth/profile?type=recovery&code=pkce-code'],
+    ['unknown auth parameter', 'lernzeit://auth/update-password?code=one&next=https%3A%2F%2Fevil.test'],
+    ['token pair without recovery type', 'lernzeit://auth/update-password#access_token=a&refresh_token=r'],
+    ['duplicate token', 'lernzeit://auth/update-password#access_token=a&access_token=b&refresh_token=r&type=recovery'],
+    ['invalid token type', 'lernzeit://auth/update-password#access_token=a&refresh_token=r&type=recovery&token_type=mac'],
+  ])('rejects %s', (_label, url) => {
+    expect(parsePasswordRecoveryUrl(url)).toBeNull();
+    expect(isPasswordRecoveryUrl(url)).toBe(false);
   });
 });

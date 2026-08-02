@@ -49,11 +49,10 @@ export async function executeDeleteAccount(
     if (avatarPaths.length > 0) await admin.removeAvatarObjects(avatarPaths);
     await admin.deleteUser(userId);
     return { status: 200, body: { deleted: true } };
-  } catch (error) {
-    console.error("[delete-account] Server-side deletion failed", {
-      userId,
-      error,
-    });
+  } catch {
+    // Fixed message only: never emit the bearer token, account id, or a raw
+    // provider error that could contain infrastructure details.
+    console.error("[delete-account] Server-side deletion failed");
     return safeFailure(
       500,
       "Das Konto konnte nicht vollständig gelöscht werden.",

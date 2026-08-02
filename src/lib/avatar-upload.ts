@@ -8,6 +8,8 @@ export interface AvatarSource {
   mimeType?: string | null;
   fileName?: string | null;
   fileSize?: number | null;
+  width?: number | null;
+  height?: number | null;
 }
 
 export interface PreparedAvatar {
@@ -19,6 +21,8 @@ export interface PreparedAvatar {
 export type AvatarArrayBufferReader = (uri: string) => Promise<ArrayBuffer>;
 
 export const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+export const MAX_AVATAR_DIMENSION = 4096;
+export const MAX_AVATAR_PIXELS = 16_000_000;
 
 const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PUBLIC_AVATAR_PATH_MARKER = '/storage/v1/object/public/avatars/';
@@ -29,11 +33,21 @@ export function avatarObjectPathFromUrl(
 ): string | null {
   if (!url) return null;
   try {
-    const pathname = decodeURIComponent(new URL(url).pathname);
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+    if (parsed.username || parsed.password || parsed.hash) return null;
+    const pathname = decodeURIComponent(parsed.pathname);
     const markerIndex = pathname.indexOf(PUBLIC_AVATAR_PATH_MARKER);
     if (markerIndex < 0) return null;
     const objectPath = pathname.slice(markerIndex + PUBLIC_AVATAR_PATH_MARKER.length);
-    return objectPath.startsWith(`${userId}/`) ? objectPath : null;
+    const parts = objectPath.split('/');
+    if (
+      parts.length !== 3
+      || parts[0] !== userId
+      || parts[1] !== 'profile'
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(jpg|png|webp)$/i.test(parts[2])
+    ) return null;
+    return objectPath;
   } catch {
     return null;
   }
@@ -64,14 +78,17 @@ export async function readAvatarArrayBuffer(uri: string): Promise<ArrayBuffer> {
   return response.arrayBuffer();
 }
 
-function contentTypeFor(asset: AvatarSource): string {
-  const suppliedType = asset.mimeType?.trim().toLowerCase().replace('image/jpg', 'image/jpeg');
-  if (suppliedType) return suppliedType;
+function normalizedMimeType(value: string | null | undefined): string | null {
+  return value?.trim().toLowerCase().replace('image/jpg', 'image/jpeg') || null;
+}
 
-  const name = (asset.fileName || asset.uri).split(/[?#]/, 1)[0].toLowerCase();
-  if (name.endsWith('.png')) return 'image/png';
-  if (name.endsWith('.webp')) return 'image/webp';
-  return 'image/jpeg';
+function declaredExtensionType(asset: AvatarSource): string | null | 'unsupported' {
+  const name = asset.fileName?.split(/[?#]/, 1)[0].trim().toLowerCase();
+  if (!name || !name.includes('.')) return null;
+  if (/\.jpe?g$/.test(name)) return 'image/jpeg';
+  if (/\.png$/.test(name)) return 'image/png';
+  if (/\.webp$/.test(name)) return 'image/webp';
+  return 'unsupported';
 }
 
 function extensionFor(contentType: string): string {
@@ -114,6 +131,110 @@ function detectedContentType(body: ArrayBuffer): string | null {
   return null;
 }
 
+interface ImageDimensions {
+  width: number;
+  height: number;
+}
+
+function uint16BigEndian(bytes: Uint8Array, offset: number): number {
+  return bytes[offset] * 256 + bytes[offset + 1];
+}
+
+function detectPngDimensions(bytes: Uint8Array): ImageDimensions | null {
+  if (
+    bytes.length < 24
+    || String.fromCharCode(...bytes.slice(12, 16)) !== 'IHDR'
+  ) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+function detectJpegDimensions(bytes: Uint8Array): ImageDimensions | null {
+  const startOfFrameMarkers = new Set([
+    0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7,
+    0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,
+  ]);
+  let offset = 2;
+  while (offset + 4 <= bytes.length) {
+    if (bytes[offset] !== 0xff) return null;
+    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+    const marker = bytes[offset];
+    offset += 1;
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (marker === 0xd9 || marker === 0xda || offset + 2 > bytes.length) return null;
+    const segmentLength = uint16BigEndian(bytes, offset);
+    if (segmentLength < 2 || offset + segmentLength > bytes.length) return null;
+    if (startOfFrameMarkers.has(marker)) {
+      if (segmentLength < 7) return null;
+      return {
+        height: uint16BigEndian(bytes, offset + 3),
+        width: uint16BigEndian(bytes, offset + 5),
+      };
+    }
+    offset += segmentLength;
+  }
+  return null;
+}
+
+function detectWebpDimensions(bytes: Uint8Array): ImageDimensions | null {
+  if (bytes.length < 25) return null;
+  const chunk = String.fromCharCode(...bytes.slice(12, 16));
+  if (chunk === 'VP8X' && bytes.length >= 30) {
+    return {
+      width: 1 + bytes[24] + bytes[25] * 256 + bytes[26] * 65_536,
+      height: 1 + bytes[27] + bytes[28] * 256 + bytes[29] * 65_536,
+    };
+  }
+  if (
+    chunk === 'VP8 '
+    && bytes.length >= 30
+    && bytes[23] === 0x9d
+    && bytes[24] === 0x01
+    && bytes[25] === 0x2a
+  ) {
+    return {
+      width: (bytes[26] + bytes[27] * 256) & 0x3fff,
+      height: (bytes[28] + bytes[29] * 256) & 0x3fff,
+    };
+  }
+  if (chunk === 'VP8L' && bytes.length >= 25 && bytes[20] === 0x2f) {
+    return {
+      width: 1 + bytes[21] + ((bytes[22] & 0x3f) << 8),
+      height: 1 + (bytes[22] >> 6) + (bytes[23] << 2) + ((bytes[24] & 0x0f) << 10),
+    };
+  }
+  return null;
+}
+
+function detectedDimensions(body: ArrayBuffer, contentType: string): ImageDimensions | null {
+  const bytes = new Uint8Array(body);
+  if (contentType === 'image/png') return detectPngDimensions(bytes);
+  if (contentType === 'image/jpeg') return detectJpegDimensions(bytes);
+  if (contentType === 'image/webp') return detectWebpDimensions(bytes);
+  return null;
+}
+
+function validDimensions(dimensions: ImageDimensions): boolean {
+  return Number.isInteger(dimensions.width)
+    && Number.isInteger(dimensions.height)
+    && dimensions.width > 0
+    && dimensions.height > 0
+    && dimensions.width <= MAX_AVATAR_DIMENSION
+    && dimensions.height <= MAX_AVATAR_DIMENSION
+    && dimensions.width * dimensions.height <= MAX_AVATAR_PIXELS;
+}
+
+/** Removes only app-cache files; provider and library originals are untouched. */
+export function cleanupTemporaryAvatarUri(uri: string): void {
+  if (Platform.OS === 'web' || !/^file:\/\//i.test(uri) || !/[\\/]cache[\\/]/i.test(uri)) return;
+  try {
+    const file = new File(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // The operating system may already have reclaimed the picker cache entry.
+  }
+}
+
 /**
  * Reads a picked image into an ArrayBuffer. Supabase Storage does not reliably
  * accept a Blob on React Native, so the raw bytes are passed through instead.
@@ -124,8 +245,13 @@ export async function prepareAvatarUpload(
   asset: AvatarSource,
   readArrayBuffer: AvatarArrayBufferReader = readAvatarArrayBuffer,
 ): Promise<PreparedAvatar> {
-  const declaredContentType = contentTypeFor(asset);
-  if (!ALLOWED_AVATAR_TYPES.has(declaredContentType)) {
+  const declaredContentType = normalizedMimeType(asset.mimeType);
+  const extensionContentType = declaredExtensionType(asset);
+  if (
+    (declaredContentType && !ALLOWED_AVATAR_TYPES.has(declaredContentType))
+    || extensionContentType === 'unsupported'
+    || (declaredContentType && extensionContentType && declaredContentType !== extensionContentType)
+  ) {
     throw new StudyRepositoryError(
       'invalid_data',
       'Profilbilder müssen JPEG-, PNG- oder WebP-Dateien sein.',
@@ -139,6 +265,20 @@ export async function prepareAvatarUpload(
     throw new StudyRepositoryError(
       'invalid_data',
       'Das Profilbild darf höchstens 5 MB groß sein.',
+    );
+  }
+  if (
+    (asset.width != null && asset.width > 0 && asset.width > MAX_AVATAR_DIMENSION)
+    || (asset.height != null && asset.height > 0 && asset.height > MAX_AVATAR_DIMENSION)
+    || (
+      asset.width != null && asset.width > 0
+      && asset.height != null && asset.height > 0
+      && asset.width * asset.height > MAX_AVATAR_PIXELS
+    )
+  ) {
+    throw new StudyRepositoryError(
+      'invalid_data',
+      'Das Profilbild hat zu große Abmessungen.',
     );
   }
 
@@ -167,10 +307,21 @@ export async function prepareAvatarUpload(
       'Die ausgewählte Datei enthält kein unterstütztes JPEG-, PNG- oder WebP-Bild.',
     );
   }
-  if (asset.mimeType && detectedType !== declaredContentType) {
+  if (
+    (declaredContentType && detectedType !== declaredContentType)
+    || (extensionContentType && extensionContentType !== detectedType)
+  ) {
     throw new StudyRepositoryError(
       'invalid_data',
       'Dateityp und Bildinhalt stimmen nicht überein.',
+    );
+  }
+
+  const dimensions = detectedDimensions(body, detectedType);
+  if (!dimensions || !validDimensions(dimensions)) {
+    throw new StudyRepositoryError(
+      'invalid_data',
+      'Das Profilbild ist beschädigt oder hat zu große Abmessungen.',
     );
   }
 

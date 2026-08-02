@@ -55,10 +55,14 @@ function localApiUrl() {
 }
 
 function errorSummary(error) {
-  if (!error || typeof error !== 'object') return String(error);
-  return [error.message, error.code, error.statusCode, error.details, error.hint]
-    .filter(Boolean)
-    .join(' | ');
+  if (!error || typeof error !== 'object') return 'unknown error';
+  const code = typeof error.code === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(error.code)
+    ? `code=${error.code}`
+    : null;
+  const status = Number.isInteger(error.statusCode) && error.statusCode >= 100 && error.statusCode <= 599
+    ? `status=${error.statusCode}`
+    : null;
+  return [code, status].filter(Boolean).join(', ') || 'unknown error';
 }
 
 async function must(promise, label) {
@@ -75,6 +79,12 @@ async function mustFail(promise, label) {
     throw new Error(`${label}: operation unexpectedly succeeded`);
   }
   return result.error;
+}
+
+async function mustBeForbidden(promise, label) {
+  const error = await mustFail(promise, label);
+  assert.equal(error.code, '42501', `${label}: expected permission denial, got ${errorSummary(error)}`);
+  return error;
 }
 
 function asArrayBuffer(bytes) {
@@ -195,6 +205,100 @@ async function run() {
     const alice = await signIn(aliceUser);
     const bob = await signIn(bobUser);
     const carol = await signIn(carolUser);
+
+    console.log('[supabase-e2e] testing RPC-only writes and anonymous denial');
+    const anonymous = createClient(apiUrl, anonKey, clientOptions);
+    await mustFail(
+      anonymous.rpc('get_my_profile'),
+      'anonymous profile RPC',
+    );
+    const exposedTables = [
+      ['profiles', 'id'],
+      ['privacy_settings', 'user_id'],
+      ['subjects', 'id'],
+      ['goals', 'id'],
+      ['personal_goal_details', 'goal_id'],
+      ['shared_goal_details', 'goal_id'],
+      ['goal_participants', 'goal_id'],
+      ['goal_pause_intervals', 'id'],
+      ['study_sessions', 'id'],
+      ['study_session_segments', 'session_id'],
+      ['grades', 'id'],
+      ['grade_sessions', 'grade_id'],
+      ['friendships', 'id'],
+      ['learning_presence', 'user_id'],
+      ['study_groups', 'id'],
+      ['study_group_members', 'group_id'],
+      ['shared_study_sessions', 'id'],
+      ['shared_study_session_participants', 'session_id'],
+    ];
+    for (const [table, probeColumn] of exposedTables) {
+      await mustBeForbidden(
+        anonymous.from(table).select('*').limit(1),
+        `anonymous SELECT from ${table}`,
+      );
+      await mustBeForbidden(
+        alice.from(table).insert({ [probeColumn]: randomUUID() }),
+        `authenticated direct INSERT into ${table}`,
+      );
+      await mustBeForbidden(
+        alice.from(table).update({ [probeColumn]: randomUUID() }).eq(probeColumn, randomUUID()),
+        `authenticated direct UPDATE of ${table}`,
+      );
+      await mustBeForbidden(
+        alice.from(table).delete().eq(probeColumn, randomUUID()),
+        `authenticated direct DELETE from ${table}`,
+      );
+    }
+
+    for (const table of [
+      'shared_goal_details',
+      'learning_presence',
+      'study_groups',
+      'study_group_members',
+      'shared_study_sessions',
+      'shared_study_session_participants',
+    ]) {
+      await mustBeForbidden(
+        alice.from(table).select('*').limit(1),
+        `authenticated raw SELECT from RPC-only ${table}`,
+      );
+    }
+    await mustFail(
+      alice.from('subjects').insert({
+        color: '#123456',
+        icon: 'book',
+        id: randomUUID(),
+        name: 'Manipulated owner',
+        owner_id: bobUser.id,
+      }),
+      'direct subject insert with another owner_id',
+    );
+    await mustFail(
+      alice.from('goals').insert({
+        creator_id: bobUser.id,
+        id: randomUUID(),
+        scope: 'personal',
+        source_policy: 'all',
+        starts_at: new Date().toISOString(),
+        target_type: 'duration',
+        target_value: 60,
+      }),
+      'direct goal insert with another creator_id',
+    );
+    await mustFail(
+      alice.from('study_sessions').insert({
+        duration_seconds: 60,
+        ended_at: new Date().toISOString(),
+        entered_at: new Date().toISOString(),
+        id: randomUUID(),
+        source: 'manual',
+        started_at: new Date(Date.now() - 60_000).toISOString(),
+        subject_id: randomUUID(),
+        user_id: bobUser.id,
+      }),
+      'direct session insert with another user_id',
+    );
 
     console.log('[supabase-e2e] testing Storage-backed avatar lifecycle');
     const aliceJpegPath = await uploadAvatar(
@@ -471,7 +575,7 @@ async function run() {
         name: privateSubjectName,
       },
     });
-    await rpc(bob, 'upsert_personal_goal', {
+    const privateGoal = await rpc(bob, 'upsert_personal_goal', {
       p_goal: {
         id: privateGoalId,
         period: 'week',
@@ -483,6 +587,20 @@ async function run() {
         type: 'duration',
       },
       p_operation_id: randomUUID(),
+    });
+    const pausedGoal = await rpc(bob, 'transition_personal_goal', {
+      p_at: new Date(Date.now() - 30_000).toISOString(),
+      p_expected_revision: privateGoal.goal.revision,
+      p_goal_id: privateGoalId,
+      p_operation_id: randomUUID(),
+      p_status: 'paused',
+    });
+    await rpc(bob, 'transition_personal_goal', {
+      p_at: new Date().toISOString(),
+      p_expected_revision: pausedGoal.goal.revision,
+      p_goal_id: privateGoalId,
+      p_operation_id: randomUUID(),
+      p_status: 'active',
     });
 
     const timerStartedAt = new Date(Date.now() - 6 * 60 * 1_000).toISOString();
@@ -588,10 +706,12 @@ async function run() {
       ['goals', 'id', privateGoalId, 1],
       ['personal_goal_details', 'owner_id', bobUser.id, 1],
       ['goal_participants', 'goal_id', privateGoalId, 1],
+      ['goal_pause_intervals', 'goal_id', privateGoalId, 1],
       ['study_sessions', 'user_id', bobUser.id, 2],
       ['study_session_segments', 'user_id', bobUser.id, 1],
       ['grades', 'user_id', bobUser.id, 1],
       ['grade_sessions', 'user_id', bobUser.id, 1],
+      ['friendships', 'id', bobRequest.id, 1],
     ];
     for (const [table, column, value, expectedCount] of ownPrivateFixtures) {
       await assertOwnRows(bob, table, column, value, expectedCount);
@@ -604,10 +724,12 @@ async function run() {
       ['goals', 'id', privateGoalId],
       ['personal_goal_details', 'owner_id', bobUser.id],
       ['goal_participants', 'goal_id', privateGoalId],
+      ['goal_pause_intervals', 'goal_id', privateGoalId],
       ['study_sessions', 'user_id', bobUser.id],
       ['study_session_segments', 'user_id', bobUser.id],
       ['grades', 'user_id', bobUser.id],
       ['grade_sessions', 'user_id', bobUser.id],
+      ['friendships', 'id', carolRequest.id],
     ];
     for (const [table, column, value] of foreignPrivateFixtures) {
       await assertForeignRowsHidden(alice, table, column, value);
@@ -639,18 +761,15 @@ async function run() {
   }
 
   if (testFailure) {
-    console.error('[supabase-e2e] test failed');
-    console.error(testFailure);
+    console.error(`[supabase-e2e] test failed: ${errorSummary(testFailure)}`);
   }
   for (const cleanupError of cleanupErrors) {
-    console.error('[supabase-e2e] cleanup failed');
-    console.error(cleanupError);
+    console.error(`[supabase-e2e] cleanup failed: ${errorSummary(cleanupError)}`);
   }
   if (testFailure || cleanupErrors.length > 0) process.exitCode = 1;
 }
 
 await run().catch((error) => {
-  console.error('[supabase-e2e] fatal setup failure');
-  console.error(error);
+  console.error(`[supabase-e2e] fatal setup failure: ${errorSummary(error)}`);
   process.exitCode = 1;
 });

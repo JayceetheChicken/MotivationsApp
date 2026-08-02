@@ -8,6 +8,8 @@ export interface SupabaseEnvironmentInput {
   url?: string;
   publishableKey?: string;
   anonKey?: string;
+  /** Local plaintext Supabase is permitted only in an explicitly development build. */
+  allowLocalHttp?: boolean;
 }
 
 export interface ResolvedSupabaseEnvironment {
@@ -20,26 +22,35 @@ const LOCAL_HTTP_HOSTS = new Set([
   'localhost',
   '127.0.0.1',
   '::1',
-  '[::1]',
-  '10.0.2.2',
-  'host.docker.internal',
 ]);
 
 function isLocalHttpHost(hostname: string): boolean {
-  const normalized = hostname.toLowerCase();
-  return LOCAL_HTTP_HOSTS.has(normalized) || normalized.endsWith('.localhost');
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  return LOCAL_HTTP_HOSTS.has(normalized);
 }
 
-export function validateSupabaseUrl(value: string): string | null {
+export function validateSupabaseUrl(
+  value: string,
+  options: Readonly<{ allowLocalHttp?: boolean }> = {},
+): string | null {
   try {
     const parsedUrl = new URL(value);
     if (parsedUrl.username || parsedUrl.password) {
       return 'EXPO_PUBLIC_SUPABASE_URL darf keine Zugangsdaten enthalten.';
     }
+    if (parsedUrl.search || parsedUrl.hash) {
+      return 'EXPO_PUBLIC_SUPABASE_URL darf keine Query- oder Fragment-Parameter enthalten.';
+    }
     if (parsedUrl.protocol === 'https:') return null;
-    if (parsedUrl.protocol === 'http:' && isLocalHttpHost(parsedUrl.hostname)) return null;
+    if (
+      parsedUrl.protocol === 'http:'
+      && options.allowLocalHttp === true
+      && isLocalHttpHost(parsedUrl.hostname)
+    ) return null;
     if (parsedUrl.protocol === 'http:') {
-      return 'EXPO_PUBLIC_SUPABASE_URL muss für externe Hosts https:// verwenden.';
+      return options.allowLocalHttp
+        ? 'EXPO_PUBLIC_SUPABASE_URL darf HTTP nur exakt für localhost, 127.0.0.1 oder ::1 verwenden.'
+        : 'EXPO_PUBLIC_SUPABASE_URL muss in normalen und produktiven Builds https:// verwenden.';
     }
     return 'EXPO_PUBLIC_SUPABASE_URL muss mit https:// beginnen. HTTP ist nur für lokale Entwicklung erlaubt.';
   } catch {
@@ -61,10 +72,9 @@ function jwtRole(value: string): string | null {
 }
 
 export function validateSupabasePublicKey(value: string): string | null {
-  if (value.startsWith('sb_secret_') || jwtRole(value) === 'service_role') {
-    return 'In der App sind nur Supabase Publishable- beziehungsweise Anon-Keys erlaubt.';
-  }
-  return null;
+  if (value.startsWith('sb_publishable_')) return null;
+  if (jwtRole(value) === 'anon') return null;
+  return 'In der App sind nur Supabase Publishable- beziehungsweise Anon-Keys erlaubt.';
 }
 
 function missingConfigurationMessage(url: string | null, publicKey: string | null): string {
@@ -93,7 +103,8 @@ export function resolveSupabaseEnvironment(
     };
   }
 
-  const error = validateSupabaseUrl(url) ?? validateSupabasePublicKey(publicKey);
+  const error = validateSupabaseUrl(url, { allowLocalHttp: input.allowLocalHttp })
+    ?? validateSupabasePublicKey(publicKey);
   if (error) {
     return {
       url,

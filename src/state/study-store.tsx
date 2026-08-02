@@ -15,7 +15,10 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/auth/supabase';
 import { createInitialData, subjectColorPalette } from '@/data/initial-data';
 import { createLocalStudyRepository } from '@/data/repositories/local-study-repository';
-import { asRepositoryError } from '@/data/repositories/repository-error';
+import {
+  asRepositoryError,
+  StudyRepositoryError,
+} from '@/data/repositories/repository-error';
 import {
   type CreateSharedGoalInput,
   type CreateSharedStudySessionInput,
@@ -29,6 +32,7 @@ import {
 } from '@/data/repositories/study-repository';
 import { createSupabaseStudyRepository } from '@/data/repositories/supabase-study-repository';
 import { useNetworkStatus } from '@/hooks/use-network-status';
+import { safeDebug } from '@/lib/safe-logger';
 import '@/lib/local-storage';
 import { isValidGradeDate } from '@/lib/grades';
 import {
@@ -91,6 +95,9 @@ const IMPORT_DECISION_KEY_PREFIX = 'lernzeit.study-import.v2';
 const SHARED_SESSION_ACTION_OUTBOX_PREFIX = 'lernzeit.shared-session-actions.v1';
 const DEVICE_FINGERPRINT_KEY = 'lernzeit.device-fingerprint.v1';
 const CURRENT_SCHEMA_VERSION = 3;
+const MAX_PERSISTED_STUDY_STATE_BYTES = 8 * 1024 * 1024;
+const MAX_SHARED_SESSION_ACTIONS = 100;
+const MAX_SHARED_SESSION_ACTION_BYTES = 64 * 1024;
 const LOCAL_USER_ID = 'local-user';
 
 const LEGACY_SEEDED_SESSION_IDS = new Set([
@@ -189,6 +196,13 @@ function enqueueSharedSessionAction(
   ) {
     return [...current];
   }
+  if (current.length >= MAX_SHARED_SESSION_ACTIONS) {
+    throw new StudyRepositoryError(
+      'invalid_data',
+      'Die Offline-Warteschlange für gemeinsame Sessions ist voll.',
+      { retryable: false },
+    );
+  }
   return [...current, pending];
 }
 
@@ -196,8 +210,9 @@ function readSharedSessionActionOutbox(storageKey: string): PendingSharedSession
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
+    if (raw.length > MAX_SHARED_SESSION_ACTION_BYTES) return [];
     const value: unknown = JSON.parse(raw);
-    if (!Array.isArray(value)) return [];
+    if (!Array.isArray(value) || value.length > MAX_SHARED_SESSION_ACTIONS) return [];
     return value.reduce<PendingSharedSessionAction[]>((actions, entry) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return actions;
       const record = entry as Record<string, unknown>;
@@ -205,6 +220,7 @@ function readSharedSessionActionOutbox(storageKey: string): PendingSharedSession
       const action = record.action;
       if (
         !sessionId
+        || sessionId.length > 200
         || typeof action !== 'string'
         || !SHARED_SESSION_PARTICIPANT_ACTIONS.includes(
           action as SharedStudySessionParticipantAction,
@@ -228,7 +244,12 @@ function writeSharedSessionActionOutbox(
 ): void {
   try {
     if (actions.length === 0) localStorage.removeItem(storageKey);
-    else localStorage.setItem(storageKey, JSON.stringify(actions));
+    else {
+      const serialized = JSON.stringify(actions);
+      if (serialized.length <= MAX_SHARED_SESSION_ACTION_BYTES) {
+        localStorage.setItem(storageKey, serialized);
+      }
+    }
   } catch {
     // The in-memory queue remains active when persistent storage is unavailable.
   }
@@ -313,6 +334,8 @@ export interface AvatarUploadAsset {
   mimeType?: string | null;
   fileName?: string | null;
   fileSize?: number | null;
+  width?: number | null;
+  height?: number | null;
 }
 
 export interface FinishTimerOptions {
@@ -1424,6 +1447,7 @@ function readStoredState(storageScope: string): {
   const raw = localStorage.getItem(scopedStorageKey(storageScope))
     ?? (storageScope === 'local' ? localStorage.getItem(LEGACY_STORAGE_KEY) : null);
   if (!raw) return { raw: null, state: null };
+  if (raw.length > MAX_PERSISTED_STUDY_STATE_BYTES) return { raw, state: null };
 
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -1746,7 +1770,7 @@ export function StudyStoreProvider({
     } finally {
       if (mounted) {
         setHydrated(true);
-        console.log('[BOOT] Study store hydrated');
+        safeDebug('[BOOT] Lernspeicher wiederhergestellt.');
       }
     }
     };
@@ -1765,7 +1789,10 @@ export function StudyStoreProvider({
       ...state,
     };
     try {
-      localStorage.setItem(storageKey, JSON.stringify(payload));
+      const serialized = JSON.stringify(payload);
+      if (serialized.length <= MAX_PERSISTED_STUDY_STATE_BYTES) {
+        localStorage.setItem(storageKey, serialized);
+      }
       if (storageScope === 'local') localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // In-memory usage remains available when storage is temporarily unavailable.
@@ -2296,10 +2323,15 @@ export function StudyStoreProvider({
     }
     const outbox = sharedSessionActionOutboxRef.current;
     if (!outbox || outbox.storageKey !== sharedSessionActionStorageKey) return;
-    outbox.actions = enqueueSharedSessionAction(outbox.actions, {
-      sessionId: cleanSessionId,
-      action,
-    });
+    try {
+      outbox.actions = enqueueSharedSessionAction(outbox.actions, {
+        sessionId: cleanSessionId,
+        action,
+      });
+    } catch (error) {
+      setSocialError(asRepositoryError(error).message);
+      return;
+    }
     writeSharedSessionActionOutbox(sharedSessionActionStorageKey, outbox.actions);
     if (hydrated && online) void drainSharedSessionActionOutbox();
   }, [

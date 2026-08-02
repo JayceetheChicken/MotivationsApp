@@ -14,6 +14,8 @@ const mockDeleteRequest = jest.fn<Promise<void>, [unknown, string]>();
 const mockClearAccountLocalData = jest.fn<readonly string[], [unknown, string]>();
 const mockRemoveAllChannels = jest.fn<Promise<unknown>, []>();
 const mockSignOut = jest.fn();
+const mockResetPasswordForEmail = jest.fn();
+const mockSignUp = jest.fn();
 
 const mockRecoverySession = {
   access_token: 'access',
@@ -60,6 +62,10 @@ jest.mock('@/auth/supabase', () => ({
         data: { subscription: { unsubscribe: jest.fn() } },
       })),
       setSession: (tokens: unknown) => mockSetSession(tokens),
+      resetPasswordForEmail: (email: string, options: unknown) => (
+        mockResetPasswordForEmail(email, options)
+      ),
+      signUp: (input: unknown) => mockSignUp(input),
       signOut: (options: unknown) => mockSignOut(options),
     },
     removeAllChannels: () => mockRemoveAllChannels(),
@@ -89,6 +95,8 @@ describe('AuthStoreProvider startup', () => {
     mockClearAccountLocalData.mockReturnValue([]);
     mockRemoveAllChannels.mockResolvedValue([]);
     mockSignOut.mockResolvedValue({ error: null });
+    mockResetPasswordForEmail.mockResolvedValue({ error: null });
+    mockSignUp.mockResolvedValue({ data: { session: null }, error: null });
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
       value: { removeItem: jest.fn() },
@@ -121,7 +129,7 @@ describe('AuthStoreProvider startup', () => {
   });
 
   it('processes a genuine password-reset deep link in the background after hydration', async () => {
-    mockGetInitialURL.mockResolvedValue('lernzeit://update-password?code=recovery-code');
+    mockGetInitialURL.mockResolvedValue('lernzeit://auth/update-password?code=recovery-code');
     mockExchangeCodeForSession.mockResolvedValue({
       data: { session: mockRecoverySession },
       error: null,
@@ -133,6 +141,34 @@ describe('AuthStoreProvider startup', () => {
 
     expect(mockExchangeCodeForSession).toHaveBeenCalledWith('recovery-code');
     expect(recovery.result.current.user?.id).toBe('account-123');
+    await recovery.unmount();
+  });
+
+  it.each([
+    'lernzeit://auth/profile?code=ordinary-code',
+    'evil://auth/update-password?code=stolen-code',
+    'lernzeit://attacker/update-password?code=stolen-code',
+    'lernzeit://auth/update-password?code=one&code=two',
+  ])('never exchanges a code from an untrusted route: %s', async (url) => {
+    mockGetInitialURL.mockResolvedValue(url);
+    const recovery = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(recovery.result.current.hydrated).toBe(true));
+    await act(async () => undefined);
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled();
+    expect(recovery.result.current.passwordRecoveryPending).toBe(false);
+    await recovery.unmount();
+  });
+
+  it('sets a session only for a complete, route-bound recovery token pair', async () => {
+    mockGetInitialURL.mockResolvedValue(
+      'lernzeit://auth/update-password#access_token=access&refresh_token=refresh&type=recovery',
+    );
+    const recovery = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(recovery.result.current.passwordRecoveryPending).toBe(true));
+    expect(mockSetSession).toHaveBeenCalledWith({
+      access_token: 'access',
+      refresh_token: 'refresh',
+    });
     await recovery.unmount();
   });
 
@@ -201,6 +237,74 @@ describe('AuthStoreProvider startup', () => {
     expect(account.result.current.user).toBeNull();
     expect(account.result.current.pendingAction).toBeNull();
     await account.unmount();
+  });
+
+  it('falls back to a local session wipe when global logout is unavailable', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    mockSignOut
+      .mockResolvedValueOnce({ error: new Error('network unavailable') })
+      .mockResolvedValueOnce({ error: null });
+    const account = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(account.result.current.activeMode).toBe('supabase'));
+
+    let signOutResult: Awaited<ReturnType<typeof account.result.current.signOut>> | null = null;
+    await act(async () => {
+      signOutResult = await account.result.current.signOut();
+    });
+
+    expect(signOutResult).toEqual(expect.objectContaining({ ok: true }));
+    expect(mockSignOut).toHaveBeenNthCalledWith(2, { scope: 'local' });
+    expect(account.result.current.session).toBeNull();
+    await account.unmount();
+  });
+
+  it('returns the same non-enumerating reset response when the provider rejects the request', async () => {
+    mockResetPasswordForEmail.mockResolvedValueOnce({
+      error: { code: 'user_not_found', message: 'User not found' },
+    });
+    const guest = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(guest.result.current.hydrated).toBe(true));
+
+    let resetResult: Awaited<ReturnType<typeof guest.result.current.sendPasswordReset>> | null = null;
+    await act(async () => {
+      resetResult = await guest.result.current.sendPasswordReset(' Lea@Example.com ');
+    });
+
+    expect(resetResult).toEqual({
+      ok: true,
+      message: 'Falls ein Konto besteht, erhältst du gleich eine E-Mail zum Zurücksetzen.',
+    });
+    expect(mockResetPasswordForEmail).toHaveBeenCalledWith('lea@example.com', {
+      redirectTo: 'lernzeit://auth/update-password',
+    });
+    await guest.unmount();
+  });
+
+  it('does not disclose an existing account through the sign-up response', async () => {
+    mockSignUp.mockResolvedValueOnce({
+      data: { session: null },
+      error: { code: 'user_already_exists', message: 'User already registered' },
+    });
+    const guest = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(guest.result.current.hydrated).toBe(true));
+
+    let signUpResult: Awaited<ReturnType<typeof guest.result.current.signUp>> | null = null;
+    await act(async () => {
+      signUpResult = await guest.result.current.signUp({
+        displayName: 'Lea Beispiel',
+        email: 'lea@example.com',
+        password: 'long-password',
+        username: 'lea.beispiel',
+      });
+    });
+
+    expect(signUpResult).toEqual({
+      ok: true,
+      message: 'Falls die Angaben verwendet werden können, erhältst du gleich eine E-Mail zur Bestätigung.',
+      sessionCreated: false,
+    });
+    expect(JSON.stringify(signUpResult)).not.toMatch(/bereits|registriert/i);
+    await guest.unmount();
   });
 
   it('keeps the session and local caches when server-side deletion fails', async () => {

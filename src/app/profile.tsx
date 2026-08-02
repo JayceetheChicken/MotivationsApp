@@ -13,6 +13,7 @@ import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
 import type { AccountStudyUser } from '@/types/study';
+import { cleanupTemporaryAvatarUri } from '@/lib/avatar-upload';
 
 function avatarActionError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
@@ -186,6 +187,8 @@ export default function ProfileScreen() {
         mimeType: asset.mimeType,
         fileName: asset.fileName,
         fileSize: asset.fileSize,
+        width: asset.width,
+        height: asset.height,
       });
       if (!updated) {
         throw new Error('Das Profilbild konnte nicht hochgeladen werden. Bitte versuche es erneut.');
@@ -198,6 +201,7 @@ export default function ProfileScreen() {
       setAvatarPreviewUri(null);
       throw error;
     } finally {
+      if (isAccount) cleanupTemporaryAvatarUri(asset.uri);
       setAvatarUploading(false);
     }
   }, [isAccount, isLocal, replaceAccountAvatar, saveLocalProfile]);

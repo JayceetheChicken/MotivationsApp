@@ -15,6 +15,7 @@ const environment = resolveSupabaseEnvironment({
   url: process.env.EXPO_PUBLIC_SUPABASE_URL,
   anonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
   publishableKey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  allowLocalHttp: typeof __DEV__ !== 'undefined' && __DEV__,
 });
 
 let client: SupabaseClient<Database> | null = null;

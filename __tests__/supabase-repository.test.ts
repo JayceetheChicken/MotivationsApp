@@ -548,6 +548,7 @@ describe('SupabaseStudyRepository RPC contract', () => {
       storage: new MemoryKeyValueStorage(),
     });
     const technicalMessage = 'Could not find the function public.set_my_avatar(p_object_path) in the schema cache';
+    const warningLog = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     rpc.mockResolvedValueOnce({
       data: null,
@@ -560,11 +561,13 @@ describe('SupabaseStudyRepository RPC contract', () => {
       )).rejects.toMatchObject({
         message: 'Das Profilbild konnte serverseitig nicht gespeichert werden.',
       });
-      expect(errorLog).toHaveBeenCalledWith(
-        '[avatar] set_my_avatar fehlgeschlagen',
-        expect.objectContaining({ message: technicalMessage }),
+      expect(warningLog).toHaveBeenCalledWith(
+        '[avatar] Serverseitige Profilbild-Bestätigung fehlgeschlagen.',
       );
+      expect(JSON.stringify(warningLog.mock.calls)).not.toContain(technicalMessage);
+      expect(errorLog).not.toHaveBeenCalled();
     } finally {
+      warningLog.mockRestore();
       errorLog.mockRestore();
     }
   });

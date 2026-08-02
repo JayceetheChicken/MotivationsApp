@@ -13,7 +13,10 @@ import {
 import { requestOnlineAccountDeletion } from '@/auth/account-deletion';
 import { clearAccountLocalData } from '@/auth/account-local-cleanup';
 import { authStorage } from '@/auth/storage';
-import { isPasswordRecoveryUrl } from '@/auth/navigation';
+import {
+  parsePasswordRecoveryUrl,
+  PASSWORD_RECOVERY_REDIRECT_URL,
+} from '@/auth/navigation';
 import {
   supabase,
   supabaseConfiguration,
@@ -25,8 +28,11 @@ import {
   usernameError,
 } from '@/auth/validation';
 import { withTimeout } from '@/lib/with-timeout';
+import { safeDebug, safeWarning } from '@/lib/safe-logger';
 
 const LOCAL_PROFILE_STORAGE_KEY = 'lernzeit.local-profile.v1';
+const SIGN_UP_CONFIRMATION_MESSAGE =
+  'Falls die Angaben verwendet werden können, erhältst du gleich eine E-Mail zur Bestätigung.';
 const BOOT_STEP_TIMEOUT_MS = 4000;
 
 /**
@@ -36,8 +42,8 @@ const BOOT_STEP_TIMEOUT_MS = 4000;
 async function settleBootStep<T>(label: string, promise: Promise<T>, fallback: T): Promise<T> {
   try {
     return await withTimeout(promise, BOOT_STEP_TIMEOUT_MS, label);
-  } catch (error) {
-    console.warn(`[BOOT] ${label} übersprungen – die App startet als Gast weiter.`, error);
+  } catch {
+    safeWarning('[BOOT] Ein optionaler Startschritt ist fehlgeschlagen.');
     return fallback;
   }
 }
@@ -114,11 +120,17 @@ function isLocalProfile(value: unknown): value is LocalProfile {
     candidate.schemaVersion === 1 &&
     typeof candidate.displayName === 'string' &&
     candidate.displayName.trim().length >= 2 &&
+    candidate.displayName.length <= 50 &&
     typeof candidate.username === 'string' &&
     candidate.username.trim().length >= 3 &&
-    (candidate.avatarUri === undefined || typeof candidate.avatarUri === 'string') &&
+    candidate.username.length <= 30 &&
+    (candidate.avatarUri === undefined || (
+      typeof candidate.avatarUri === 'string' && candidate.avatarUri.length <= 4096
+    )) &&
     typeof candidate.createdAt === 'string' &&
-    typeof candidate.updatedAt === 'string'
+    Number.isFinite(Date.parse(candidate.createdAt)) &&
+    typeof candidate.updatedAt === 'string' &&
+    Number.isFinite(Date.parse(candidate.updatedAt))
   );
 }
 
@@ -149,13 +161,13 @@ function translateAuthError(error: unknown): string {
   const translatedByCode: Record<string, string> = {
     anonymous_provider_disabled: 'Anonyme Anmeldung ist für dieses Projekt deaktiviert.',
     email_address_invalid: 'Diese E-Mail-Adresse ist ungültig.',
-    email_exists: 'Für diese E-Mail-Adresse besteht bereits ein Konto.',
+    email_exists: 'Die Registrierung konnte nicht abgeschlossen werden. Bitte prüfe deine Angaben.',
     email_not_confirmed: 'Bestätige zuerst deine E-Mail-Adresse.',
     invalid_credentials: 'E-Mail-Adresse oder Passwort ist nicht korrekt.',
     over_email_send_rate_limit: 'Zu viele E-Mails in kurzer Zeit. Bitte versuche es später erneut.',
     over_request_rate_limit: 'Zu viele Anfragen in kurzer Zeit. Bitte warte einen Moment.',
     signup_disabled: 'Neue Registrierungen sind für dieses Projekt derzeit deaktiviert.',
-    user_already_exists: 'Für diese E-Mail-Adresse besteht bereits ein Konto.',
+    user_already_exists: 'Die Registrierung konnte nicht abgeschlossen werden. Bitte prüfe deine Angaben.',
     user_banned: 'Dieses Konto ist derzeit gesperrt.',
     weak_password: 'Das Passwort erfüllt die Sicherheitsanforderungen nicht.',
   };
@@ -194,32 +206,28 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
 
     const handleAuthUrl = async (url: string | null) => {
       if (!url || !supabase || !isMounted) return;
+      const recovery = parsePasswordRecoveryUrl(url);
+      if (!recovery) return;
       try {
-        const parsedUrl = new URL(url);
-        const fragment = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
-        const isRecovery = isPasswordRecoveryUrl(url);
-        const code = parsedUrl.searchParams.get('code');
-
-        if (code) {
-          const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (recovery.kind === 'pkce') {
+          const { data: exchangeData, error: exchangeError } = await supabase.auth
+            .exchangeCodeForSession(recovery.code);
           if (exchangeError) throw exchangeError;
           if (isMounted) setSession(exchangeData.session);
         } else {
-          const accessToken = fragment.get('access_token');
-          const refreshToken = fragment.get('refresh_token');
-          if (accessToken && refreshToken) {
-            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-            if (sessionError) throw sessionError;
-            if (isMounted) setSession(sessionData.session);
-          }
+          const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+            access_token: recovery.accessToken,
+            refresh_token: recovery.refreshToken,
+          });
+          if (sessionError) throw sessionError;
+          if (isMounted) setSession(sessionData.session);
         }
 
-        if (isRecovery && isMounted) setPasswordRecoveryPending(true);
-      } catch (linkError) {
-        if (isMounted) setError(translateAuthError(linkError));
+        if (isMounted) setPasswordRecoveryPending(true);
+      } catch {
+        if (isMounted) {
+          setError('Der Link zum Zurücksetzen ist ungültig oder abgelaufen. Fordere einen neuen Link an.');
+        }
       }
     };
     const linkSubscription = Linking.addEventListener('url', ({ url }) => {
@@ -227,14 +235,14 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     });
 
     const restore = async () => {
-      console.log('[BOOT] Auth restore started');
+      safeDebug('[BOOT] Auth-Wiederherstellung gestartet.');
 
       // Phase 1 – nur lokale Daten. Jeder Schritt settelt garantiert
       // (Timeout + Fallback), danach ist der App-Start freigegeben.
       try {
         const storedProfile = await settleBootStep('Lokales Profil laden', readLocalProfile(), null);
         if (isMounted) setLocalProfile(storedProfile);
-        console.log('[BOOT] Local profile restored');
+        safeDebug('[BOOT] Lokales Profil wiederhergestellt.');
       } finally {
         if (isMounted) {
           setHydrated(true);
@@ -254,7 +262,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
         if (sessionResult && !sessionResult.error && sessionResult.data.session) {
           setSession(sessionResult.data.session);
         }
-        console.log('[BOOT] Supabase session restored');
+        safeDebug('[BOOT] Online-Sitzung wiederhergestellt.');
       }
 
       const initialUrl = await settleBootStep('Start-URL lesen', Linking.getInitialURL(), null);
@@ -342,10 +350,14 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       const sessionCreated = Boolean(data.session);
       const message = sessionCreated
         ? 'Dein Konto wurde erstellt und du bist angemeldet.'
-        : 'Dein Konto wurde angelegt. Prüfe dein E-Mail-Postfach und bestätige deine Adresse.';
+        : SIGN_UP_CONFIRMATION_MESSAGE;
       setNotice(message);
       return { ok: true, message, sessionCreated };
     } catch (signUpError) {
+      if (['email_exists', 'user_already_exists'].includes(errorCode(signUpError) ?? '')) {
+        setNotice(SIGN_UP_CONFIRMATION_MESSAGE);
+        return { ok: true, message: SIGN_UP_CONFIRMATION_MESSAGE, sessionCreated: false };
+      }
       const message = translateAuthError(signUpError);
       setError(message);
       return { ok: false, message };
@@ -364,17 +376,19 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         email.trim().toLowerCase(),
-        { redirectTo: Linking.createURL('/update-password') },
+        { redirectTo: PASSWORD_RECOVERY_REDIRECT_URL },
       );
       if (resetError) throw resetError;
 
       const message = 'Falls ein Konto besteht, erhältst du gleich eine E-Mail zum Zurücksetzen.';
       setNotice(message);
       return { ok: true, message };
-    } catch (resetError) {
-      const message = translateAuthError(resetError);
-      setError(message);
-      return { ok: false, message };
+    } catch {
+      // Keep the observable response identical for known and unknown accounts.
+      // Dashboard-side Auth limits remain authoritative for abuse prevention.
+      const message = 'Falls ein Konto besteht, erhältst du gleich eine E-Mail zum Zurücksetzen.';
+      setNotice(message);
+      return { ok: true, message };
     } finally {
       setPendingAction(null);
     }
@@ -412,12 +426,19 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     setNotice(null);
 
     try {
-      const { error: signOutError } = await supabase.auth.signOut();
-      if (signOutError) throw signOutError;
+      const { error: globalSignOutError } = await supabase.auth.signOut();
+      let onlyLocal = false;
+      if (globalSignOutError) {
+        const { error: localSignOutError } = await supabase.auth.signOut({ scope: 'local' });
+        if (localSignOutError) throw localSignOutError;
+        onlyLocal = true;
+      }
 
       setSession(null);
       setPasswordRecoveryPending(false);
-      const message = 'Du wurdest abgemeldet.';
+      const message = onlyLocal
+        ? 'Du wurdest auf diesem Gerät abgemeldet. Andere Sitzungen konnten nicht beendet werden.'
+        : 'Du wurdest abgemeldet.';
       setNotice(message);
       return { ok: true, message };
     } catch (signOutError) {

@@ -83,12 +83,19 @@ gegen ein Remote-Dashboard synchronisiert.
 ## Qualität prüfen
 
 ```bash
+npm ci
 npm test
 npm run typecheck
 npm run lint
 npm run test:db
 npx expo-doctor
+npm audit --omit=dev --audit-level=high
 ```
+
+Vor einem Produktions- oder Play-Store-Release ist zusätzlich die
+[`docs/SECURITY_RELEASE_CHECKLIST.md`](./docs/SECURITY_RELEASE_CHECKLIST.md)
+vollständig abzuarbeiten. Sie trennt automatisierte Nachweise von den noch im
+Supabase-Dashboard, bei der Domain und in Google Play zu erledigenden Gates.
 
 ## Projektstruktur
 

@@ -108,7 +108,7 @@ export default function RegisterScreen() {
           autoCapitalize="none"
           autoComplete="new-password"
           error={errors.password}
-          hint="Mindestens 8 Zeichen."
+          hint="Mindestens 10 Zeichen."
           isPassword
           label="Passwort"
           onChangeText={(value) => updateField('password', setPassword, value)}

@@ -27,10 +27,13 @@ port = 54324
 
 [auth]
 enabled = true
+# Local-only Auth configuration. Production Site URL and redirects must be set
+# independently in the Supabase dashboard; see docs/SECURITY_RELEASE_CHECKLIST.md.
 site_url = "http://127.0.0.1:8081"
-additional_redirect_urls = ["lernzeit://**", "http://localhost:8081/**"]
+additional_redirect_urls = ["lernzeit://auth/update-password", "http://localhost:8081/update-password"]
 jwt_expiry = 3600
 enable_signup = true
+minimum_password_length = 10
 
 [auth.email]
 enable_signup = true
@@ -41,4 +44,7 @@ enable_confirmations = false
 enabled = true
 
 [functions.delete-account]
-verify_jwt = true
+# Publishable API keys are opaque and cannot use the legacy gateway JWT check.
+# The function independently validates the caller's user access token with
+# Auth before any service-role operation is attempted.
+verify_jwt = false

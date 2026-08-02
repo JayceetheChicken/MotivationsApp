@@ -60,7 +60,7 @@ export default function UpdatePasswordScreen() {
           autoCapitalize="none"
           autoComplete="new-password"
           error={errors.password}
-          hint="Mindestens 8 Zeichen."
+          hint="Mindestens 10 Zeichen."
           isPassword
           label="Neues Passwort"
           onChangeText={(value) => {
@@ -68,7 +68,7 @@ export default function UpdatePasswordScreen() {
             if (errors.password) setErrors((current) => ({ ...current, password: undefined }));
             if (error || notice) clearFeedback();
           }}
-          placeholder="Mindestens 8 Zeichen"
+          placeholder="Mindestens 10 Zeichen"
           value={password}
         />
         <AuthField

@@ -1,6 +1,6 @@
 // Keep the Edge Function runtime dependency pinned independently of the app bundle.
 // deno-lint-ignore no-import-prefix
-import { createClient } from "npm:@supabase/supabase-js@2.110.2";
+import { createClient } from "npm:@supabase/supabase-js@2.111.0";
 
 import {
   type DeleteAccountAdmin,

@@ -13,6 +13,7 @@ import {
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 import { StudyStoreProvider, useStudyStore } from '@/state/study-store';
 import { appTheme, type AppTheme } from '@/theme';
+import { safeDebug } from '@/lib/safe-logger';
 
 export const unstable_settings = { anchor: ROOT_NAVIGATION_ANCHOR };
 
@@ -102,7 +103,7 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   }, [auth.passwordRecoveryPending, onPasswordUpdateRoute, study.hydrated]);
 
   useEffect(() => {
-    if (study.hydrated) console.log('[BOOT] App navigation ready');
+    if (study.hydrated) safeDebug('[BOOT] App-Navigation bereit.');
   }, [study.hydrated]);
 
   useEffect(() => {

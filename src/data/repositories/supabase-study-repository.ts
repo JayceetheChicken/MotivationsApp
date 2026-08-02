@@ -2,6 +2,7 @@ import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 
 import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import type { Database, Json } from '@/types/database.generated';
+import { safeWarning } from '@/lib/safe-logger';
 import {
   mapAccountProfile,
   mapFriendOverview,
@@ -151,13 +152,10 @@ function isMissingRealtimePartition(error: unknown): boolean {
 }
 
 function logSocialRealtimeFailure(topic: string, status: string, error: unknown): void {
-  if (typeof __DEV__ !== 'undefined' && __DEV__) {
-    console.warn('[social-realtime] Channel-Verbindung fehlgeschlagen', {
-      topic,
-      status,
-      error,
-    });
-  }
+  void topic;
+  void status;
+  void error;
+  safeWarning('[social-realtime] Private Channel-Verbindung fehlgeschlagen.');
 }
 
 function socialRealtimeUnavailableError(
@@ -273,9 +271,7 @@ function describeAvatarPersistenceError(error: unknown): StudyRepositoryError {
   const normalized = asRepositoryError(error);
   if (normalized.code === 'cancelled') return normalized;
 
-  if (typeof __DEV__ !== 'undefined' && __DEV__) {
-    console.error('[avatar] set_my_avatar fehlgeschlagen', normalized.cause ?? error);
-  }
+  safeWarning('[avatar] Serverseitige Profilbild-Bestätigung fehlgeschlagen.');
 
   return new StudyRepositoryError(
     'server_error',
