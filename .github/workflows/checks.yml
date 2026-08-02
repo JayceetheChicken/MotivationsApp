@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Reject sensitive tracked filenames
+        run: node scripts/check-sensitive-files.mjs
+
       - name: Typecheck
         run: npm run typecheck
 

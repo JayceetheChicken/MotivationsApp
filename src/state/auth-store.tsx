@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -14,8 +15,10 @@ import { requestOnlineAccountDeletion } from '@/auth/account-deletion';
 import { clearAccountLocalData } from '@/auth/account-local-cleanup';
 import { authStorage } from '@/auth/storage';
 import {
+  hasPasswordRecoveryMaterial,
   parsePasswordRecoveryUrl,
   PASSWORD_RECOVERY_REDIRECT_URL,
+  passwordRecoveryRequestFingerprint,
 } from '@/auth/navigation';
 import {
   supabase,
@@ -68,6 +71,7 @@ export interface SignUpInput {
   password: string;
   displayName: string;
   username: string;
+  communityRulesAccepted: boolean;
 }
 
 export interface AuthActionResult {
@@ -83,6 +87,7 @@ export type AuthPendingAction =
   | 'reset-password'
   | 'update-password'
   | 'sign-out'
+  | 'sign-out-clear-device'
   | 'delete-account'
   | 'save-local-profile'
   | 'remove-local-profile';
@@ -106,7 +111,8 @@ interface AuthStoreValue {
   sendPasswordReset: (email: string) => Promise<AuthActionResult>;
   updatePassword: (password: string) => Promise<AuthActionResult>;
   signOut: () => Promise<AuthActionResult>;
-  deleteAccount: () => Promise<AuthActionResult>;
+  signOutAndClearDeviceData: () => Promise<AuthActionResult>;
+  deleteAccount: (password: string) => Promise<AuthActionResult>;
   saveLocalProfile: (input: LocalProfileInput) => Promise<AuthActionResult>;
   removeLocalProfile: () => Promise<AuthActionResult>;
   clearFeedback: () => void;
@@ -189,6 +195,8 @@ const AuthStoreContext = createContext<AuthStoreValue | null>(null);
 
 export function AuthStoreProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  const processedRecoveryLinksRef = useRef(new Set<string>());
   const [localProfile, setLocalProfile] = useState<LocalProfile | null>(null);
   const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
   const [pendingAction, setPendingAction] = useState<AuthPendingAction | null>('restore');
@@ -200,6 +208,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     let isMounted = true;
     const authSubscription = supabase?.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) return;
+      sessionRef.current = nextSession;
       setSession(nextSession);
       if (event === 'PASSWORD_RECOVERY') setPasswordRecoveryPending(true);
     }).data.subscription;
@@ -207,20 +216,58 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     const handleAuthUrl = async (url: string | null) => {
       if (!url || !supabase || !isMounted) return;
       const recovery = parsePasswordRecoveryUrl(url);
-      if (!recovery) return;
+      if (!recovery) {
+        if (hasPasswordRecoveryMaterial(url)) {
+          setError('Der Link zum Zurücksetzen ist ungültig oder abgelaufen. Fordere einen neuen Link an.');
+        }
+        return;
+      }
+      const fingerprint = passwordRecoveryRequestFingerprint(recovery);
+      if (processedRecoveryLinksRef.current.has(fingerprint)) {
+        setError('Dieser Link zum Zurücksetzen wurde bereits verarbeitet. Fordere bei Bedarf einen neuen Link an.');
+        return;
+      }
+      let activeSession = sessionRef.current;
+      if (!activeSession) {
+        const { data: currentSessionData, error: currentSessionError } = await supabase.auth
+          .getSession();
+        if (!isMounted) return;
+        if (currentSessionError) {
+          setError('Der Link zum Zurücksetzen konnte nicht sicher geprüft werden. Versuche es später erneut.');
+          return;
+        }
+        activeSession = currentSessionData.session;
+        if (activeSession) {
+          sessionRef.current = activeSession;
+          setSession(activeSession);
+        }
+      }
+      if (activeSession?.user.id) {
+        setError('Melde dich zuerst ab, bevor du einen Link zum Zurücksetzen verwendest.');
+        return;
+      }
+      processedRecoveryLinksRef.current.add(fingerprint);
       try {
         if (recovery.kind === 'pkce') {
           const { data: exchangeData, error: exchangeError } = await supabase.auth
             .exchangeCodeForSession(recovery.code);
           if (exchangeError) throw exchangeError;
-          if (isMounted) setSession(exchangeData.session);
+          if (!exchangeData.session) throw new Error('Recovery session missing');
+          if (isMounted) {
+            sessionRef.current = exchangeData.session;
+            setSession(exchangeData.session);
+          }
         } else {
           const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
             access_token: recovery.accessToken,
             refresh_token: recovery.refreshToken,
           });
           if (sessionError) throw sessionError;
-          if (isMounted) setSession(sessionData.session);
+          if (!sessionData.session) throw new Error('Recovery session missing');
+          if (isMounted) {
+            sessionRef.current = sessionData.session;
+            setSession(sessionData.session);
+          }
         }
 
         if (isMounted) setPasswordRecoveryPending(true);
@@ -260,6 +307,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
         );
         if (!isMounted) return;
         if (sessionResult && !sessionResult.error && sessionResult.data.session) {
+          sessionRef.current = sessionResult.data.session;
           setSession(sessionResult.data.session);
         }
         safeDebug('[BOOT] Online-Sitzung wiederhergestellt.');
@@ -311,6 +359,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
         return { ok: false, message };
       }
 
+      sessionRef.current = data.session;
       setSession(data.session);
       const message = 'Du bist jetzt angemeldet.';
       setNotice(message);
@@ -327,6 +376,12 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
   const signUp = useCallback(async (input: SignUpInput): Promise<AuthActionResult> => {
     if (!supabase) return configurationFailure();
 
+    if (!input.communityRulesAccepted) {
+      const message = 'Bitte stimme den Nutzungsbedingungen und Community-Regeln ausdrücklich zu.';
+      setError(message);
+      return { ok: false, message };
+    }
+
     setPendingAction('sign-up');
     setError(null);
     setNotice(null);
@@ -341,11 +396,14 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
             display_name: input.displayName.trim(),
             username: input.username.trim().toLowerCase(),
             time_zone: resolvedTimeZone,
+            community_rules_version: '2026-08-02',
+            community_rules_accepted_at: new Date().toISOString(),
           },
         },
       });
       if (signUpError) throw signUpError;
 
+      sessionRef.current = data.session;
       setSession(data.session);
       const sessionCreated = Boolean(data.session);
       const message = sessionCreated
@@ -434,6 +492,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
         onlyLocal = true;
       }
 
+      sessionRef.current = null;
       setSession(null);
       setPasswordRecoveryPending(false);
       const message = onlyLocal
@@ -450,10 +509,55 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     }
   }, [configurationFailure]);
 
-  const deleteAccount = useCallback(async (): Promise<AuthActionResult> => {
+  const signOutAndClearDeviceData = useCallback(async (): Promise<AuthActionResult> => {
+    if (!supabase) return configurationFailure();
+    const accountId = session?.user.id;
+    if (!accountId) {
+      const message = 'Auf diesem Gerät ist kein Online-Konto angemeldet.';
+      setError(message);
+      return { ok: false, message };
+    }
+
+    setPendingAction('sign-out-clear-device');
+    setError(null);
+    setNotice(null);
+    try {
+      const { error: globalSignOutError } = await supabase.auth.signOut();
+      if (globalSignOutError) {
+        const { error: localSignOutError } = await supabase.auth.signOut({ scope: 'local' });
+        if (localSignOutError) throw localSignOutError;
+      }
+      try {
+        await supabase.removeAllChannels();
+      } catch {
+        // The account-scoped storage wipe below remains authoritative locally.
+      }
+      const browserStorage = typeof globalThis.localStorage === 'undefined'
+        ? null
+        : globalThis.localStorage;
+      const failedKeys = clearAccountLocalData(browserStorage, accountId);
+      sessionRef.current = null;
+      setSession(null);
+      setPasswordRecoveryPending(false);
+      const message = failedKeys.length > 0
+        ? 'Du wurdest abgemeldet. Einige Kontodaten konnten auf diesem Gerät nicht vollständig entfernt werden.'
+        : 'Du wurdest abgemeldet und die lokalen Daten dieses Kontos wurden von diesem Gerät entfernt.';
+      if (failedKeys.length > 0) setError(message);
+      else setNotice(message);
+      return { ok: failedKeys.length === 0, message };
+    } catch (signOutError) {
+      const message = translateAuthError(signOutError);
+      setError(message);
+      return { ok: false, message };
+    } finally {
+      setPendingAction(null);
+    }
+  }, [configurationFailure, session]);
+
+  const deleteAccount = useCallback(async (password: string): Promise<AuthActionResult> => {
     if (!supabase) return configurationFailure();
     const activeSession = session;
-    if (!activeSession?.access_token || !activeSession.user.id) {
+    if (!activeSession?.access_token || !activeSession.user.id || !activeSession.user.email) {
       const message = 'Für die Kontolöschung musst du mit einem Online-Konto angemeldet sein.';
       setError(message);
       setNotice(null);
@@ -465,7 +569,25 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     setNotice(null);
 
     try {
-      await requestOnlineAccountDeletion(supabase, activeSession.access_token);
+      const { data: reauthenticated, error: reauthenticationError } = await supabase.auth
+        .signInWithPassword({ email: activeSession.user.email, password });
+      if (reauthenticationError || !reauthenticated.session) {
+        const message = 'Die Identitätsbestätigung ist fehlgeschlagen. Prüfe dein Passwort.';
+        setError(message);
+        return { ok: false, message };
+      }
+      if (reauthenticated.session.user.id !== activeSession.user.id) {
+        await supabase.auth.setSession({
+          access_token: activeSession.access_token,
+          refresh_token: activeSession.refresh_token,
+        });
+        const message = 'Die Identitätsbestätigung konnte nicht sicher abgeschlossen werden.';
+        setError(message);
+        return { ok: false, message };
+      }
+      sessionRef.current = reauthenticated.session;
+      setSession(reauthenticated.session);
+      await requestOnlineAccountDeletion(supabase, reauthenticated.session.access_token);
 
       const browserStorage = typeof globalThis.localStorage === 'undefined'
         ? null
@@ -492,6 +614,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
         localCleanupIncomplete = true;
       }
 
+      sessionRef.current = null;
       setSession(null);
       setLocalProfile(null);
       setPasswordRecoveryPending(false);
@@ -505,6 +628,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       const message = candidate?.startsWith('Deine Anmeldung ist abgelaufen')
         || candidate?.startsWith('Das Online-Konto konnte')
         || candidate?.startsWith('Für die Kontolöschung fehlt')
+        || candidate?.startsWith('Bitte bestätige deine Identität')
         ? candidate
         : 'Das Online-Konto konnte nicht gelöscht werden. Bitte versuche es später erneut.';
       setError(message);
@@ -594,6 +718,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       sendPasswordReset,
       updatePassword,
       signOut,
+      signOutAndClearDeviceData,
       deleteAccount,
       saveLocalProfile,
       removeLocalProfile,
@@ -613,6 +738,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     session,
     signIn,
     signOut,
+    signOutAndClearDeviceData,
     deleteAccount,
     signUp,
     updatePassword,

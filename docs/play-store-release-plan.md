@@ -62,7 +62,7 @@ Wichtig: `eas submit` lädt tatsächlich zu Google Play hoch. Erst ausführen, w
 4. Endgültige Lernzeit-Icons erstellen und die vorhandenen Expo-Platzhalter ersetzen.
 5. Festlegen, ob der Splashscreen bewusst nur die Farbe `#B44D2B` zeigen soll.
 6. Datenschutzerklärung unter einer öffentlichen HTTPS-URL veröffentlichen.
-7. Den vorbereiteten In-App-Löschweg und `/konto-loeschen` nach Function-Deployment end-to-end testen; die externe Seite unter einer stabilen öffentlichen HTTPS-URL hosten und in der Play Console eintragen.
+7. Den im Repository vollständig implementierten In-App-Löschweg und `/konto-loeschen` nach Function-Deployment end-to-end testen; die externe Seite unter einer stabilen öffentlichen HTTPS-URL hosten und in der Play Console eintragen.
 8. Dauerhaft nutzbaren Demo-Zugang für Google anlegen; idealerweise mit vorbereiteten Lerninhalten, Freundschaft, Gruppe, gemeinsamem Ziel und gemeinsamer Session.
 9. Support-E-Mail, Zielgruppe, Länder/Regionen und die Entscheidung „kostenlos oder kostenpflichtig“ festlegen.
 10. Store-Grafiken und Screenshots gemäß `store-listing-content.md` erstellen.
@@ -195,7 +195,7 @@ Dieser Schritt ist zwingend für neue persönliche Konten; bei älteren persönl
 - Production-AAB; `expo-doctor` bestand im Hardening 20/20 Checks.
 - Play-Developer-Konto und vollständig angelegte Play-App.
 - Support-E-Mail, veröffentlichte Datenschutzerklärung und externe Kontolöschseite.
-- Deployment und End-to-End-Test der vorbereiteten Edge Function `delete-account`.
+- Deployment und End-to-End-Test der implementierten Edge Function `delete-account`.
 - Öffentliches HTTPS-Hosting der vorbereiteten Datenschutz- und Kontolöschseiten.
 - Reviewer-Demo-Konto mit stabilen Zugangsdaten.
 - Feature-Grafik sowie Smartphone- und Tablet-Screenshots.
@@ -204,7 +204,7 @@ Dieser Schritt ist zwingend für neue persönliche Konten; bei älteren persönl
 
 ## 6. Mögliche Release-Blocker
 
-1. **Kontolöschung:** In-App-UI, Edge-Function-Code und statische Seite sind vorbereitet, aber die Function ist nicht deployed und die Seite nicht öffentlich gehostet.
+1. **Kontolöschung:** In-App-UI, Edge Function, serverseitige Löschmigration und statische Seite sind im Repository implementiert, aber die Function ist nicht deployed und die Seite nicht öffentlich gehostet.
 2. **Datenschutz:** Die deutsche Entwurfsseite ist vorbereitet, enthält aber Pflichtplatzhalter, ist nicht rechtlich freigegeben und nicht öffentlich gehostet.
 3. **Branding:** Die aktuellen App- und Adaptive-Icon-Dateien zeigen Expo-/Template-Material und sind nicht als finale Lernzeit-Marke geeignet.
 4. **Reviewer-Zugang:** Für kontogebundene Social-Funktionen fehlen dauerhaft gültige Demo-Zugangsdaten.

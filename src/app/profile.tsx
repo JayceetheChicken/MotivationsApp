@@ -1,7 +1,7 @@
 import { router, type Href } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { displayNameError, usernameError } from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
@@ -9,11 +9,15 @@ import { AppCard } from '@/components/ui/app-card';
 import { Avatar } from '@/components/ui/avatar';
 import { Screen } from '@/components/ui/screen';
 import { SectionHeader } from '@/components/ui/section-header';
+import { shareAccountDataExport } from '@/lib/account-data-export';
+import { cleanupTemporaryAvatarUri } from '@/lib/avatar-upload';
+import { ACCOUNT_DELETION_PUBLIC_URL } from '@/legal/configuration';
 import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
-import type { AccountStudyUser } from '@/types/study';
-import { cleanupTemporaryAvatarUri } from '@/lib/avatar-upload';
+import type { AccountStudyUser, StudySharingPreferences } from '@/types/study';
+
+type SharingBooleanKey = Exclude<keyof StudySharingPreferences, 'revision' | 'updatedAt'>;
 
 function avatarActionError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
@@ -26,6 +30,7 @@ export default function ProfileScreen() {
   const auth = useAuthStore();
   const saveLocalProfile = auth.saveLocalProfile;
   const deleteAccount = auth.deleteAccount;
+  const signOutAndClearDeviceData = auth.signOutAndClearDeviceData;
   const {
     data,
     lastSyncError = null,
@@ -35,6 +40,13 @@ export default function ProfileScreen() {
     replaceAccountAvatar,
     socialError = null,
     socialLoading = false,
+    sharingPreferences = null,
+    saveSharingPreferences,
+    communityRulesAcceptance = null,
+    acceptCommunityRules,
+    exportAccountData,
+    blockedProfiles = [],
+    unblockUser,
     syncStatus = {
       phase: 'idle',
       pendingMutationCount: 0,
@@ -82,7 +94,15 @@ export default function ProfileScreen() {
   const [avatarPreviewBase, setAvatarPreviewBase] = useState(persistedAvatarUrl);
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [clearDeviceConfirmationOpen, setClearDeviceConfirmationOpen] = useState(false);
+  const [clearDeviceConfirmation, setClearDeviceConfirmation] = useState('');
+  const [accountActionError, setAccountActionError] = useState<string | null>(null);
+  const [privacySavingKey, setPrivacySavingKey] = useState<SharingBooleanKey | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [legalActionPending, setLegalActionPending] = useState(false);
+  const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
   const avatarActionInFlightRef = useRef(false);
   const pendingRecoveryModeRef = useRef<string | null>(null);
   const accountProfileRef = useRef(accountProfile);
@@ -303,16 +323,106 @@ export default function ProfileScreen() {
     if (result.ok) router.replace('/');
   };
 
+  const signOutAndClear = async () => {
+    if (clearDeviceConfirmation !== 'ABMELDEN') return;
+    setAccountActionError(null);
+    const result = await signOutAndClearDeviceData();
+    if (result.ok) {
+      router.replace('/');
+      return;
+    }
+    setAccountActionError(result.message);
+  };
+
+  const updatePrivacy = async (key: SharingBooleanKey, enabled: boolean) => {
+    if (!sharingPreferences || privacySavingKey) return;
+    setPrivacySavingKey(key);
+    setAccountActionError(null);
+    try {
+      await saveSharingPreferences({
+        shareTimerStats: sharingPreferences.shareTimerStats,
+        shareManualStats: sharingPreferences.shareManualStats,
+        shareGoalProgress: sharingPreferences.shareGoalProgress,
+        shareStreak: sharingPreferences.shareStreak,
+        shareCurrentlyLearning: sharingPreferences.shareCurrentlyLearning ?? false,
+        sharePauseStatus: sharingPreferences.sharePauseStatus ?? false,
+        shareLastActiveAt: sharingPreferences.shareLastActiveAt ?? false,
+        shareTodayActivity: sharingPreferences.shareTodayActivity ?? false,
+        shareWeeklyMinutes: sharingPreferences.shareWeeklyMinutes ?? false,
+        shareAvatar: sharingPreferences.shareAvatar ?? false,
+        discoverableByUsername: sharingPreferences.discoverableByUsername ?? false,
+        [key]: enabled,
+      });
+    } catch (error) {
+      setAccountActionError(avatarActionError(error, 'Die Datenschutzfreigabe konnte nicht gespeichert werden.'));
+    } finally {
+      setPrivacySavingKey(null);
+    }
+  };
+
+  const exportMyData = async () => {
+    setExporting(true);
+    setAccountActionError(null);
+    try {
+      const exported = await exportAccountData();
+      await shareAccountDataExport(exported);
+    } catch (error) {
+      setAccountActionError(avatarActionError(error, 'Der Datenexport konnte nicht erstellt werden.'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const acceptRules = async () => {
+    setLegalActionPending(true);
+    setAccountActionError(null);
+    try {
+      await acceptCommunityRules();
+    } catch (error) {
+      setAccountActionError(avatarActionError(error, 'Die Zustimmung konnte nicht gespeichert werden.'));
+    } finally {
+      setLegalActionPending(false);
+    }
+  };
+
+  const unblock = async (userId: string) => {
+    setUnblockingUserId(userId);
+    setAccountActionError(null);
+    try {
+      await unblockUser(userId);
+    } catch (error) {
+      setAccountActionError(avatarActionError(error, 'Die Blockierung konnte nicht aufgehoben werden.'));
+    } finally {
+      setUnblockingUserId(null);
+    }
+  };
+
   const permanentlyDeleteAccount = async () => {
-    if (deleteConfirmation !== 'LÖSCHEN') return;
+    if (deleteConfirmation !== 'LÖSCHEN' || !deletePassword) return;
     setDeleteError(null);
-    const result = await deleteAccount();
+    const result = await deleteAccount(deletePassword);
     if (result.ok) {
       router.replace('/');
       return;
     }
     setDeleteError(result.message);
   };
+
+  const privacyOptions: readonly Readonly<{
+    key: SharingBooleanKey;
+    label: string;
+    description: string;
+  }>[] = [
+    { key: 'shareCurrentlyLearning', label: '„Lernt gerade“ teilen', description: 'Freunde dürfen deinen aktuellen Lernstatus sehen.' },
+    { key: 'sharePauseStatus', label: 'Pausenstatus teilen', description: 'Wird nur zusammen mit dem aktuellen Lernstatus verwendet.' },
+    { key: 'shareLastActiveAt', label: 'Letzte Lernaktivität teilen', description: 'Teilt nur den Zeitpunkt, keine Sessiondetails.' },
+    { key: 'shareTodayActivity', label: 'Heutige Lernzeit teilen', description: 'Teilt ausschließlich die heutige Gesamtdauer.' },
+    { key: 'shareWeeklyMinutes', label: 'Wochenlernzeit teilen', description: 'Teilt ausschließlich die aggregierten Wochenminuten.' },
+    { key: 'shareStreak', label: 'Streak teilen', description: 'Teilt nur die Anzahl aufeinanderfolgender Lerntage.' },
+    { key: 'shareGoalProgress', label: 'Gemeinsamen Zielfortschritt teilen', description: 'Gilt nur für Ziele mit tatsächlicher Beteiligung.' },
+    { key: 'shareAvatar', label: 'Profilbild teilen', description: 'Das Bild kann über die öffentliche Storage-URL abrufbar sein.' },
+    { key: 'discoverableByUsername', label: 'Über Benutzernamen auffindbar', description: 'Ermöglicht exakte Suche und neue Freundschaftsanfragen.' },
+  ];
 
   return (
     <Screen contentContainerStyle={styles.content} maxWidth={760}>
@@ -503,7 +613,112 @@ export default function ProfileScreen() {
         {isAccount ? (
           <AppButton fullWidth label="Abmelden" loading={auth.pendingAction === 'sign-out'} onPress={() => void signOut()} variant="outline" />
         ) : null}
+        {isAccount && !clearDeviceConfirmationOpen ? (
+          <AppButton
+            fullWidth
+            label="Abmelden und Daten dieses Kontos vom Gerät löschen"
+            onPress={() => {
+              setClearDeviceConfirmationOpen(true);
+              setClearDeviceConfirmation('');
+              setAccountActionError(null);
+            }}
+            variant="ghost"
+          />
+        ) : null}
+        {isAccount && clearDeviceConfirmationOpen ? (
+          <AppCard style={styles.deleteConfirmation} variant="outlined">
+            <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Gib ABMELDEN ein. Cloud-Daten und Daten anderer Konten bleiben erhalten.</Text>
+            <TextInput
+              accessibilityLabel="ABMELDEN zur Bestätigung eingeben"
+              autoCapitalize="characters"
+              editable={auth.pendingAction !== 'sign-out-clear-device'}
+              onChangeText={(value) => setClearDeviceConfirmation(value.toLocaleUpperCase('de-DE'))}
+              placeholder="ABMELDEN"
+              placeholderTextColor={theme.colors.textSubtle}
+              style={[styles.input, theme.typography.body, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+              value={clearDeviceConfirmation}
+            />
+            <AppButton
+              disabled={clearDeviceConfirmation !== 'ABMELDEN'}
+              fullWidth
+              label="Lokale Kontodaten löschen und abmelden"
+              loading={auth.pendingAction === 'sign-out-clear-device'}
+              onPress={() => void signOutAndClear()}
+              variant="danger"
+            />
+            <AppButton
+              disabled={auth.pendingAction === 'sign-out-clear-device'}
+              fullWidth
+              label="Abbrechen"
+              onPress={() => setClearDeviceConfirmationOpen(false)}
+              variant="outline"
+            />
+          </AppCard>
+        ) : null}
+        {accountActionError ? (
+          <Text accessibilityRole="alert" selectable style={[theme.typography.caption, { color: theme.colors.danger }]}>{accountActionError}</Text>
+        ) : null}
       </View>
+
+      {isAccount ? (
+        <View style={styles.section}>
+          <SectionHeader
+            description="Alle Freigaben sind standardmäßig deaktiviert und werden serverseitig im Read Model angewendet."
+            eyebrow="Privatsphäre"
+            title="Was Freunde sehen dürfen"
+          />
+          <AppCard style={styles.privacyCard} variant="subtle">
+            {sharingPreferences ? privacyOptions.map((option) => (
+              <View key={option.key} style={[styles.privacyRow, { borderBottomColor: theme.colors.divider }]}>
+                <View style={styles.privacyCopy}>
+                  <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>{option.label}</Text>
+                  <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{option.description}</Text>
+                </View>
+                <Switch
+                  accessibilityLabel={option.label}
+                  disabled={privacySavingKey !== null}
+                  onValueChange={(enabled) => void updatePrivacy(option.key, enabled)}
+                  value={Boolean(sharingPreferences[option.key])}
+                />
+              </View>
+            )) : (
+              <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Datenschutzfreigaben werden geladen …</Text>
+            )}
+          </AppCard>
+        </View>
+      ) : null}
+
+      {isAccount ? (
+        <View style={styles.section}>
+          <SectionHeader description="Export, Community-Zustimmung und Kontoverwaltung." eyebrow="Deine Rechte" title="Daten & Community" />
+          <AppCard style={styles.accountActions} variant="subtle">
+            <AppButton fullWidth label="Meine Daten exportieren" loading={exporting} onPress={() => void exportMyData()} variant="outline" />
+            {communityRulesAcceptance?.accepted ? (
+              <Text selectable style={[theme.typography.caption, { color: theme.colors.success }]}>Community-Regeln Version {communityRulesAcceptance.version} akzeptiert.</Text>
+            ) : (
+              <AppButton fullWidth label="Community-Regeln akzeptieren" loading={legalActionPending} onPress={() => void acceptRules()} />
+            )}
+            <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Vor dem Hochladen oder Teilen eigener Inhalte ist eine ausdrückliche Zustimmung erforderlich.</Text>
+            {blockedProfiles.length > 0 ? (
+              <View style={styles.blockedList}>
+                <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Blockierte Nutzer</Text>
+                {blockedProfiles.map((blocked) => (
+                  <View key={blocked.user.id} style={styles.blockedRow}>
+                    <Text numberOfLines={1} selectable style={[theme.typography.body, styles.privacyCopy, { color: theme.colors.textMuted }]}>{blocked.user.displayName} · @{blocked.user.username}</Text>
+                    <AppButton
+                      label="Entsperren"
+                      loading={unblockingUserId === blocked.user.id}
+                      onPress={() => void unblock(blocked.user.id)}
+                      size="compact"
+                      variant="outline"
+                    />
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </AppCard>
+        </View>
+      ) : null}
 
       {isAccount ? (
         <View style={styles.section}>
@@ -516,8 +731,8 @@ export default function ProfileScreen() {
             style={[styles.deleteCard, { backgroundColor: theme.colors.dangerMuted, borderColor: theme.colors.danger }]}
             variant="outlined">
             <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Was dauerhaft gelöscht wird</Text>
-            <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Dein Online-Profil und Profilbild, synchronisierte Lernzeiten und Sessionsegmente, Fächer, Noten, persönliche und gemeinsame Ziele, Freundschaften, Gruppen, gemeinsame Sessions, Presence-, Import- und Outbox-Daten sowie der Supabase-Login.</Text>
-            <Text selectable style={[theme.typography.caption, { color: theme.colors.danger }]}>Noch nicht synchronisierte Änderungen dieses Kontos gehen ebenfalls verloren. Lokale Gastdaten sind davon nicht betroffen.</Text>
+            <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Dein Login, Profilbild, private Lernzeiten, Fächer, Noten, persönliche Ziele, Freundschaften, Einladungen, Presence-, Import- und Sync-Daten werden gelöscht. Gruppen und gemeinsame Inhalte mit verbleibenden Mitgliedern werden kontrolliert übertragen; leere Inhalte werden gelöscht.</Text>
+            <Text selectable style={[theme.typography.caption, { color: theme.colors.danger }]}>Noch nicht synchronisierte Änderungen dieses Kontos gehen ebenfalls verloren. Daten anderer Konten auf diesem Gerät bleiben erhalten.</Text>
 
             {!deleteConfirmationOpen ? (
               <AppButton
@@ -526,13 +741,29 @@ export default function ProfileScreen() {
                 onPress={() => {
                   setDeleteConfirmationOpen(true);
                   setDeleteConfirmation('');
+                  setDeletePassword('');
                   setDeleteError(null);
                 }}
                 variant="danger"
               />
             ) : (
               <View style={styles.deleteConfirmation}>
-                <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Bestätige erneut: Gib LÖSCHEN ein.</Text>
+                <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>Bestätige deine Identität mit deinem Passwort und gib danach LÖSCHEN ein.</Text>
+                <TextInput
+                  accessibilityLabel="Passwort zur Identitätsbestätigung"
+                  autoCapitalize="none"
+                  autoComplete="current-password"
+                  editable={auth.pendingAction !== 'delete-account'}
+                  onChangeText={(value) => {
+                    setDeletePassword(value);
+                    if (deleteError) setDeleteError(null);
+                  }}
+                  placeholder="Aktuelles Passwort"
+                  placeholderTextColor={theme.colors.textSubtle}
+                  secureTextEntry
+                  style={[styles.input, theme.typography.body, { backgroundColor: theme.colors.surface, borderColor: theme.colors.danger, color: theme.colors.text }]}
+                  value={deletePassword}
+                />
                 <TextInput
                   accessibilityLabel="LÖSCHEN zur Bestätigung eingeben"
                   autoCapitalize="characters"
@@ -550,7 +781,7 @@ export default function ProfileScreen() {
                   <Text accessibilityRole="alert" selectable style={[theme.typography.caption, { color: theme.colors.danger }]}>{deleteError}</Text>
                 ) : null}
                 <AppButton
-                  disabled={deleteConfirmation !== 'LÖSCHEN'}
+                  disabled={deleteConfirmation !== 'LÖSCHEN' || deletePassword.length === 0}
                   fullWidth
                   label="Konto dauerhaft löschen"
                   loading={auth.pendingAction === 'delete-account'}
@@ -564,6 +795,7 @@ export default function ProfileScreen() {
                   onPress={() => {
                     setDeleteConfirmationOpen(false);
                     setDeleteConfirmation('');
+                    setDeletePassword('');
                     setDeleteError(null);
                   }}
                   variant="outline"
@@ -583,6 +815,10 @@ export default function ProfileScreen() {
         <AppCard style={styles.accountActions} variant="subtle">
           <AppButton fullWidth label="Datenschutzerklärung" onPress={() => router.push('/datenschutz' as Href)} variant="outline" />
           <AppButton fullWidth label="Informationen zur Kontolöschung" onPress={() => router.push('/konto-loeschen' as Href)} variant="outline" />
+          <AppButton fullWidth label="Öffentliche Kontolöschseite öffnen" onPress={() => void Linking.openURL(ACCOUNT_DELETION_PUBLIC_URL)} variant="outline" />
+          <AppButton fullWidth label="Nutzungsbedingungen" onPress={() => router.push('/nutzungsbedingungen' as Href)} variant="outline" />
+          <AppButton fullWidth label="Community-Regeln" onPress={() => router.push('/community-regeln' as Href)} variant="outline" />
+          <AppButton fullWidth label="Impressum" onPress={() => router.push('/impressum' as Href)} variant="outline" />
         </AppCard>
       </View>
     </Screen>
@@ -608,4 +844,9 @@ const styles = StyleSheet.create({
   accountActions: { gap: 10 },
   deleteCard: { gap: 14 },
   deleteConfirmation: { gap: 10 },
+  privacyCard: { gap: 0 },
+  privacyRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  privacyCopy: { minWidth: 0, flex: 1, gap: 3 },
+  blockedList: { gap: 10, paddingTop: 8 },
+  blockedRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
 });

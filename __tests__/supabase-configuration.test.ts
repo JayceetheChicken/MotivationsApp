@@ -17,6 +17,8 @@ describe('Supabase environment configuration', () => {
     'http://localhost:54321',
     'http://127.0.0.1:54321',
     'http://[::1]:54321',
+    'http://10.0.2.2:54321',
+    'http://10.0.3.2:54321',
   ])('accepts local HTTP development URL %s', (url) => {
     expect(validateSupabaseUrl(url, { allowLocalHttp: true })).toBeNull();
   });
@@ -31,13 +33,12 @@ describe('Supabase environment configuration', () => {
 
   it.each([
     'http://project.supabase.co',
-    'http://10.0.2.2:54321',
     'http://192.168.1.5:54321',
     'http://host.docker.internal:54321',
     'http://preview.localhost:54321',
     'http://localhost.evil.test:54321',
-  ])('rejects non-loopback HTTP even in development: %s', (url) => {
-    expect(validateSupabaseUrl(url, { allowLocalHttp: true })).toMatch(/HTTP nur exakt/);
+  ])('rejects non-allowlisted HTTP even in development: %s', (url) => {
+    expect(validateSupabaseUrl(url, { allowLocalHttp: true })).toMatch(/explizit erlaubte/);
   });
 
   it('rejects credentials, query parameters, and fragments', () => {

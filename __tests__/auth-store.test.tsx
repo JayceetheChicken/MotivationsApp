@@ -14,8 +14,10 @@ const mockDeleteRequest = jest.fn<Promise<void>, [unknown, string]>();
 const mockClearAccountLocalData = jest.fn<readonly string[], [unknown, string]>();
 const mockRemoveAllChannels = jest.fn<Promise<unknown>, []>();
 const mockSignOut = jest.fn();
+const mockSignInWithPassword = jest.fn();
 const mockResetPasswordForEmail = jest.fn();
 const mockSignUp = jest.fn();
+let mockLinkHandler: ((event: { url: string }) => void) | null = null;
 
 const mockRecoverySession = {
   access_token: 'access',
@@ -30,7 +32,10 @@ const mockRecoverySession = {
 };
 
 jest.mock('expo-linking', () => ({
-  addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+  addEventListener: jest.fn((_event: string, handler: (event: { url: string }) => void) => {
+    mockLinkHandler = handler;
+    return { remove: jest.fn() };
+  }),
   createURL: jest.fn((path: string) => `lernzeit://${path}`),
   getInitialURL: () => mockGetInitialURL(),
 }));
@@ -62,6 +67,7 @@ jest.mock('@/auth/supabase', () => ({
         data: { subscription: { unsubscribe: jest.fn() } },
       })),
       setSession: (tokens: unknown) => mockSetSession(tokens),
+      signInWithPassword: (input: unknown) => mockSignInWithPassword(input),
       resetPasswordForEmail: (email: string, options: unknown) => (
         mockResetPasswordForEmail(email, options)
       ),
@@ -86,6 +92,7 @@ describe('AuthStoreProvider startup', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockLinkHandler = null;
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockStorageGetItem.mockResolvedValue(null);
@@ -95,6 +102,10 @@ describe('AuthStoreProvider startup', () => {
     mockClearAccountLocalData.mockReturnValue([]);
     mockRemoveAllChannels.mockResolvedValue([]);
     mockSignOut.mockResolvedValue({ error: null });
+    mockSignInWithPassword.mockResolvedValue({
+      data: { session: mockRecoverySession },
+      error: null,
+    });
     mockResetPasswordForEmail.mockResolvedValue({ error: null });
     mockSignUp.mockResolvedValue({ data: { session: null }, error: null });
     Object.defineProperty(globalThis, 'localStorage', {
@@ -129,7 +140,7 @@ describe('AuthStoreProvider startup', () => {
   });
 
   it('processes a genuine password-reset deep link in the background after hydration', async () => {
-    mockGetInitialURL.mockResolvedValue('lernzeit://auth/update-password?code=recovery-code');
+    mockGetInitialURL.mockResolvedValue('lernzeit://auth/update-password?code=recovery-code&type=recovery');
     mockExchangeCodeForSession.mockResolvedValue({
       data: { session: mockRecoverySession },
       error: null,
@@ -160,6 +171,7 @@ describe('AuthStoreProvider startup', () => {
   });
 
   it('sets a session only for a complete, route-bound recovery token pair', async () => {
+    mockSetSession.mockResolvedValueOnce({ data: { session: mockRecoverySession }, error: null });
     mockGetInitialURL.mockResolvedValue(
       'lernzeit://auth/update-password#access_token=access&refresh_token=refresh&type=recovery',
     );
@@ -169,6 +181,56 @@ describe('AuthStoreProvider startup', () => {
       access_token: 'access',
       refresh_token: 'refresh',
     });
+    await recovery.unmount();
+  });
+
+  it('does not let a recovery link replace an already signed-in account', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    mockGetInitialURL.mockResolvedValue(
+      'lernzeit://auth/update-password?code=attacker-code&type=recovery',
+    );
+
+    const account = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(account.result.current.hydrated).toBe(true));
+    await waitFor(() => expect(account.result.current.user?.id).toBe('account-123'));
+
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled();
+    expect(account.result.current.error).toMatch(/Melde dich zuerst ab/);
+    await account.unmount();
+  });
+
+  it('rechecks persisted auth state before handling a recovery link received during runtime', async () => {
+    const account = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(account.result.current.hydrated).toBe(true));
+    await waitFor(() => expect(mockGetSession).toHaveBeenCalledTimes(1));
+
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    await act(async () => {
+      mockLinkHandler?.({
+        url: 'lernzeit://auth/update-password?code=runtime-attacker-code&type=recovery',
+      });
+    });
+
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled();
+    expect(account.result.current.user?.id).toBe('account-123');
+    expect(account.result.current.error).toMatch(/Melde dich zuerst ab/);
+    await account.unmount();
+  });
+
+  it('processes the same recovery link at most once', async () => {
+    const link = 'lernzeit://auth/update-password?code=single-use-code&type=recovery';
+    mockGetInitialURL.mockResolvedValue(link);
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: mockRecoverySession },
+      error: null,
+    });
+
+    const recovery = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(recovery.result.current.passwordRecoveryPending).toBe(true));
+    await act(async () => { mockLinkHandler?.({ url: link }); });
+
+    expect(mockExchangeCodeForSession).toHaveBeenCalledTimes(1);
+    expect(recovery.result.current.error).toMatch(/bereits verarbeitet/);
     await recovery.unmount();
   });
 
@@ -224,11 +286,15 @@ describe('AuthStoreProvider startup', () => {
 
     let deletionResult: Awaited<ReturnType<typeof account.result.current.deleteAccount>> | null = null;
     await act(async () => {
-      deletionResult = await account.result.current.deleteAccount();
+      deletionResult = await account.result.current.deleteAccount('correct-password');
     });
 
     expect(deletionResult).toEqual(expect.objectContaining({ ok: true }));
     expect(mockDeleteRequest).toHaveBeenCalledWith(expect.anything(), 'access');
+    expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: 'lea@example.com',
+      password: 'correct-password',
+    });
     expect(mockClearAccountLocalData).toHaveBeenCalledWith(expect.anything(), 'account-123');
     expect(mockStorageRemoveItem).toHaveBeenCalledWith('lernzeit.local-profile.v1');
     expect(mockRemoveAllChannels).toHaveBeenCalledTimes(1);
@@ -275,7 +341,7 @@ describe('AuthStoreProvider startup', () => {
       message: 'Falls ein Konto besteht, erhältst du gleich eine E-Mail zum Zurücksetzen.',
     });
     expect(mockResetPasswordForEmail).toHaveBeenCalledWith('lea@example.com', {
-      redirectTo: 'lernzeit://auth/update-password',
+      redirectTo: 'lernzeit://auth/update-password?type=recovery',
     });
     await guest.unmount();
   });
@@ -295,6 +361,7 @@ describe('AuthStoreProvider startup', () => {
         email: 'lea@example.com',
         password: 'long-password',
         username: 'lea.beispiel',
+        communityRulesAccepted: true,
       });
     });
 
@@ -317,7 +384,7 @@ describe('AuthStoreProvider startup', () => {
 
     let deletionResult: Awaited<ReturnType<typeof account.result.current.deleteAccount>> | null = null;
     await act(async () => {
-      deletionResult = await account.result.current.deleteAccount();
+      deletionResult = await account.result.current.deleteAccount('correct-password');
     });
 
     expect(deletionResult).toEqual(expect.objectContaining({ ok: false }));
@@ -328,13 +395,58 @@ describe('AuthStoreProvider startup', () => {
     await account.unmount();
   });
 
+  it('does not call the deletion endpoint when password re-authentication fails', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    mockSignInWithPassword.mockResolvedValueOnce({
+      data: { session: null },
+      error: new Error('invalid login credentials'),
+    });
+    const account = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(account.result.current.activeMode).toBe('supabase'));
+
+    let deletionResult: Awaited<ReturnType<typeof account.result.current.deleteAccount>> | null = null;
+    await act(async () => {
+      deletionResult = await account.result.current.deleteAccount('wrong-password');
+    });
+
+    expect(deletionResult).toEqual(expect.objectContaining({ ok: false }));
+    expect(mockDeleteRequest).not.toHaveBeenCalled();
+    expect(account.result.current.user?.id).toBe('account-123');
+    await account.unmount();
+  });
+
+  it('restores the original session if re-authentication returns a different user', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    mockSignInWithPassword.mockResolvedValueOnce({
+      data: {
+        session: {
+          ...mockRecoverySession,
+          access_token: 'foreign-access',
+          refresh_token: 'foreign-refresh',
+          user: { ...mockRecoverySession.user, id: 'foreign-account' },
+        },
+      },
+      error: null,
+    });
+    const account = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(account.result.current.activeMode).toBe('supabase'));
+
+    await act(async () => {
+      await account.result.current.deleteAccount('password');
+    });
+
+    expect(mockSetSession).toHaveBeenCalledWith({ access_token: 'access', refresh_token: 'refresh' });
+    expect(mockDeleteRequest).not.toHaveBeenCalled();
+    await account.unmount();
+  });
+
   it('rejects account deletion without an authenticated online account', async () => {
     const guest = await renderHook(() => useAuthStore(), { wrapper });
     await waitFor(() => expect(guest.result.current.hydrated).toBe(true));
 
     let deletionResult: Awaited<ReturnType<typeof guest.result.current.deleteAccount>> | null = null;
     await act(async () => {
-      deletionResult = await guest.result.current.deleteAccount();
+      deletionResult = await guest.result.current.deleteAccount('correct-password');
     });
 
     expect(deletionResult).toEqual(expect.objectContaining({ ok: false }));

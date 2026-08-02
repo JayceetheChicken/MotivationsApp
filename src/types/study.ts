@@ -211,11 +211,18 @@ export interface StudySharingPreferences {
   shareManualStats: boolean;
   shareGoalProgress: boolean;
   shareStreak: boolean;
+  shareCurrentlyLearning?: boolean;
+  sharePauseStatus?: boolean;
+  shareLastActiveAt?: boolean;
+  shareTodayActivity?: boolean;
+  shareWeeklyMinutes?: boolean;
+  shareAvatar?: boolean;
+  discoverableByUsername?: boolean;
   revision: number;
   updatedAt: ISODateTime;
 }
 
-export type FriendPresenceStatus = 'learning' | 'online' | 'offline';
+export type FriendPresenceStatus = 'learning' | 'paused' | 'online' | 'offline';
 
 /** Privacy-safe friend projection. It deliberately contains no study-detail fields. */
 export interface FriendOverview {
@@ -226,10 +233,52 @@ export interface FriendOverview {
   presenceExpiresAt: ISODateTime | null;
   /** Latest online expiry across all devices, used after a learning device expires. */
   onlineExpiresAt: ISODateTime | null;
+  todayMinutes?: number | null;
+  weekMinutes?: number | null;
+  streakDays?: number | null;
   sharedGoalIds: readonly string[];
   sharedSessionIds: readonly string[];
   groupIds: readonly string[];
 }
+
+export interface BlockedProfile {
+  user: StudyUser;
+  blockedAt: ISODateTime;
+}
+
+export type ReportEntityType =
+  | 'profile'
+  | 'profile_name'
+  | 'profile_image'
+  | 'group'
+  | 'group_name'
+  | 'group_image'
+  | 'shared_goal'
+  | 'shared_session';
+
+export type ReportReason =
+  | 'harassment'
+  | 'hate'
+  | 'sexual_content'
+  | 'violence'
+  | 'spam'
+  | 'impersonation'
+  | 'privacy'
+  | 'other';
+
+export interface ContentReportReceipt {
+  id: string;
+  status: 'open';
+  createdAt: ISODateTime;
+}
+
+export interface CommunityRulesAcceptance {
+  accepted: boolean;
+  version: string;
+  acceptedAt: ISODateTime | null;
+}
+
+export type AccountDataExport = Readonly<Record<string, unknown>>;
 
 export type FriendshipStatus = 'pending' | 'accepted' | 'declined';
 

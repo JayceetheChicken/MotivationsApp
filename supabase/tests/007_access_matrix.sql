@@ -22,13 +22,18 @@ insert into expected_application_tables(name) values
   ('study_groups'),
   ('study_group_members'),
   ('shared_study_sessions'),
-  ('shared_study_session_participants');
+  ('shared_study_session_participants'),
+  ('user_blocks'),
+  ('community_rule_acceptances'),
+  ('content_reports');
 
 create temporary table expected_authenticated_rpcs(signature text primary key) on commit drop;
 insert into expected_authenticated_rpcs(signature) values
   ('public.get_my_profile()'),
   ('public.update_my_profile(text,text,text,text,integer)'),
-  ('public.update_privacy_settings(boolean,boolean,boolean,boolean,integer)'),
+  ('public.update_privacy_settings(boolean,boolean,boolean,boolean,boolean,boolean,boolean,boolean,boolean,boolean,boolean,integer)'),
+  ('public.accept_community_rules(text)'),
+  ('public.get_community_rules_acceptance()'),
   ('public.find_profile_by_exact_username(text)'),
   ('public.pull_my_study_changes(bigint)'),
   ('public.upsert_subject(jsonb,uuid)'),
@@ -50,6 +55,11 @@ insert into expected_authenticated_rpcs(signature) values
   ('public.decline_friend_request(uuid)'),
   ('public.remove_friendship(uuid)'),
   ('public.list_friend_connections()'),
+  ('public.block_user(uuid)'),
+  ('public.unblock_user(uuid)'),
+  ('public.list_my_blocked_profiles()'),
+  ('public.submit_content_report(text,uuid,text,text)'),
+  ('public.export_my_data()'),
   ('public.get_friend_overview(uuid)'),
   ('public.list_friend_overviews()'),
   ('public.update_learning_presence(text,timestamptz)'),
@@ -77,7 +87,7 @@ insert into expected_authenticated_rpcs(signature) values
 
 select is(
   (select count(*) from expected_application_tables),
-  18::bigint,
+  21::bigint,
   'the access matrix covers every public application table'
 );
 select results_eq(
@@ -251,7 +261,7 @@ select results_eq(
 );
 select is(
   (select count(*) from expected_authenticated_rpcs),
-  48::bigint,
+  55::bigint,
   'the authenticated RPC allowlist has the expected size'
 );
 select results_eq(

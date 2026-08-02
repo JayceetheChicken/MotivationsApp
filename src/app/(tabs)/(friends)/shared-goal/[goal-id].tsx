@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -439,6 +439,11 @@ export default function SharedGoalDetailsScreen() {
           variant="ghost"
         />
       ) : null}
+      <AppButton
+        label="Gemeinsames Ziel melden"
+        onPress={() => router.push(`/report-content?kind=shared_goal&entityId=${encodeURIComponent(goal.id)}&label=${encodeURIComponent(goal.title)}` as Href)}
+        variant="outline"
+      />
     </Screen>
   );
 }

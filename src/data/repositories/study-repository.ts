@@ -1,10 +1,16 @@
 import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import type {
+  AccountDataExport,
   AccountStudyUser,
+  BlockedProfile,
+  CommunityRulesAcceptance,
+  ContentReportReceipt,
   FriendOverview,
   FriendSearchResult,
   FriendshipConnection,
   GoalStatus,
+  ReportEntityType,
+  ReportReason,
   SharedGoalProgress,
   SharedStudySession,
   StudyChallenge,
@@ -80,7 +86,21 @@ export interface UpdateSharingPreferencesInput {
   shareManualStats: boolean;
   shareGoalProgress: boolean;
   shareStreak: boolean;
+  shareCurrentlyLearning: boolean;
+  sharePauseStatus: boolean;
+  shareLastActiveAt: boolean;
+  shareTodayActivity: boolean;
+  shareWeeklyMinutes: boolean;
+  shareAvatar: boolean;
+  discoverableByUsername: boolean;
   expectedRevision: number;
+}
+
+export interface SubmitContentReportInput {
+  entityType: ReportEntityType;
+  entityId: string;
+  reason: ReportReason;
+  description?: string;
 }
 
 export interface UploadAvatarInput {
@@ -198,6 +218,16 @@ export interface SocialRepository {
   acceptFriendRequest(friendshipId: string, signal?: AbortSignal): Promise<FriendshipConnection>;
   declineFriendRequest(friendshipId: string, signal?: AbortSignal): Promise<FriendshipConnection>;
   removeFriendship(friendshipId: string, signal?: AbortSignal): Promise<void>;
+  listBlockedProfiles(signal?: AbortSignal): Promise<readonly BlockedProfile[]>;
+  blockUser(userId: string, signal?: AbortSignal): Promise<void>;
+  unblockUser(userId: string, signal?: AbortSignal): Promise<void>;
+  submitContentReport(
+    input: SubmitContentReportInput,
+    signal?: AbortSignal,
+  ): Promise<ContentReportReceipt>;
+  getCommunityRulesAcceptance(signal?: AbortSignal): Promise<CommunityRulesAcceptance>;
+  acceptCommunityRules(version: string, signal?: AbortSignal): Promise<CommunityRulesAcceptance>;
+  exportMyData(signal?: AbortSignal): Promise<AccountDataExport>;
   getFriendOverview(friendId: string, signal?: AbortSignal): Promise<FriendOverview>;
   listFriendOverviews(signal?: AbortSignal): Promise<readonly FriendOverview[]>;
   createSharedGoal(input: CreateSharedGoalInput, signal?: AbortSignal): Promise<StudyChallenge>;

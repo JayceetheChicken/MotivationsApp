@@ -1,4 +1,5 @@
 import { File } from 'expo-file-system';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Platform } from 'react-native';
 
 import { StudyRepositoryError } from '@/data/repositories/repository-error';
@@ -19,10 +20,15 @@ export interface PreparedAvatar {
 }
 
 export type AvatarArrayBufferReader = (uri: string) => Promise<ArrayBuffer>;
+export type AvatarReencodeOperation = (
+  uri: string,
+  resize: Readonly<{ width?: number; height?: number }> | null,
+) => Promise<Readonly<{ uri: string; width: number; height: number }>>;
 
 export const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
-export const MAX_AVATAR_DIMENSION = 4096;
-export const MAX_AVATAR_PIXELS = 16_000_000;
+export const MAX_AVATAR_DIMENSION = 1024;
+export const MAX_AVATAR_PIXELS = MAX_AVATAR_DIMENSION * MAX_AVATAR_DIMENSION;
+export const MAX_AVATAR_SOURCE_DIMENSION = 8192;
 
 const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PUBLIC_AVATAR_PATH_MARKER = '/storage/v1/object/public/avatars/';
@@ -95,6 +101,97 @@ function extensionFor(contentType: string): string {
   if (contentType === 'image/png') return 'png';
   if (contentType === 'image/webp') return 'webp';
   return 'jpg';
+}
+
+async function defaultReencodeAvatar(
+  uri: string,
+  resize: Readonly<{ width?: number; height?: number }> | null,
+): Promise<Readonly<{ uri: string; width: number; height: number }>> {
+  const context = ImageManipulator.manipulate(uri);
+  if (resize) context.resize(resize);
+  const rendered = await context.renderAsync();
+  return rendered.saveAsync({ compress: 0.86, format: SaveFormat.JPEG });
+}
+
+export async function reencodeAvatarForUpload(
+  asset: AvatarSource,
+  reencode: AvatarReencodeOperation = defaultReencodeAvatar,
+): Promise<AvatarSource> {
+  const declaredContentType = normalizedMimeType(asset.mimeType);
+  const extensionContentType = declaredExtensionType(asset);
+  if (
+    (declaredContentType && !ALLOWED_AVATAR_TYPES.has(declaredContentType))
+    || extensionContentType === 'unsupported'
+    || (declaredContentType && extensionContentType && declaredContentType !== extensionContentType)
+  ) {
+    throw new StudyRepositoryError(
+      'invalid_data',
+      'Profilbilder müssen JPEG-, PNG- oder WebP-Dateien sein.',
+    );
+  }
+  if (asset.fileSize != null && (
+    !Number.isFinite(asset.fileSize)
+    || asset.fileSize <= 0
+    || asset.fileSize > MAX_AVATAR_BYTES
+  )) {
+    throw new StudyRepositoryError('invalid_data', 'Das Profilbild darf höchstens 5 MB groß sein.');
+  }
+  if (
+    (asset.width != null && asset.width > MAX_AVATAR_SOURCE_DIMENSION)
+    || (asset.height != null && asset.height > MAX_AVATAR_SOURCE_DIMENSION)
+  ) {
+    throw new StudyRepositoryError('invalid_data', 'Das Profilbild hat zu große Abmessungen.');
+  }
+
+  const width = asset.width && asset.width > 0 ? asset.width : null;
+  const height = asset.height && asset.height > 0 ? asset.height : null;
+  const largestDimension = Math.max(width ?? 0, height ?? 0);
+  const resize = width && height && largestDimension > MAX_AVATAR_DIMENSION
+    ? width >= height
+      ? { width: MAX_AVATAR_DIMENSION }
+      : { height: MAX_AVATAR_DIMENSION }
+    : null;
+
+  try {
+    const result = await reencode(asset.uri, resize);
+    if (
+      !result.uri
+      || !Number.isFinite(result.width)
+      || !Number.isFinite(result.height)
+      || result.width <= 0
+      || result.height <= 0
+      || result.width > MAX_AVATAR_DIMENSION
+      || result.height > MAX_AVATAR_DIMENSION
+    ) throw new Error('Invalid re-encoded dimensions');
+    return {
+      uri: result.uri,
+      mimeType: 'image/jpeg',
+      fileName: 'avatar.jpg',
+      width: result.width,
+      height: result.height,
+    };
+  } catch (cause) {
+    throw new StudyRepositoryError(
+      'invalid_data',
+      'Das Profilbild konnte nicht sicher neu codiert werden.',
+      { cause },
+    );
+  }
+}
+
+export function containsSensitiveImageMetadata(body: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(body);
+  const signatures = [
+    [0x45, 0x78, 0x69, 0x66, 0x00, 0x00], // EXIF
+    [0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x6e, 0x73, 0x2e, 0x61, 0x64, 0x6f, 0x62, 0x65], // XMP
+    [0x47, 0x50, 0x53, 0x49, 0x46, 0x44], // GPSIFD marker in test/diagnostic payloads
+  ];
+  return signatures.some((signature) => {
+    for (let offset = 0; offset <= bytes.length - signature.length; offset += 1) {
+      if (signature.every((value, index) => bytes[offset + index] === value)) return true;
+    }
+    return false;
+  });
 }
 
 function detectedContentType(body: ArrayBuffer): string | null {
@@ -298,6 +395,12 @@ export async function prepareAvatarUpload(
     throw new StudyRepositoryError(
       'invalid_data',
       'Das Profilbild darf höchstens 5 MB groß sein.',
+    );
+  }
+  if (containsSensitiveImageMetadata(body)) {
+    throw new StudyRepositoryError(
+      'invalid_data',
+      'Das Profilbild enthält unerwartete Metadaten und wurde nicht hochgeladen.',
     );
   }
   const detectedType = detectedContentType(body);

@@ -124,7 +124,13 @@ function activityTimestamp(value: string | null): number {
 }
 
 function presenceRank(overview: FriendPresenceProjection): number {
-  return overview.presenceStatus === 'learning' ? 0 : overview.presenceStatus === 'online' ? 1 : 2;
+  return overview.presenceStatus === 'learning'
+    ? 0
+    : overview.presenceStatus === 'paused'
+      ? 1
+      : overview.presenceStatus === 'online'
+        ? 2
+        : 3;
 }
 
 function isRawRealtimeBackendError(message: string | null): boolean {

@@ -2,9 +2,11 @@ import {
   avatarObjectPathFromUrl,
   avatarUrlReferencesObjectPath,
   cleanupTemporaryAvatarUri,
+  containsSensitiveImageMetadata,
   MAX_AVATAR_BYTES,
   MAX_AVATAR_DIMENSION,
   prepareAvatarUpload,
+  reencodeAvatarForUpload,
   readAvatarArrayBuffer,
 } from '@/lib/avatar-upload';
 
@@ -36,6 +38,43 @@ const png = (width = 32, height = 32) => {
 };
 
 describe('prepareAvatarUpload', () => {
+  it('re-encodes every accepted source and scales it into a 1024px JPEG', async () => {
+    const reencode = jest.fn(async () => ({
+      uri: 'file:///cache/reencoded-avatar.jpg',
+      width: 1024,
+      height: 512,
+    }));
+
+    await expect(reencodeAvatarForUpload({
+      uri: 'content://media/source.png',
+      mimeType: 'image/png',
+      fileName: 'source.png',
+      fileSize: 2048,
+      width: 4096,
+      height: 2048,
+    }, reencode)).resolves.toEqual(expect.objectContaining({
+      uri: 'file:///cache/reencoded-avatar.jpg',
+      mimeType: 'image/jpeg',
+      fileName: 'avatar.jpg',
+      width: 1024,
+      height: 512,
+    }));
+    expect(reencode).toHaveBeenCalledWith('content://media/source.png', { width: 1024 });
+  });
+
+  it('rejects sensitive EXIF, XMP and GPS markers after re-encoding', async () => {
+    const exifJpeg = new Uint8Array(jpeg());
+    const withExif = new Uint8Array(exifJpeg.length + 6);
+    withExif.set(exifJpeg);
+    withExif.set([0x45, 0x78, 0x69, 0x66, 0x00, 0x00], exifJpeg.length);
+
+    expect(containsSensitiveImageMetadata(withExif.buffer)).toBe(true);
+    await expect(prepareAvatarUpload(
+      { uri: 'file:///cache/avatar.jpg', mimeType: 'image/jpeg', fileName: 'avatar.jpg' },
+      readerReturning(withExif.buffer),
+    )).rejects.toThrow('unerwartete Metadaten');
+  });
+
   it('extracts only the requested users public Storage object path', () => {
     const userId = '11111111-1111-4111-8111-111111111111';
     const path = `${userId}/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg`;

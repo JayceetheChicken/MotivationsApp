@@ -5,9 +5,13 @@ import {
 
 function fakeAdmin(overrides: Partial<DeleteAccountAdmin> = {}) {
   const admin: DeleteAccountAdmin = {
-    getUserId: jest.fn().mockResolvedValue('account-123'),
+    getAuthenticatedUser: jest.fn().mockResolvedValue({
+      userId: 'account-123',
+      issuedAtEpochSeconds: 1_000,
+    }),
     listAvatarObjectPaths: jest.fn().mockResolvedValue(['account-123/profile/avatar.jpg']),
     removeAvatarObjects: jest.fn().mockResolvedValue(undefined),
+    prepareUserData: jest.fn().mockResolvedValue(undefined),
     deleteUser: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -17,6 +21,7 @@ function fakeAdmin(overrides: Partial<DeleteAccountAdmin> = {}) {
 const validRequest = {
   authorization: 'Bearer valid-jwt',
   confirmation: 'DELETE',
+  nowEpochSeconds: 1_100,
 } as const;
 
 describe('delete-account Edge Function core', () => {
@@ -24,6 +29,7 @@ describe('delete-account Edge Function core', () => {
     const callOrder: string[] = [];
     const admin = fakeAdmin({
       removeAvatarObjects: jest.fn(async () => { callOrder.push('storage'); }),
+      prepareUserData: jest.fn(async () => { callOrder.push('database'); }),
       deleteUser: jest.fn(async () => { callOrder.push('auth'); }),
     });
 
@@ -31,22 +37,32 @@ describe('delete-account Edge Function core', () => {
       status: 200,
       body: { deleted: true },
     });
-    expect(admin.getUserId).toHaveBeenCalledWith('valid-jwt');
+    expect(admin.getAuthenticatedUser).toHaveBeenCalledWith('valid-jwt');
     expect(admin.removeAvatarObjects).toHaveBeenCalledWith(['account-123/profile/avatar.jpg']);
-    expect(callOrder).toEqual(['storage', 'auth']);
+    expect(admin.prepareUserData).toHaveBeenCalledWith('account-123');
+    expect(callOrder).toEqual(['storage', 'database', 'auth']);
   });
 
   it('rejects an unauthenticated request', async () => {
     const admin = fakeAdmin();
     const result = await executeDeleteAccount({ authorization: null, confirmation: 'DELETE' }, admin);
     expect(result.status).toBe(401);
-    expect(admin.getUserId).not.toHaveBeenCalled();
+    expect(admin.getAuthenticatedUser).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid JWT', async () => {
-    const admin = fakeAdmin({ getUserId: jest.fn().mockRejectedValue(new Error('invalid JWT')) });
+    const admin = fakeAdmin({ getAuthenticatedUser: jest.fn().mockRejectedValue(new Error('invalid JWT')) });
     const result = await executeDeleteAccount(validRequest, admin);
     expect(result.status).toBe(401);
+    expect(admin.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('requires a recently authenticated access token', async () => {
+    const admin = fakeAdmin();
+    const result = await executeDeleteAccount({ ...validRequest, nowEpochSeconds: 1_301 }, admin);
+
+    expect(result.status).toBe(403);
+    expect(admin.listAvatarObjectPaths).not.toHaveBeenCalled();
     expect(admin.deleteUser).not.toHaveBeenCalled();
   });
 
@@ -58,6 +74,7 @@ describe('delete-account Edge Function core', () => {
     expect(first.body).toEqual({ deleted: true });
     expect(second.body).toEqual({ deleted: true });
     expect(admin.removeAvatarObjects).not.toHaveBeenCalled();
+    expect(admin.prepareUserData).toHaveBeenCalledTimes(2);
     expect(admin.deleteUser).toHaveBeenCalledTimes(2);
   });
 

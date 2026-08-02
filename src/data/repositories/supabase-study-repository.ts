@@ -4,7 +4,11 @@ import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import type { Database, Json } from '@/types/database.generated';
 import { safeWarning } from '@/lib/safe-logger';
 import {
+  mapAccountDataExport,
   mapAccountProfile,
+  mapBlockedProfile,
+  mapCommunityRulesAcceptance,
+  mapContentReportReceipt,
   mapFriendOverview,
   mapFriendSearchResult,
   mapFriendshipConnection,
@@ -833,6 +837,13 @@ export class SupabaseStudyRepository implements StudyRepository {
         p_share_manual_stats: input.shareManualStats,
         p_share_goal_progress: input.shareGoalProgress,
         p_share_streak: input.shareStreak,
+        p_share_currently_learning: input.shareCurrentlyLearning,
+        p_share_pause_status: input.sharePauseStatus,
+        p_share_last_active_at: input.shareLastActiveAt,
+        p_share_today_activity: input.shareTodayActivity,
+        p_share_weekly_minutes: input.shareWeeklyMinutes,
+        p_share_avatar: input.shareAvatar,
+        p_discoverable_by_username: input.discoverableByUsername,
         p_expected_revision: input.expectedRevision,
       }, signal)),
       findProfileByExactUsername: async (username, signal) => {
@@ -857,6 +868,33 @@ export class SupabaseStudyRepository implements StudyRepository {
       removeFriendship: async (friendshipId, signal) => {
         await this.rpc('remove_friendship', { p_friendship_id: friendshipId }, signal);
       },
+      listBlockedProfiles: async (signal) => rpcRows(
+        await this.rpc('list_my_blocked_profiles', {}, signal),
+        'blocked_profiles',
+      ).map(mapBlockedProfile),
+      blockUser: async (userId, signal) => {
+        await this.rpc('block_user', { p_user_id: userId }, signal);
+      },
+      unblockUser: async (userId, signal) => {
+        await this.rpc('unblock_user', { p_user_id: userId }, signal);
+      },
+      submitContentReport: async (input, signal) => mapContentReportReceipt(
+        await this.rpc('submit_content_report', {
+          p_entity_type: input.entityType,
+          p_entity_id: input.entityId,
+          p_reason: input.reason,
+          p_description: input.description?.trim() || null,
+        }, signal),
+      ),
+      getCommunityRulesAcceptance: async (signal) => mapCommunityRulesAcceptance(
+        await this.rpc('get_community_rules_acceptance', {}, signal),
+      ),
+      acceptCommunityRules: async (version, signal) => mapCommunityRulesAcceptance(
+        await this.rpc('accept_community_rules', { p_version: version }, signal),
+      ),
+      exportMyData: async (signal) => mapAccountDataExport(
+        await this.rpc('export_my_data', {}, signal),
+      ),
       getFriendOverview: async (friendId, signal) => mapFriendOverview(await this.rpc('get_friend_overview', {
         p_friend_id: friendId,
       }, signal)),

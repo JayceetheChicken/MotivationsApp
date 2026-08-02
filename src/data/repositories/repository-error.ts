@@ -111,6 +111,20 @@ export function asRepositoryError(error: unknown): StudyRepositoryError {
       { cause: error },
     );
   }
+  if (/community_rules_acceptance_required/i.test(databaseMessage)) {
+    return new StudyRepositoryError(
+      'forbidden',
+      'Bitte akzeptiere zuerst die aktuellen Community-Regeln in Konto & Einstellungen.',
+      { cause: error, retryable: false },
+    );
+  }
+  if (/report_already_open/i.test(databaseMessage)) {
+    return new StudyRepositoryError(
+      'conflict',
+      'Für diesen Inhalt besteht bereits eine offene Meldung.',
+      { cause: error, retryable: false },
+    );
+  }
 
   if (status === 401) return new StudyRepositoryError('unauthorized', 'Die Anmeldung ist abgelaufen.', { cause: error });
   if (status === 403 || postgresCode === '42501') return new StudyRepositoryError('forbidden', 'Für diese Aktion fehlt die Berechtigung.', { cause: error });

@@ -7,16 +7,39 @@ import {
   executeDeleteAccount,
 } from "../_shared/delete-account.ts";
 
-const corsHeaders = {
+const allowedBrowserOrigins = new Set(
+  (Deno.env.get("ALLOWED_BROWSER_ORIGINS") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+
+const baseHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, content-type, x-client-info, apikey",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Origin": "*",
   "Content-Type": "application/json; charset=utf-8",
 };
 
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: corsHeaders });
+function responseHeaders(origin: string | null): HeadersInit {
+  return origin && allowedBrowserOrigins.has(origin)
+    ? {
+      ...baseHeaders,
+      "Access-Control-Allow-Origin": origin,
+      "Vary": "Origin",
+    }
+    : baseHeaders;
+}
+
+function jsonResponse(
+  status: number,
+  body: unknown,
+  origin: string | null,
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: responseHeaders(origin),
+  });
 }
 
 function environment(name: string): string {
@@ -59,10 +82,18 @@ async function listFolder(folder: string): Promise<
 }
 
 const admin: DeleteAccountAdmin = {
-  async getUserId(accessToken) {
+  async getAuthenticatedUser(accessToken) {
     const { data, error } = await adminClient.auth.getUser(accessToken);
     if (error || !data.user) throw error ?? new Error("User not found");
-    return data.user.id;
+    const encodedPayload = accessToken.split(".")[1];
+    if (!encodedPayload) throw new Error("JWT payload missing");
+    const normalized = encodedPayload.replaceAll("-", "+").replaceAll("_", "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(padded)) as { iat?: unknown };
+    if (typeof payload.iat !== "number" || !Number.isFinite(payload.iat)) {
+      throw new Error("JWT issued-at missing");
+    }
+    return { userId: data.user.id, issuedAtEpochSeconds: payload.iat };
   },
   async listAvatarObjectPaths(userId) {
     const paths: string[] = [];
@@ -91,6 +122,14 @@ const admin: DeleteAccountAdmin = {
       if (error) throw error;
     }
   },
+  async prepareUserData(userId) {
+    const { data, error } = await adminClient.rpc("prepare_account_deletion", {
+      p_user_id: userId,
+    });
+    if (error || !(data as { prepared?: unknown } | null)?.prepared) {
+      throw error ?? new Error("Account preparation failed");
+    }
+  },
   async deleteUser(userId) {
     const { error } = await adminClient.auth.admin.deleteUser(userId, false);
     if (
@@ -103,11 +142,15 @@ const admin: DeleteAccountAdmin = {
 };
 
 Deno.serve(async (request: Request) => {
+  const origin = request.headers.get("origin");
+  if (origin && !allowedBrowserOrigins.has(origin)) {
+    return jsonResponse(403, { error: "Anfrage nicht erlaubt." }, null);
+  }
   if (request.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: responseHeaders(origin) });
   }
   if (request.method !== "POST") {
-    return jsonResponse(405, { error: "Methode nicht erlaubt." });
+    return jsonResponse(405, { error: "Methode nicht erlaubt." }, origin);
   }
 
   let confirmation: unknown;
@@ -115,12 +158,12 @@ Deno.serve(async (request: Request) => {
     confirmation =
       (await request.json() as { confirmation?: unknown }).confirmation;
   } catch {
-    return jsonResponse(400, { error: "Ungültige Anfrage." });
+    return jsonResponse(400, { error: "Ungültige Anfrage." }, origin);
   }
 
   const result = await executeDeleteAccount({
     authorization: request.headers.get("authorization"),
     confirmation,
   }, admin);
-  return jsonResponse(result.status, result.body);
+  return jsonResponse(result.status, result.body, origin);
 });

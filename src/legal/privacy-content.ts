@@ -44,21 +44,24 @@ export const privacySections: readonly LegalSection[] = [
   {
     title: '6. Profilbilder',
     paragraphs: [
-      'Ein freiwillig ausgewähltes Profilbild wird im Supabase-Storage unter einem kontobezogenen Pfad gespeichert und im Profil referenziert. Es kann für berechtigte Kontakte und Teilnehmende gemeinsamer Inhalte sichtbar sein. Alte Profilbildobjekte werden nach einem erfolgreichen Wechsel bereinigt; bei der Kontolöschung entfernt die serverseitige Löschfunktion alle Objekte im kontobezogenen Avatar-Pfad.',
+      'Ein freiwillig ausgewähltes Profilbild wird vor dem Upload auf höchstens 1024 × 1024 Pixel verkleinert und als JPEG neu codiert. Dadurch werden EXIF-, GPS- und XMP-Metadaten entfernt; Dateisignatur, MIME-Typ, Endung, Abmessungen und Größe werden zusätzlich geprüft.',
+      'Das Bild liegt im derzeit öffentlichen Supabase-Storage-Bucket unter einer schwer erratbaren URL. Die App gibt die URL in Social-Ansichten nur nach ausdrücklicher Avatar-Freigabe aus; wer die URL bereits kennt, kann sie technisch dennoch abrufen. Alte Profilbildobjekte werden nach einem erfolgreichen Wechsel bereinigt; bei der Kontolöschung entfernt die serverseitige Löschfunktion alle Objekte im kontobezogenen Avatar-Pfad.',
     ],
   },
   {
     title: '7. Freundschaften und Sichtbarkeit',
     paragraphs: [
-      'Die Freundessuche erfolgt über einen exakten eindeutigen Benutzernamen. Verarbeitet werden Anfragen, Annahme oder Ablehnung, Zeitpunkte und der Beziehungsstatus. Nur ausdrücklich akzeptierte Kontakte erhalten die vorgesehenen, begrenzten Social-Ansichten.',
+      'Die Freundessuche erfolgt nur bei ausdrücklich aktivierter Auffindbarkeit über einen exakten eindeutigen Benutzernamen. Verarbeitet werden Anfragen, Annahme oder Ablehnung, Zeitpunkte und der Beziehungsstatus. Nur ausdrücklich akzeptierte, nicht blockierte Kontakte erhalten die vorgesehenen, begrenzten Social-Ansichten.',
+      'Lernstatus, Pausenstatus, letzte Lernaktivität, heutige Aktivität, Wochenlernzeit, Streak und Profilbild sind getrennte, standardmäßig deaktivierte Freigaben. Die Datenbank setzt diese Regeln vor der Antwort durch und liefert nicht freigegebene Werte als null oder neutrale Kategorie.',
       'Private Fächer, Notizen, Noten und vollständige Sessionverläufe werden nicht als Freundesdaten freigegeben. Social-Realtime-Nachrichten dienen nur als gezielte Invalidierungen an die eigene private Inbox; die sichtbaren Daten werden anschließend über zugriffsgeschützte Datenbankfunktionen neu geladen.',
+      'Blockierungen verhindern Suche, neue Freundschaftsanfragen, direkte Einladungen und Presence-Ansichten. Nur die blockierende Person kann ihre eigene Blockliste sehen. Profile und gemeinsame Inhalte können mit Grund, optionaler Kurzbeschreibung, Zeit und Bearbeitungsstatus gemeldet werden; Moderationsnotizen und Meldungen anderer Personen werden nicht ausgegeben.',
     ],
   },
   {
     title: '8. Gruppen, gemeinsame Ziele und gemeinsame Sessions',
     paragraphs: [
       'Für private Lerngruppen werden Gruppenname, Ersteller, Mitgliedschaften, Einladungsstatus und zugeordnete Inhalte verarbeitet. Für gemeinsame Ziele werden Zieldefinition, Zeitraum, Teilnehmende, Einladungsstatus und berechnete Beiträge verarbeitet. Für gemeinsame Sessions werden Titel, Planung, Status, Teilnehmende, Start-/Endzeit und berechnete Beiträge verarbeitet.',
-      'Beim Löschen des Kontos werden eigene Mitgliedschaften entfernt. Von der gelöschten Person erstellte Gruppen, gemeinsame Ziele und gemeinsame Sessions werden aufgrund der aktuellen Datenbank-Cascades ebenfalls gelöscht; dadurch verlieren andere Teilnehmende den Zugriff auf diese gemeinsamen Objekte.',
+      'Beim Löschen des Kontos werden eigene Mitgliedschaften und personenbezogene Teilnehmerbeziehungen entfernt. Hat ein gemeinsam genutztes Objekt verbleibende akzeptierte Mitglieder, wird der Besitz vor der Löschung deterministisch auf ein geeignetes Mitglied übertragen. Nur Objekte ohne verbleibende berechtigte Teilnehmer werden gelöscht.',
     ],
   },
   {
@@ -75,31 +78,39 @@ export const privacySections: readonly LegalSection[] = [
     ],
   },
   {
-    title: '11. Dienstleister und Datenübermittlung',
+    title: '11. Community-Regeln, Meldungen und Moderation',
+    paragraphs: [
+      'Vor dem ersten Hochladen oder Teilen nutzergenerierter Inhalte wird die ausdrückliche Zustimmung zur aktuellen Version der Community-Regeln mit Version und Zeitpunkt gespeichert. Die Checkbox ist nicht vorangekreuzt.',
+      'Eigene Meldungen enthalten gemeldete Entität, Grund, optionale Beschreibung, Zeitpunkt und Status. Zugriff auf die Moderationswarteschlange und Maßnahmen wie Ausblenden oder Entfernen ist ausschließlich über einen serverseitigen Betreiberweg möglich. Rate-Limit-Daten und interne Moderationsnotizen werden nicht in den Datenexport aufgenommen.',
+    ],
+  },
+  {
+    title: '12. Dienstleister und Datenübermittlung',
     paragraphs: [
       'Als Backend- und Authentifizierungsdienst wird Supabase eingesetzt. Betroffen sind insbesondere Datenbank, Authentifizierung, Realtime, Edge Functions, Storage und technische Logs. Vertragspartner, Projektregion, Auftragsverarbeitungsvertrag, Unterauftragsverarbeiter und mögliche Drittlandübermittlungen sind anhand des tatsächlich verwendeten Supabase-Projekts zu ergänzen: [SUPABASE-VERTRAGSPARTNER, REGION, AVV UND TRANSFERMECHANISMUS EINFÜGEN].',
       'Für App-Verteilung und optionale Plattformdienste können Google Play, Expo/EAS und der jeweilige Betriebssystemanbieter eigenständig Daten verarbeiten. Welche Dienste im Produktionsbetrieb tatsächlich aktiviert werden, muss in der finalen Fassung konkret benannt werden: [PRODUKTIONS-DIENSTLEISTER EINFÜGEN].',
     ],
   },
   {
-    title: '12. Speicherung und Löschung',
+    title: '13. Speicherung, Export und Löschung',
     paragraphs: [
       'Lokale Gast- und Profildaten bleiben bis zur lokalen Löschung, zum Zurücksetzen der App-Daten oder zur Deinstallation gespeichert. Online-Kontodaten bleiben bis zur Kontolöschung oder bis zu einer anderweitig festgelegten, zulässigen Löschung gespeichert.',
-      'Die In-App-Kontolöschung entfernt Profilbildobjekte und anschließend den Auth-Nutzer; Datenbankdatensätze werden über geprüfte ON-DELETE-CASCADE-Beziehungen entfernt. Gesetzlich zwingende Aufbewahrungspflichten sind derzeit nicht festgelegt und dürfen nicht erfunden werden. Falls solche Pflichten bestehen, sind Datenarten, Rechtsgrund, Sperrung und konkrete Frist hier einzutragen: [AUFBEWAHRUNGSPFLICHTEN EINFÜGEN ODER NACH PRÜFUNG „KEINE“].',
+      'Ein maschinenlesbarer JSON-Export des eigenen Online-Kontos kann in den Kontoeinstellungen erstellt und über das System-Teilen-Menü gespeichert werden. Er enthält eigene Profil-, Privacy-, Lern-, Gruppen-, Beziehungs-, Blockierungs- und Meldedaten, aber keine Tokens, Rate-Limits, internen Moderationsnotizen oder privaten Daten anderer Personen. Die temporäre Klartextdatei wird nach dem Teilen aus dem App-Cache entfernt.',
+      'Die In-App-Kontolöschung erfordert eine erneute Passwortbestätigung, entfernt zuerst alle Profilbildobjekte, überträgt erforderlichenfalls gemeinsame Inhalte und löscht danach den Auth-Nutzer; private Datenbankdatensätze werden über geprüfte ON-DELETE-CASCADE-Beziehungen entfernt. Gesetzlich zwingende Aufbewahrungspflichten sind derzeit nicht festgelegt und dürfen nicht erfunden werden. Falls solche Pflichten bestehen, sind Datenarten, Rechtsgrund, Sperrung und konkrete Frist hier einzutragen: [AUFBEWAHRUNGSPFLICHTEN EINFÜGEN ODER NACH PRÜFUNG „KEINE“].',
     ],
   },
   {
-    title: '13. Rechte betroffener Personen',
+    title: '14. Rechte betroffener Personen',
     paragraphs: [
       'Betroffene Personen können – soweit die gesetzlichen Voraussetzungen erfüllt sind – Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit und Widerspruch verlangen sowie eine erteilte Einwilligung mit Wirkung für die Zukunft widerrufen. Das Bestehen und der konkrete Umfang richten sich nach dem anwendbaren Recht und der jeweiligen Verarbeitung.',
       'Anfragen sind an [DATENSCHUTZ-KONTAKT EINFÜGEN] zu richten. Außerdem besteht gegebenenfalls ein Beschwerderecht bei einer zuständigen Datenschutzaufsichtsbehörde; die für den Verantwortlichen zuständige Behörde ist vor Veröffentlichung einzutragen: [AUFSICHTSBEHÖRDE EINFÜGEN].',
     ],
   },
   {
-    title: '14. Sicherheit, Änderungen und Stand',
+    title: '15. Sicherheit, Änderungen und Stand',
     paragraphs: [
       'Lernzeit setzt unter anderem kontobezogene lokale Speicherbereiche, sichere Sessionablage, Row Level Security, verifizierte Nutzer-JWTs, private Realtime-Topics und eine serverseitige Kontolöschung ohne Service-Role-Key im Client ein. Kein Verfahren kann absolute Sicherheit garantieren.',
-      'Diese Erklärung ist bei Änderungen an Funktionen, Dienstleistern oder Rechtslage zu aktualisieren. Stand der Entwurfsfassung: 31. Juli 2026. Final freigegeben am: [DATUM EINFÜGEN].',
+      'Diese Erklärung ist bei Änderungen an Funktionen, Dienstleistern oder Rechtslage zu aktualisieren. Stand der Entwurfsfassung: 2. August 2026. Final freigegeben am: [DATUM EINFÜGEN].',
     ],
   },
 ];

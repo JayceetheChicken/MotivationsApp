@@ -30,7 +30,10 @@ enabled = true
 # Local-only Auth configuration. Production Site URL and redirects must be set
 # independently in the Supabase dashboard; see docs/SECURITY_RELEASE_CHECKLIST.md.
 site_url = "http://127.0.0.1:8081"
-additional_redirect_urls = ["lernzeit://auth/update-password", "http://localhost:8081/update-password"]
+additional_redirect_urls = [
+  "lernzeit://auth/update-password?type=recovery",
+  "https://lernzeit.example.invalid/update-password?type=recovery"
+]
 jwt_expiry = 3600
 enable_signup = true
 minimum_password_length = 10

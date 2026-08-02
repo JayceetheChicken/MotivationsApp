@@ -89,7 +89,9 @@ jest.mock('@/lib/avatar-upload', () => ({
     userId: string,
     objectPath: string,
   ) => Boolean(url?.includes(`/avatars/${objectPath}`) && objectPath.startsWith(`${userId}/`)),
+  cleanupTemporaryAvatarUri: jest.fn(),
   prepareAvatarUpload: (...args: unknown[]) => mockPrepareAvatarUpload(...args),
+  reencodeAvatarForUpload: async (asset: unknown) => asset,
 }));
 jest.mock('@/lib/local-storage', () => ({}));
 

@@ -1,10 +1,12 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(26);
+select plan(27);
 
 create temporary table expected_public_tables(name text primary key) on commit drop;
 insert into expected_public_tables(name) values
+  ('community_rule_acceptances'),
+  ('content_reports'),
   ('friendships'),
   ('goal_participants'),
   ('goal_pause_intervals'),
@@ -22,7 +24,8 @@ insert into expected_public_tables(name) values
   ('study_groups'),
   ('study_session_segments'),
   ('study_sessions'),
-  ('subjects');
+  ('subjects'),
+  ('user_blocks');
 
 select results_eq(
   $$
@@ -125,22 +128,28 @@ select results_eq(
     order by p.proname
   $$,
   array[
-    'accept_friend_request', 'begin_local_import', 'cancel_shared_study_session',
+    'accept_community_rules', 'accept_friend_request', 'begin_local_import', 'block_user',
+    'cancel_shared_study_session',
     'create_shared_goal', 'create_shared_study_session', 'create_study_group',
     'decline_friend_request', 'discard_local_import', 'finalize_local_import',
-    'find_profile_by_exact_username', 'get_friend_overview', 'get_local_import_status',
-    'get_my_profile', 'get_shared_goal_details', 'get_shared_goal_progress',
+    'export_my_data', 'find_profile_by_exact_username', 'get_community_rules_acceptance',
+    'get_friend_overview', 'get_local_import_status', 'get_my_profile',
+    'get_shared_goal_details', 'get_shared_goal_progress',
     'get_shared_study_session_details', 'get_study_group_details', 'leave_study_group',
-    'list_friend_connections', 'list_friend_overviews', 'list_my_stale_avatar_objects',
+    'list_friend_connections', 'list_friend_overviews', 'list_my_blocked_profiles',
+    'list_my_stale_avatar_objects',
     'list_shared_goal_progress', 'list_shared_goals', 'list_shared_study_sessions',
-    'list_study_groups', 'pull_my_study_changes', 'remove_friendship',
+    'list_study_groups', 'moderate_content_report', 'prepare_account_deletion',
+    'pull_my_study_changes', 'remove_friendship',
     'respond_shared_goal_invitation', 'respond_shared_study_session_invitation',
     'respond_study_group_invitation', 'save_completed_session', 'send_friend_request',
     'set_my_avatar', 'soft_delete_grade', 'soft_delete_personal_goal',
     'soft_delete_session', 'soft_delete_subject', 'stage_local_import_chunk',
+    'submit_content_report',
     'transition_personal_goal', 'update_learning_presence', 'update_my_profile',
     'update_privacy_settings', 'update_shared_study_session_participant',
-    'upsert_grade', 'upsert_personal_goal', 'upsert_subject', 'withdraw_from_shared_goal'
+    'unblock_user', 'upsert_grade', 'upsert_personal_goal', 'upsert_subject',
+    'withdraw_from_shared_goal'
   ]::text[],
   'every public function name is explicitly inventoried'
 );
@@ -152,8 +161,8 @@ select is(
     join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
   ),
-  48,
-  'the function inventory includes the reviewed presence overload only'
+  57,
+  'the function inventory includes authenticated and service-role-only RPCs'
 );
 
 select is(
@@ -163,9 +172,20 @@ select is(
     join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and not pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      and p.proname not in ('moderate_content_report', 'prepare_account_deletion')
   ),
   0,
-  'authenticated can execute each reviewed public RPC'
+  'authenticated can execute each client RPC'
+);
+
+select ok(
+  not pg_catalog.has_function_privilege(
+    'authenticated', 'public.moderate_content_report(uuid,text,text,text,text)', 'EXECUTE'
+  )
+  and not pg_catalog.has_function_privilege(
+    'authenticated', 'public.prepare_account_deletion(uuid)', 'EXECUTE'
+  ),
+  'administrative moderation and deletion preparation remain service-role-only'
 );
 
 select is(

@@ -22,6 +22,10 @@ const LOCAL_HTTP_HOSTS = new Set([
   'localhost',
   '127.0.0.1',
   '::1',
+  // Explicit Android/Genymotion host-loopback aliases; no private subnet is
+  // accepted generically.
+  '10.0.2.2',
+  '10.0.3.2',
 ]);
 
 function isLocalHttpHost(hostname: string): boolean {
@@ -49,7 +53,7 @@ export function validateSupabaseUrl(
     ) return null;
     if (parsedUrl.protocol === 'http:') {
       return options.allowLocalHttp
-        ? 'EXPO_PUBLIC_SUPABASE_URL darf HTTP nur exakt für localhost, 127.0.0.1 oder ::1 verwenden.'
+        ? 'EXPO_PUBLIC_SUPABASE_URL darf HTTP nur für explizit erlaubte lokale Entwicklungs-Hosts verwenden.'
         : 'EXPO_PUBLIC_SUPABASE_URL muss in normalen und produktiven Builds https:// verwenden.';
     }
     return 'EXPO_PUBLIC_SUPABASE_URL muss mit https:// beginnen. HTTP ist nur für lokale Entwicklung erlaubt.';

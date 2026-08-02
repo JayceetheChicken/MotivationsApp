@@ -31,8 +31,11 @@ export async function requestOnlineAccountDeletion(
 
   if (error) {
     const status = functionStatus(error);
-    if (status === 401 || status === 403) {
+    if (status === 401) {
       throw new Error('Deine Anmeldung ist abgelaufen. Melde dich erneut an und versuche es noch einmal.');
+    }
+    if (status === 403) {
+      throw new Error('Bitte bestätige deine Identität erneut und versuche es noch einmal.');
     }
     throw new Error('Das Online-Konto konnte nicht gelöscht werden. Bitte versuche es später erneut.');
   }

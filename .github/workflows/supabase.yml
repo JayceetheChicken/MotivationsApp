@@ -56,5 +56,6 @@ jobs:
         run: |
           set -euo pipefail
           eval "$(supabase status -o env)"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
           export API_URL ANON_KEY SERVICE_ROLE_KEY
           npm run test:supabase:e2e

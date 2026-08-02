@@ -1,6 +1,7 @@
 import 'react-native-url-polyfill/auto';
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { Platform } from 'react-native';
 
 import { authStorage } from '@/auth/storage';
 import {
@@ -21,7 +22,13 @@ const environment = resolveSupabaseEnvironment({
 let client: SupabaseClient<Database> | null = null;
 let configuration: SupabaseConfiguration;
 
-if (!environment.configuration.isConfigured || !environment.url || !environment.publicKey) {
+if (Platform.OS === 'web') {
+  configuration = {
+    isConfigured: false,
+    mode: 'local-development',
+    message: 'Online-Konten sind im statischen Web-Build deaktiviert. Nutze die Android-App oder den Gastmodus.',
+  };
+} else if (!environment.configuration.isConfigured || !environment.url || !environment.publicKey) {
   configuration = environment.configuration;
 } else {
   try {

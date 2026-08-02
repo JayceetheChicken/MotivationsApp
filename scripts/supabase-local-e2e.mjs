@@ -140,6 +140,8 @@ async function run() {
           display_name: `E2E ${label.toUpperCase()}`,
           time_zone: 'UTC',
           username,
+          community_rules_version: '2026-08-02',
+          community_rules_accepted_at: new Date().toISOString(),
         },
       }),
       `create ${label} user`,
@@ -181,6 +183,27 @@ async function run() {
   const rpc = (client, name, args = undefined) =>
     must(client.rpc(name, args), `${name} RPC`);
 
+  const setSocialSharing = async (client, enabled) => {
+    const current = await must(
+      client.from('privacy_settings').select('revision').single(),
+      'read own privacy revision',
+    );
+    return rpc(client, 'update_privacy_settings', {
+      p_share_timer_stats: enabled,
+      p_share_manual_stats: enabled,
+      p_share_goal_progress: enabled,
+      p_share_streak: enabled,
+      p_share_currently_learning: enabled,
+      p_share_pause_status: enabled,
+      p_share_last_active_at: enabled,
+      p_share_today_activity: enabled,
+      p_share_weekly_minutes: enabled,
+      p_share_avatar: enabled,
+      p_discoverable_by_username: enabled,
+      p_expected_revision: current.revision,
+    });
+  };
+
   const assertForeignRowsHidden = async (client, table, column, value) => {
     const rows = await must(
       client.from(table).select('*').eq(column, value),
@@ -205,6 +228,9 @@ async function run() {
     const alice = await signIn(aliceUser);
     const bob = await signIn(bobUser);
     const carol = await signIn(carolUser);
+    await setSocialSharing(alice, true);
+    await setSocialSharing(bob, true);
+    await setSocialSharing(carol, true);
 
     console.log('[supabase-e2e] testing RPC-only writes and anonymous denial');
     const anonymous = createClient(apiUrl, anonKey, clientOptions);
@@ -231,6 +257,9 @@ async function run() {
       ['study_group_members', 'group_id'],
       ['shared_study_sessions', 'id'],
       ['shared_study_session_participants', 'session_id'],
+      ['user_blocks', 'blocker_id'],
+      ['community_rule_acceptances', 'user_id'],
+      ['content_reports', 'id'],
     ];
     for (const [table, probeColumn] of exposedTables) {
       await mustBeForbidden(
@@ -258,6 +287,9 @@ async function run() {
       'study_group_members',
       'shared_study_sessions',
       'shared_study_session_participants',
+      'user_blocks',
+      'community_rule_acceptances',
+      'content_reports',
     ]) {
       await mustBeForbidden(
         alice.from(table).select('*').limit(1),
@@ -734,6 +766,53 @@ async function run() {
     for (const [table, column, value] of foreignPrivateFixtures) {
       await assertForeignRowsHidden(alice, table, column, value);
     }
+
+    console.log('[supabase-e2e] testing granular privacy, blocks, reports, and export');
+    await setSocialSharing(bob, false);
+    const privateBobOverview = await rpc(alice, 'get_friend_overview', {
+      p_friend_id: bobUser.id,
+    });
+    assert.equal(privateBobOverview.presence_status, 'offline');
+    assert.equal(privateBobOverview.last_active_at, null);
+    assert.equal(privateBobOverview.today_minutes, null);
+    assert.equal(privateBobOverview.week_minutes, null);
+    assert.equal(privateBobOverview.streak_days, null);
+    assert.equal(privateBobOverview.friend?.avatar_url, null);
+
+    const blockReceipt = await rpc(alice, 'block_user', { p_user_id: bobUser.id });
+    assert.equal(blockReceipt.blocked, true);
+    const blockedSearch = await rpc(alice, 'find_profile_by_exact_username', {
+      p_username: bobUser.username,
+    });
+    assert.equal(blockedSearch, null);
+    const blockedOverviews = await rpc(alice, 'list_friend_overviews');
+    assert.ok(
+      !blockedOverviews.friends.some((overview) => overview.friend?.id === bobUser.id),
+      'blocked friend leaked into overviews',
+    );
+    await mustFail(
+      alice.rpc('send_friend_request', { p_username: bobUser.username }),
+      'friend request to blocked user',
+    );
+    const reportReceipt = await rpc(alice, 'submit_content_report', {
+      p_entity_type: 'profile',
+      p_entity_id: bobUser.id,
+      p_reason: 'privacy',
+      p_description: 'Local E2E report',
+    });
+    assert.equal(reportReceipt.status, 'open');
+    await mustBeForbidden(
+      alice.from('content_reports').select('*'),
+      'read raw reports',
+    );
+    const aliceExport = await rpc(alice, 'export_my_data');
+    assert.equal(aliceExport.reports.length, 1);
+    assert.equal('resolution_note' in aliceExport.reports[0], false);
+    assert.equal('moderator_reference' in aliceExport.reports[0], false);
+    const carolExport = await rpc(carol, 'export_my_data');
+    assert.equal(carolExport.reports.length, 0);
+    assert.equal(carolExport.blocks.length, 0);
+    await rpc(alice, 'unblock_user', { p_user_id: bobUser.id });
 
     console.log('[supabase-e2e] all local API assertions passed');
   } catch (error) {

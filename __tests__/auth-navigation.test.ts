@@ -34,13 +34,13 @@ describe('optional authentication navigation', () => {
   });
 
   it('accepts only the exact PKCE password-recovery callback', () => {
-    expect(PASSWORD_RECOVERY_REDIRECT_URL).toBe('lernzeit://auth/update-password');
+    expect(PASSWORD_RECOVERY_REDIRECT_URL).toBe('lernzeit://auth/update-password?type=recovery');
     expect(parsePasswordRecoveryUrl(
       'lernzeit://auth/update-password?code=pkce-code&type=recovery',
     )).toEqual({ kind: 'pkce', code: 'pkce-code' });
     expect(isPasswordRecoveryUrl(
       'lernzeit://auth/update-password?code=pkce-code',
-    )).toBe(true);
+    )).toBe(false);
   });
 
   it('accepts a complete recovery token pair with strict metadata', () => {

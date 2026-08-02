@@ -30,4 +30,17 @@ describe('account-local cleanup', () => {
     expect(failed).toEqual(['lernzeit.outbox.v1.account-account-123']);
     expect(removeItem).toHaveBeenCalledTimes(accountLocalStorageKeys('account-123').length);
   });
+
+  it('preserves all keys belonging to another account on the same device', () => {
+    const values = new Map<string, string>();
+    for (const key of accountLocalStorageKeys('account-a')) values.set(key, 'a');
+    for (const key of accountLocalStorageKeys('account-b')) values.set(key, 'b');
+    values.set('lernzeit.study-state.v2.local', 'guest');
+
+    clearAccountLocalData({ removeItem: (key) => { values.delete(key); } }, 'account-a');
+
+    expect(accountLocalStorageKeys('account-a').every((key) => !values.has(key))).toBe(true);
+    expect(accountLocalStorageKeys('account-b').every((key) => values.get(key) === 'b')).toBe(true);
+    expect(values.get('lernzeit.study-state.v2.local')).toBe('guest');
+  });
 });

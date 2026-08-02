@@ -1,13 +1,20 @@
 export interface DeleteAccountAdmin {
-  getUserId: (accessToken: string) => Promise<string>;
+  getAuthenticatedUser: (accessToken: string) => Promise<
+    Readonly<{
+      userId: string;
+      issuedAtEpochSeconds: number;
+    }>
+  >;
   listAvatarObjectPaths: (userId: string) => Promise<readonly string[]>;
   removeAvatarObjects: (paths: readonly string[]) => Promise<void>;
+  prepareUserData: (userId: string) => Promise<void>;
   deleteUser: (userId: string) => Promise<void>;
 }
 
 export interface DeleteAccountRequest {
   authorization: string | null;
   confirmation: unknown;
+  nowEpochSeconds?: number;
 }
 
 export interface DeleteAccountResult {
@@ -24,6 +31,8 @@ function safeFailure(status: number, error: string): DeleteAccountResult {
   return { status, body: { error } };
 }
 
+export const MAX_DELETE_REAUTH_AGE_SECONDS = 5 * 60;
+
 export async function executeDeleteAccount(
   request: DeleteAccountRequest,
   admin: DeleteAccountAdmin,
@@ -35,18 +44,31 @@ export async function executeDeleteAccount(
   }
 
   let userId: string;
+  let issuedAtEpochSeconds: number;
   try {
-    userId = await admin.getUserId(token);
+    ({ userId, issuedAtEpochSeconds } = await admin.getAuthenticatedUser(
+      token,
+    ));
   } catch {
     return safeFailure(401, "Die Anmeldung ist ungültig oder abgelaufen.");
   }
-  if (!userId) {
+  if (!userId || !Number.isFinite(issuedAtEpochSeconds)) {
     return safeFailure(401, "Die Anmeldung ist ungültig oder abgelaufen.");
+  }
+
+  const nowEpochSeconds = request.nowEpochSeconds ??
+    Math.floor(Date.now() / 1000);
+  const authenticationAge = nowEpochSeconds - issuedAtEpochSeconds;
+  if (
+    authenticationAge < -60 || authenticationAge > MAX_DELETE_REAUTH_AGE_SECONDS
+  ) {
+    return safeFailure(403, "Bitte bestätige deine Identität erneut.");
   }
 
   try {
     const avatarPaths = await admin.listAvatarObjectPaths(userId);
     if (avatarPaths.length > 0) await admin.removeAvatarObjects(avatarPaths);
+    await admin.prepareUserData(userId);
     await admin.deleteUser(userId);
     return { status: 200, body: { deleted: true } };
   } catch {

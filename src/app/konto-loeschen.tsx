@@ -26,7 +26,7 @@ export default function AccountDeletionInformationScreen() {
       <Stack.Title>Konto löschen</Stack.Title>
       <AppCard style={styles.card} variant="subtle">
         <Text accessibilityRole="header" selectable style={[theme.typography.heading, { color: theme.colors.text }]}>Lernzeit-Konto dauerhaft löschen</Text>
-        <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Die sichere Löschung erfolgt nach Anmeldung in Lernzeit unter „Konto & Einstellungen“ im deutlich markierten Bereich „Konto löschen“. Dort ist eine zweite Bestätigung durch Eingabe von LÖSCHEN erforderlich.</Text>
+        <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Die sichere Löschung erfolgt nach Anmeldung in Lernzeit unter „Konto & Einstellungen“ im deutlich markierten Bereich „Konto löschen“. Dort sind dein aktuelles Passwort und eine zweite Bestätigung durch Eingabe von LÖSCHEN erforderlich.</Text>
       </AppCard>
 
       <AppCard style={styles.card} variant="outlined">
@@ -42,7 +42,7 @@ export default function AccountDeletionInformationScreen() {
       <AppCard style={styles.card} variant="outlined">
         <Text accessibilityRole="header" selectable style={[theme.typography.subheading, { color: theme.colors.text }]}>Aufbewahrung und gemeinsame Inhalte</Text>
         <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Es sind derzeit keine konkreten gesetzlichen Aufbewahrungsfristen dokumentiert. Vor Veröffentlichung muss der Verantwortliche bestätigen, ob Pflichten bestehen: [AUFBEWAHRUNGSPFLICHTEN EINFÜGEN ODER „KEINE“ NACH PRÜFUNG]. Pflichtdaten müssten bis zum Fristende gesperrt und anschließend gelöscht werden.</Text>
-        <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Von dir erstellte Gruppen, gemeinsame Ziele und gemeinsame Sessions werden mit dem Konto gelöscht und stehen anderen Teilnehmenden danach nicht mehr zur Verfügung.</Text>
+        <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Gruppen, gemeinsame Ziele und gemeinsame Sessions mit verbleibenden akzeptierten Teilnehmenden werden vor der Löschung deterministisch auf eine berechtigte Person übertragen. Nur gemeinsame Objekte ohne verbleibende Teilnehmende werden gelöscht.</Text>
         <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Nach der finalen Bestätigung startet die technische Löschung unmittelbar. Die App zeigt Erfolg oder Fehler an und wechselt nach Erfolg in den Gastmodus.</Text>
       </AppCard>
 
