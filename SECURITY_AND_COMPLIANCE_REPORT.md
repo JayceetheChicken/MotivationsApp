@@ -110,7 +110,7 @@ erfordern und ist als spätere Architekturverbesserung dokumentiert.
 | `node scripts/check-sensitive-files.mjs` | Bestanden |
 | `npm audit --omit=dev --audit-level=high` | Bestanden; 12 Moderate, keine High/Critical |
 | `git diff --check` | Bestanden |
-| Supabase Reset/Lint/pgTAP/API-E2E lokal | Nicht ausführbar: auf diesem Windows-Rechner ist kein Docker-Daemon installiert/erreichbar. Die identische Pipeline ist als GitHub-Ubuntu-Workflow eingerichtet. |
+| Supabase Reset/Lint/pgTAP/API-E2E | Bestanden im GitHub-Ubuntu-Workflow: frischer Reset, DB-Lint, 353 pgTAP-Tests und lokaler API-E2E-Test. Lokal ist auf diesem Windows-Rechner kein Docker-Daemon installiert/erreichbar. |
 
 Der transitive Moderate-Befund betrifft `uuid@7.0.3` über Expos Build-Time-
 Abhängigkeit `xcode`; npm bietet nur einen brechenden Downgrade-Pfad an. Kein

@@ -11,8 +11,8 @@ Stand: 2. August 2026
 - [x] Keine verbotenen sensiblen Dateinamen im aktuellen Git-Index.
 - [x] Gitleaks, CodeQL und OSV-Scanner sind SHA-gepinnt und minimal
   berechtigt; Dependabot deckt npm und GitHub Actions ab.
-- [ ] Supabase-CI nach diesem Push grün: Reset, DB-Lint, alle pgTAP- und lokalen
-  API-E2E-Tests. Lokal fehlt Docker; der GitHub-Runner ist das Nachweis-Gate.
+- [x] Supabase-CI ist grün: frischer Reset, DB-Lint, 353 pgTAP-Tests und lokaler
+  API-E2E-Test. Lokal fehlt Docker; der GitHub-Ubuntu-Runner ist das Nachweis-Gate.
 
 ## Funktionale Security-/Privacy-Gates
 
