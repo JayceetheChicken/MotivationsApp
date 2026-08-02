@@ -273,7 +273,13 @@ select ok(
 );
 select ok(
   not (public.get_friend_overview('22222222-2222-4222-8222-222222222222')
-    ?| array['timer_minutes', 'manual_minutes', 'streak_days', 'goal_reached']),
+    ?| array['timer_minutes', 'manual_minutes', 'goal_reached'])
+  and public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    -> 'today_minutes' = 'null'::jsonb
+  and public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    -> 'week_minutes' = 'null'::jsonb
+  and public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    -> 'streak_days' = 'null'::jsonb,
   'friend overview contains no private study metrics'
 );
 select is(

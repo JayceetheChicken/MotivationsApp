@@ -89,7 +89,7 @@ select results_eq(
     'friendships', 'goal_participants', 'goal_pause_intervals', 'goals',
     'grade_sessions', 'grades', 'personal_goal_details', 'privacy_settings',
     'profiles', 'study_session_segments', 'study_sessions', 'subjects'
-  ]::text[],
+  ]::text[] collate "C",
   'authenticated raw reads are limited to the reviewed owner-scoped tables'
 );
 
@@ -150,7 +150,7 @@ select results_eq(
     'update_privacy_settings', 'update_shared_study_session_participant',
     'unblock_user', 'upsert_grade', 'upsert_personal_goal', 'upsert_subject',
     'withdraw_from_shared_goal'
-  ]::text[],
+  ]::text[] collate "C",
   'every public function name is explicitly inventoried'
 );
 

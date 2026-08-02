@@ -125,9 +125,9 @@ select is(
   0,
   'today activity is returned as an aggregate after explicit sharing'
 );
-select like(
-  public.get_friend_overview('b8222222-2222-4222-8222-222222222222') -> 'friend' ->> 'avatar_url',
-  'https://project.example/%',
+select ok(
+  public.get_friend_overview('b8222222-2222-4222-8222-222222222222')
+    -> 'friend' ->> 'avatar_url' like 'https://project.example/%',
   'avatar URL is returned only after explicit sharing'
 );
 
