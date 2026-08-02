@@ -9,7 +9,7 @@ Stand: 2. August 2026
 - [x] Expo Doctor: 20/20.
 - [x] Deno Format, Lint und Typecheck für die Kontolösch-Function.
 - [x] Keine verbotenen sensiblen Dateinamen im aktuellen Git-Index.
-- [x] Gitleaks, CodeQL und Dependency Review sind SHA-gepinnt und minimal
+- [x] Gitleaks, CodeQL und OSV-Scanner sind SHA-gepinnt und minimal
   berechtigt; Dependabot deckt npm und GitHub Actions ab.
 - [ ] Supabase-CI nach diesem Push grün: Reset, DB-Lint, alle pgTAP- und lokalen
   API-E2E-Tests. Lokal fehlt Docker; der GitHub-Runner ist das Nachweis-Gate.

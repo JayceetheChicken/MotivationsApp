@@ -31,7 +31,7 @@ und ein signiertes AAB praktisch abgenommen wurden.
 | Profilbilder | Vor Upload immer neu als JPEG codiert, maximal 1024 × 1024, Metadatenmarker abgewiesen, Signatur/MIME/Endung/Größe geprüft und zufällige UUID-Objekte beibehalten. |
 | Web | Online-Konten im statischen Web-Build deaktiviert; Gastmodus bleibt. CSP, Frame-Schutz, MIME-Sniffing-, Referrer- und Permissions-Policy für statisches Hosting vorhanden. |
 | Datenexport | Eigene Daten als lesbares JSON; keine Tokens, Rate-Limits, internen Moderationsnotizen oder privaten Fremddaten; temporäre Klartextdatei wird nach dem Teilen entfernt. |
-| Git/CI | Sensible Dateinamen werden lokal/CI abgewiesen; Gitleaks, CodeQL, Dependency Review, npm Audit, App- und Supabase-Pipeline sind SHA-gepinnt beziehungsweise minimal berechtigt. |
+| Git/CI | Sensible Dateinamen werden lokal/CI abgewiesen; Gitleaks, CodeQL, OSV-Scanner, npm Audit, App- und Supabase-Pipeline sind SHA-gepinnt beziehungsweise minimal berechtigt. |
 
 ## Geänderte Architektur und Dateien
 
