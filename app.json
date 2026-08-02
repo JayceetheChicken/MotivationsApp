@@ -4,13 +4,23 @@
     "slug": "lernzeit",
     "version": "1.0.0",
     "icon": "./assets/images/icon.png",
-    "scheme": "lernzeit",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "password-recovery",
+            "CFBundleURLSchemes": [
+              "lernzeit"
+            ]
+          }
+        ]
+      }
     },
     "android": {
       "package": "de.lernzeit.app",
+      "allowBackup": false,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#B44D2B",
@@ -18,7 +28,38 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": true
+      "predictiveBackGestureEnabled": true,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "lernzeit",
+              "host": "auth",
+              "path": "/update-password"
+            }
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "lernzeit.example.invalid",
+              "path": "/update-password"
+            }
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static",
@@ -32,7 +73,12 @@
           "backgroundColor": "#B44D2B"
         }
       ],
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ],
       "expo-image",
       [
         "expo-image-picker",
@@ -44,7 +90,8 @@
       ],
       "expo-sqlite",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

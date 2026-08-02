@@ -89,7 +89,9 @@ jest.mock('@/lib/avatar-upload', () => ({
     userId: string,
     objectPath: string,
   ) => Boolean(url?.includes(`/avatars/${objectPath}`) && objectPath.startsWith(`${userId}/`)),
+  cleanupTemporaryAvatarUri: jest.fn(),
   prepareAvatarUpload: (...args: unknown[]) => mockPrepareAvatarUpload(...args),
+  reencodeAvatarForUpload: async (asset: unknown) => asset,
 }));
 jest.mock('@/lib/local-storage', () => ({}));
 
@@ -109,7 +111,10 @@ let serverProfile: AccountStudyUser;
 
 function wrapper({ children }: PropsWithChildren) {
   return (
-    <StudyStoreProvider accountUserId="user-123" storageScope="account-user-123">
+    <StudyStoreProvider
+      accountAccessToken="access-token"
+      accountUserId="user-123"
+      storageScope="account-user-123">
       {children}
     </StudyStoreProvider>
   );
@@ -212,7 +217,7 @@ describe('StudyStoreProvider account avatars', () => {
     });
   });
 
-  it('propagates profile-save errors and exposes their concrete message', async () => {
+  it('keeps technical profile-save errors out of the UI', async () => {
     const { result } = await renderAccountStore();
     mockUpdateMyProfile.mockRejectedValueOnce(
       new Error('avatar_url konnte nicht gespeichert werden.'),
@@ -231,9 +236,12 @@ describe('StudyStoreProvider account avatars', () => {
     });
 
     expect(rejection).toEqual(expect.objectContaining({
-      message: 'avatar_url konnte nicht gespeichert werden.',
+      message: 'Die Anfrage konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
     }));
-    expect(result.current.socialError).toBe('avatar_url konnte nicht gespeichert werden.');
+    expect(result.current.socialError).toBe(
+      'Die Anfrage konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
+    );
+    expect(result.current.socialError).not.toContain('avatar_url');
   });
 
   it('propagates avatar upload policy errors instead of returning null', async () => {

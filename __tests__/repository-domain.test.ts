@@ -15,7 +15,12 @@ import {
 } from '@/data/mappers/database-mappers';
 import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import { createLocalImportManifest, sha256Hex } from '@/services/sync/import-coordinator';
-import { MemoryKeyValueStorage, PersistentOutbox } from '@/services/sync/outbox';
+import {
+  MAX_OUTBOX_BYTES,
+  MAX_OUTBOX_MUTATIONS,
+  MemoryKeyValueStorage,
+  PersistentOutbox,
+} from '@/services/sync/outbox';
 import { diffStudySnapshots } from '@/services/sync/sync-engine';
 
 const now = '2026-07-18T10:00:00.000Z';
@@ -148,6 +153,43 @@ describe('repository domain infrastructure', () => {
     }))));
 
     expect(await outbox.count()).toBe(12);
+  });
+
+  it('rejects oversized and overfilled offline queues', async () => {
+    const oversized = new PersistentOutbox(new MemoryKeyValueStorage(), 'oversized-outbox');
+    await expect(oversized.enqueue(mutation({
+      payload: { text: 'x'.repeat(MAX_OUTBOX_BYTES) },
+    }))).rejects.toMatchObject({ code: 'invalid_data' });
+
+    const storage = new MemoryKeyValueStorage();
+    const full = new PersistentOutbox(storage, 'full-outbox');
+    for (let index = 0; index < MAX_OUTBOX_MUTATIONS; index += 1) {
+      await full.enqueue(mutation({
+        operationId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        entityId: `subject-${index}`,
+      }));
+    }
+    await expect(full.enqueue(mutation({
+      operationId: '99999999-9999-4999-8999-999999999999',
+    }))).rejects.toMatchObject({ code: 'invalid_data' });
+  });
+
+  it('discards corrupt persisted outbox data instead of replaying it', async () => {
+    const storage = new MemoryKeyValueStorage();
+    storage.setItem('corrupt-outbox', JSON.stringify({
+      version: 1,
+      mutations: [{
+        operationId: 'not-a-uuid',
+        name: 'run_arbitrary_rpc',
+        entityType: 'profile',
+        entityId: 'victim',
+        payload: { is_admin: true },
+        state: 'queued',
+        attempts: -1,
+      }],
+    }));
+    const outbox = new PersistentOutbox(storage, 'corrupt-outbox');
+    await expect(outbox.list()).resolves.toEqual([]);
   });
 
   it('keeps retryable mutations queued and quarantines non-retryable conflicts', async () => {
@@ -300,6 +342,27 @@ describe('repository domain infrastructure', () => {
     }).status).toBe('completed');
   });
 
+  it('maps shared goals without an end date as active', () => {
+    const goal = mapStudyChallenge({
+      goal: {
+        id: 'shared-open-ended',
+        creator_id: 'account-id',
+        title: 'Ohne Enddatum',
+        target_type: 'duration',
+        target_value: 3600,
+        source_policy: 'all',
+        starts_at: '2026-07-01T00:00:00.000Z',
+        ends_at: null,
+        status: 'active',
+      },
+      details: { description: '', mode: 'per_participant', cadence: 'weekly' },
+      self_participation: { user_id: 'account-id', role: 'creator', status: 'accepted' },
+    });
+
+    expect(goal.endsAt).toBeUndefined();
+    expect(goal.status).toBe('active');
+  });
+
   it('includes self participation for shared-goal invitations without losing authorized profiles', () => {
     const common = {
       goal: {
@@ -411,6 +474,9 @@ describe('repository domain infrastructure', () => {
       lastActiveAt: '2026-07-18T09:45:00.000Z',
       presenceExpiresAt: null,
       onlineExpiresAt: null,
+      todayMinutes: null,
+      weekMinutes: 235,
+      streakDays: 4,
       sharedGoalIds: ['goal-1'],
       sharedSessionIds: ['shared-session-1'],
       groupIds: ['group-1'],

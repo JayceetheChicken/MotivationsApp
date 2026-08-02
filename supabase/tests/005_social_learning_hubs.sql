@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(93);
+select plan(97);
 
 select has_table('public', 'learning_presence', 'learning presence exists');
 select is(
@@ -128,6 +128,22 @@ insert into auth.users(
     now(), now()
   );
 
+insert into public.community_rule_acceptances(user_id, version)
+select p.id, '2026-08-02'
+from public.profiles p
+where p.id in (
+  'a1111111-1111-4111-8111-111111111111',
+  'b2222222-2222-4222-8222-222222222222',
+  'c3333333-3333-4333-8333-333333333333',
+  'd4444444-4444-4444-8444-444444444444'
+);
+
+update public.privacy_settings
+set share_currently_learning = true,
+    share_pause_status = true,
+    share_last_active_at = true
+where user_id = 'b2222222-2222-4222-8222-222222222222';
+
 insert into public.friendships(
   id, requester_id, addressee_id, status, responded_at
 ) values
@@ -214,8 +230,12 @@ select ok(
   )::text) = 0
   and not (
     public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
-      ?| array['last_study_at', 'week_minutes', 'streak_days', 'active_since']
-  ),
+      ?| array['last_study_at', 'active_since']
+  )
+  and public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
+    -> 'week_minutes' = 'null'::jsonb
+  and public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
+    -> 'streak_days' = 'null'::jsonb,
   'friend overview omits private study activity, statistics and goal status'
 );
 reset role;
@@ -223,11 +243,11 @@ select is(
   (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'last_active_at')::timestamptz,
   (
-    select max(lp.last_seen_at)
+    select max(greatest(lp.last_study_at, lp.active_since))
     from public.learning_presence lp
     where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
   ),
-  'friend overview exposes the latest server-observed device activity'
+  'friend overview exposes the latest opted-in learning activity'
 );
 set local role authenticated;
 select is(
@@ -273,7 +293,7 @@ select is(
   (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'last_active_at')::timestamptz,
   (
-    select max(lp.last_seen_at)
+    select max(greatest(lp.last_study_at, lp.active_since))
     from public.learning_presence lp
     where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
   ),
@@ -302,11 +322,11 @@ select is(
   (public.get_friend_overview('b2222222-2222-4222-8222-222222222222')
     ->> 'last_active_at')::timestamptz,
   (
-    select max(lp.last_seen_at)
+    select max(greatest(lp.last_study_at, lp.active_since))
     from public.learning_presence lp
     where lp.user_id = 'b2222222-2222-4222-8222-222222222222'
   ),
-  'offline tombstones retain the latest server-observed activity time'
+  'offline tombstones retain the latest opted-in learning activity time'
 );
 set local role authenticated;
 
@@ -802,6 +822,40 @@ select is(
   ) -> 'goal' ->> 'id',
   'b7300000-0000-4000-8000-000000000001',
   'a weekly shared goal can be created with a confirmed friend'
+);
+select is(
+  public.create_shared_goal(
+    jsonb_build_object(
+      'id', 'b7400000-0000-4000-8000-000000000001',
+      'title', 'Offenes gemeinsames Ziel',
+      'description', '',
+      'type', 'duration',
+      'mode', 'per_participant',
+      'targetMinutes', 60,
+      'sourcePolicy', 'all',
+      'period', 'custom',
+      'cadence', 'weekly'
+    ),
+    array['a1111111-1111-4111-8111-111111111111'::uuid],
+    'b7400000-0000-4000-8000-000000000002'::uuid
+  ) -> 'goal' ->> 'ends_at',
+  null::text,
+  'a shared goal can be created without start and end dates'
+);
+select ok(
+  (public.get_shared_goal_details('b7400000-0000-4000-8000-000000000001')
+    -> 'goal' ->> 'starts_at')::timestamptz <= clock_timestamp(),
+  'an omitted shared-goal start defaults to creation time'
+);
+select is(
+  (public.get_shared_goal_details('b7400000-0000-4000-8000-000000000001')
+    -> 'goal' ->> 'expired')::boolean,
+  false,
+  'an open-ended shared goal is not expired'
+);
+select lives_ok(
+  $$select public.get_shared_goal_progress('b7400000-0000-4000-8000-000000000001')$$,
+  'progress remains available for an open-ended shared goal'
 );
 select lives_ok(
   $$

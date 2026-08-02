@@ -2,6 +2,34 @@ export type AuthMode = 'none' | 'supabase' | 'local';
 
 export const ROOT_NAVIGATION_ANCHOR = '(tabs)' as const;
 export const HOME_NAVIGATION_ANCHOR = '(home)' as const;
+export const PASSWORD_RECOVERY_REDIRECT_URL = 'lernzeit://auth/update-password?type=recovery' as const;
+export const VERIFIED_RECOVERY_HOST = 'lernzeit.example.invalid' as const;
+
+const RECOVERY_SCHEME = 'lernzeit:';
+const RECOVERY_HOST = 'auth';
+const RECOVERY_PATH = '/update-password';
+const MAX_AUTH_PARAMETER_LENGTH = 16_384;
+
+export type PasswordRecoveryRequest =
+  | Readonly<{ kind: 'pkce'; code: string }>
+  | Readonly<{ kind: 'tokens'; accessToken: string; refreshToken: string }>;
+
+export function passwordRecoveryRequestFingerprint(request: PasswordRecoveryRequest): string {
+  const value = request.kind === 'pkce'
+    ? `pkce:${request.code}`
+    : `tokens:${request.accessToken}:${request.refreshToken}`;
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${request.kind}:${(hash >>> 0).toString(16).padStart(8, '0')}:${value.length}`;
+}
+
+export function hasPasswordRecoveryMaterial(url: string | null): boolean {
+  if (!url || url.length > 40_000) return false;
+  return /(?:[?#&])(code|access_token|refresh_token|type)=/i.test(url);
+}
 
 export function getStudyStorageScope(
   activeMode: AuthMode,
@@ -34,23 +62,87 @@ export function getStudyStorageConfiguration(
   };
 }
 
-export function isPasswordRecoveryUrl(url: string | null): boolean {
-  if (!url) return false;
+function hasOnlyUniqueParameters(
+  parameters: URLSearchParams,
+  allowed: ReadonlySet<string>,
+): boolean {
+  const seen = new Set<string>();
+  for (const [key] of parameters) {
+    if (!allowed.has(key) || seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
+}
+
+function isSafeAuthValue(value: string | null, maxLength = MAX_AUTH_PARAMETER_LENGTH): value is string {
+  return Boolean(
+    value
+    && value.length <= maxLength
+    && !/[\u0000-\u0020\u007f]/.test(value),
+  );
+}
+
+/**
+ * Accepts only the one production recovery callback owned by this app. Normal
+ * deep links are deliberately ignored even when they carry auth-looking keys.
+ */
+export function parsePasswordRecoveryUrl(url: string | null): PasswordRecoveryRequest | null {
+  if (!url || url.length > 40_000) return null;
 
   try {
-    const parsedUrl = new URL(url);
-    const fragment = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
-    const route = `${parsedUrl.hostname}${parsedUrl.pathname}`.toLowerCase();
-    const hasRecoveryTarget = route.includes('update-password')
-      || parsedUrl.searchParams.get('type') === 'recovery'
-      || fragment.get('type') === 'recovery';
-    const hasCode = Boolean(parsedUrl.searchParams.get('code'));
-    const hasTokenPair = Boolean(
-      fragment.get('access_token') && fragment.get('refresh_token'),
-    );
+    const routeText = url.split(/[?#]/, 1)[0];
+    // Do not let URL normalization turn encoded dot/slash segments into the
+    // allowlisted route after validation.
+    if (/%[0-9a-f]{2}|\\/i.test(routeText)) return null;
 
-    return hasRecoveryTarget && (hasCode || hasTokenPair);
+    const parsedUrl = new URL(url);
+    const isCustomRecoveryRoute = parsedUrl.protocol.toLowerCase() === RECOVERY_SCHEME
+      && parsedUrl.hostname.toLowerCase() === RECOVERY_HOST;
+    const isVerifiedRecoveryRoute = parsedUrl.protocol.toLowerCase() === 'https:'
+      && parsedUrl.hostname.toLowerCase() === VERIFIED_RECOVERY_HOST;
+    if (
+      (!isCustomRecoveryRoute && !isVerifiedRecoveryRoute)
+      || parsedUrl.port !== ''
+      || parsedUrl.pathname !== RECOVERY_PATH
+      || parsedUrl.username !== ''
+      || parsedUrl.password !== ''
+    ) return null;
+
+    const fragment = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
+    const query = parsedUrl.searchParams;
+    const code = query.get('code');
+
+    if (code !== null) {
+      if (parsedUrl.hash) return null;
+      if (!hasOnlyUniqueParameters(query, new Set(['code', 'type']))) return null;
+      const type = query.get('type');
+      if (type !== 'recovery' || !isSafeAuthValue(code, 4096)) return null;
+      return { kind: 'pkce', code };
+    }
+
+    if (parsedUrl.search) return null;
+    if (!hasOnlyUniqueParameters(
+      fragment,
+      new Set(['access_token', 'refresh_token', 'type', 'token_type', 'expires_in', 'expires_at']),
+    )) return null;
+    if (fragment.get('type') !== 'recovery') return null;
+
+    const accessToken = fragment.get('access_token');
+    const refreshToken = fragment.get('refresh_token');
+    if (!isSafeAuthValue(accessToken) || !isSafeAuthValue(refreshToken)) return null;
+    const tokenType = fragment.get('token_type');
+    if (tokenType !== null && tokenType.toLowerCase() !== 'bearer') return null;
+    for (const key of ['expires_in', 'expires_at']) {
+      const value = fragment.get(key);
+      if (value !== null && (!/^[0-9]{1,12}$/.test(value) || Number(value) <= 0)) return null;
+    }
+
+    return { kind: 'tokens', accessToken, refreshToken };
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function isPasswordRecoveryUrl(url: string | null): boolean {
+  return parsePasswordRecoveryUrl(url) !== null;
 }

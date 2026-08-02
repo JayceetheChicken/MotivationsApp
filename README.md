@@ -2,6 +2,16 @@
 
 Lernzeit ist eine responsive Expo-/Android-App für persönliche Lernziele, zuverlässig gemessene Fokus-Sessions und motivierendes gemeinsames Lernen im privaten Freundeskreis. Der Erststart ist vollständig leer: Es gibt keine Beispielkonten, Fächer, Sessions, Ziele, Freunde oder Challenges.
 
+## Lizenzstatus
+
+Für den eigenen Lernzeit-Anwendungscode ist derzeit keine allgemeine
+Open-Source-Lizenz erteilt. Die frühere Expo-Template-`LICENSE` wurde entfernt,
+weil sie fälschlich wie eine Lizenz für das Gesamtprojekt wirkte. Rechtlich
+erforderliche Hinweise für Expo-/Template- und Drittbestandteile bleiben in
+[`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) erhalten. Der
+Repository-Inhaber muss die gewünschte Lizenzierung und die derzeit öffentliche
+GitHub-Sichtbarkeit ausdrücklich bestätigen.
+
 ## Funktionen
 
 - Timer-Sessions mit Fachauswahl, Pause, Fortsetzen und Wiederherstellung
@@ -73,12 +83,19 @@ gegen ein Remote-Dashboard synchronisiert.
 ## Qualität prüfen
 
 ```bash
+npm ci
 npm test
 npm run typecheck
 npm run lint
 npm run test:db
 npx expo-doctor
+npm audit --omit=dev --audit-level=high
 ```
+
+Vor einem Produktions- oder Play-Store-Release ist zusätzlich die
+[`docs/SECURITY_RELEASE_CHECKLIST.md`](./docs/SECURITY_RELEASE_CHECKLIST.md)
+vollständig abzuarbeiten. Sie trennt automatisierte Nachweise von den noch im
+Supabase-Dashboard, bei der Domain und in Google Play zu erledigenden Gates.
 
 ## Projektstruktur
 

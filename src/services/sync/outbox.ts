@@ -26,6 +26,23 @@ interface PersistedOutbox {
   mutations: OutboxMutation[];
 }
 
+export const MAX_OUTBOX_MUTATIONS = 200;
+export const MAX_OUTBOX_BYTES = 2 * 1024 * 1024;
+const MAX_MUTATION_BYTES = 256 * 1024;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MUTATION_NAMES = new Set([
+  'upsert_subject',
+  'soft_delete_subject',
+  'upsert_personal_goal',
+  'soft_delete_personal_goal',
+  'transition_personal_goal',
+  'save_completed_session',
+  'soft_delete_session',
+  'upsert_grade',
+  'soft_delete_grade',
+]);
+const ENTITY_TYPES = new Set(['subject', 'goal', 'session', 'grade']);
+
 export interface OutboxFlushResult {
   applied: number;
   pending: number;
@@ -50,21 +67,51 @@ function canonicalMutation(mutation: CoreMutation): string {
 
 function parseOutbox(value: string | null): PersistedOutbox {
   if (!value) return { version: 1, mutations: [] };
+  if (value.length > MAX_OUTBOX_BYTES) return { version: 1, mutations: [] };
 
   try {
     const parsed = JSON.parse(value) as Partial<PersistedOutbox>;
-    if (parsed.version !== 1 || !Array.isArray(parsed.mutations)) {
+    if (
+      parsed.version !== 1
+      || !Array.isArray(parsed.mutations)
+      || parsed.mutations.length > MAX_OUTBOX_MUTATIONS
+    ) {
       return { version: 1, mutations: [] };
     }
 
     const mutations = parsed.mutations.filter((entry): entry is OutboxMutation => {
       if (!entry || typeof entry !== 'object') return false;
       const candidate = entry as Partial<OutboxMutation>;
-      return typeof candidate.operationId === 'string'
-        && typeof candidate.name === 'string'
-        && typeof candidate.entityType === 'string'
-        && typeof candidate.entityId === 'string'
-        && (candidate.state === 'queued' || candidate.state === 'conflict');
+      if (
+        typeof candidate.operationId !== 'string'
+        || !UUID_PATTERN.test(candidate.operationId)
+        || typeof candidate.name !== 'string'
+        || !MUTATION_NAMES.has(candidate.name)
+        || typeof candidate.entityType !== 'string'
+        || !ENTITY_TYPES.has(candidate.entityType)
+        || typeof candidate.entityId !== 'string'
+        || candidate.entityId.length < 1
+        || candidate.entityId.length > 200
+        || (candidate.state !== 'queued' && candidate.state !== 'conflict')
+        || !Number.isInteger(candidate.attempts)
+        || (candidate.attempts ?? -1) < 0
+        || (candidate.attempts ?? 10_001) > 10_000
+        || !candidate.payload
+        || typeof candidate.payload !== 'object'
+        || Array.isArray(candidate.payload)
+        || (candidate.dependsOn !== undefined && (
+          !Array.isArray(candidate.dependsOn)
+          || candidate.dependsOn.length > 20
+          || candidate.dependsOn.some((dependency) => (
+            typeof dependency !== 'string' || !UUID_PATTERN.test(dependency)
+          ))
+        ))
+      ) return false;
+      try {
+        return JSON.stringify(candidate).length <= MAX_MUTATION_BYTES;
+      } catch {
+        return false;
+      }
     });
 
     return { version: 1, mutations };
@@ -135,6 +182,30 @@ export class PersistentOutbox {
           );
         }
         return;
+      }
+
+      if (persisted.mutations.length >= MAX_OUTBOX_MUTATIONS) {
+        throw new StudyRepositoryError(
+          'invalid_data',
+          'Die Offline-Warteschlange ist voll. Stelle eine Verbindung her, bevor du weitere Änderungen speicherst.',
+          { retryable: false },
+        );
+      }
+      let mutationSize: number;
+      try {
+        mutationSize = JSON.stringify(mutation).length;
+      } catch (error) {
+        throw new StudyRepositoryError('invalid_data', 'Die Offline-Änderung ist ungültig.', {
+          cause: error,
+          retryable: false,
+        });
+      }
+      if (mutationSize > MAX_MUTATION_BYTES) {
+        throw new StudyRepositoryError(
+          'invalid_data',
+          'Die Offline-Änderung ist zu groß.',
+          { retryable: false },
+        );
       }
 
       const now = new Date().toISOString();
@@ -274,7 +345,15 @@ export class PersistentOutbox {
 
   private async write(value: PersistedOutbox, signal?: AbortSignal): Promise<void> {
     throwIfAborted(signal);
-    await this.storage.setItem(this.storageKey, JSON.stringify(value));
+    const serialized = JSON.stringify(value);
+    if (serialized.length > MAX_OUTBOX_BYTES) {
+      throw new StudyRepositoryError(
+        'invalid_data',
+        'Die Offline-Warteschlange hat ihr Speicherlimit erreicht.',
+        { retryable: false },
+      );
+    }
+    await this.storage.setItem(this.storageKey, serialized);
     throwIfAborted(signal);
   }
 
