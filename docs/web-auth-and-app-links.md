@@ -15,18 +15,39 @@ Konfiguration setzen. Vor Release mit einem externen Header-Check verifizieren.
 
 ## Verifizierter Recovery-Link
 
-Die Platzhalterdomain `lernzeit.example.invalid` muss zentral durch eine echte,
-kontrollierte HTTPS-Domain ersetzt werden in:
+Die Domain wird **an genau einer Stelle** gesetzt:
 
-- `src/auth/navigation.ts`,
-- `src/legal/configuration.ts` beziehungsweise `EXPO_PUBLIC_LEGAL_SITE_URL`,
-- `app.json`,
-- Supabase Auth Redirect-Allowlist,
-- statischer Kontolöschseite und Rechtstexten.
+```bash
+EXPO_PUBLIC_LEGAL_SITE_URL=https://<DEINE-DOMAIN>
+```
 
-Auf der echten Domain muss ohne Redirect unter
-`https://<DOMAIN>/.well-known/assetlinks.json` eine Datei dieses Schemas
-ausgeliefert werden:
+Daraus leiten sich automatisch ab:
+
+| Ziel | Ableitung |
+| --- | --- |
+| Verifizierter Android App Link | `app.config.js` → `intentFilters[].data.host` |
+| Erlaubter HTTPS-Recovery-Callback | `src/auth/navigation.ts` → `VERIFIED_RECOVERY_HOST` |
+| Öffentliche Kontolöschseite | `ACCOUNT_DELETION_PUBLIC_URL` |
+| `assetlinks.json` | `scripts/build-public-pages.mjs` |
+| Rechtstexte | `src/legal/operator.ts` |
+
+Es gibt keine zweite Stelle, an der eine Domain hardcodiert wäre. Ein
+Production-Build ohne gesetzte Domain bricht ab.
+
+Manuell bleibt nur die **Supabase-Auth-Redirect-Allowlist** im Dashboard, siehe
+`docs/supabase-staging-deployment.md`.
+
+### assetlinks.json
+
+`public/.well-known/assetlinks.json` wird erzeugt. Der Fingerprint stammt aus
+der Play Console unter *Test und Release → App-Integrität → App-Signaturschlüssel*:
+
+```bash
+ANDROID_SHA256_CERT_FINGERPRINTS="AA:BB:...:99" npm run release:pages
+```
+
+Ohne gesetzten Fingerprint schreibt das Skript eine leere Fingerprint-Liste und
+weist ausdrücklich darauf hin. Ergebnis:
 
 ```json
 [
@@ -35,13 +56,14 @@ ausgeliefert werden:
     "target": {
       "namespace": "android_app",
       "package_name": "de.lernzeit.app",
-      "sha256_cert_fingerprints": [
-        "<SHA-256-FINGERPRINT-DES-GOOGLE-PLAY-APP-SIGNING-ZERTIFIKATS>"
-      ]
+      "sha256_cert_fingerprints": ["<SHA-256 AUS DER PLAY CONSOLE>"]
     }
   }
 ]
 ```
+
+Die Datei muss über HTTPS als `application/json`, ohne Redirect und ohne
+Authentifizierung ausgeliefert werden. `public/_headers` setzt das bereits.
 
 Der Parser akzeptiert nur HTTPS, den exakten Host, `/update-password`, den Typ
 `recovery` und eine streng begrenzte Parameterkombination. Custom Scheme und
