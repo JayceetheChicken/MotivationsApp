@@ -1,20 +1,20 @@
 # Gitleaks configuration for Lernzeit.
 #
-# Extends the upstream default ruleset. Only three narrowly scoped allowlist
-# entries are added, each for a synthetic fixture that must look like a real
-# credential so the corresponding check is meaningful. Nothing here weakens
-# detection for real secrets: every entry is bound to one file, one regex and
-# one purpose.
+# Extends the upstream default ruleset and adds two rules it lacks. The
+# allowlist contains only exact literals of synthetic fixtures that must look
+# like real credentials for their check to be meaningful. No pattern here is
+# broad enough to hide a real secret.
 #
-# A finding outside these entries is to be treated as a real leak: rotate the
-# value first, then clean the history (docs/repository-history-cleanup.md).
+# A finding outside these literals is a real leak: rotate the value first, then
+# clean the history (docs/repository-history-cleanup.md).
+
+title = "Lernzeit"
 
 [extend]
 useDefault = true
 
 [[rules]]
-# Supabase secret keys must never reach the repository. The default ruleset has
-# no dedicated rule for the sb_secret_ prefix, so add one explicitly.
+# The default ruleset has no rule for the Supabase secret key prefix.
 id = "supabase-secret-key"
 description = "Supabase secret / service_role key"
 regex = '''\bsb_secret_[A-Za-z0-9_-]{16,}'''
@@ -27,19 +27,21 @@ regex = '''"role"\s*:\s*"service_role"'''
 keywords = ["service_role"]
 
 [allowlist]
-description = "Synthetic fixtures that intentionally look like credentials"
-
-  [[allowlist.rules]]
-  description = "CI-only Supabase publishable key used to prove the release gate accepts a complete environment. Publishable keys are public by design and this one belongs to no project."
-  regexes = ['''sb_publishable_CiPruefwert1234567890''']
-  paths = ['''^scripts/ci-production-env\.sh$''']
-
-  [[allowlist.rules]]
-  description = "Same CI-only publishable key inside the release gate unit test."
-  regexes = ['''sb_publishable_[A-Za-z0-9]+''']
-  paths = ['''^__tests__/legal-configuration\.test\.ts$''']
-
-  [[allowlist.rules]]
-  description = "Unsigned three-part token asserting that an anon JWT is accepted as a public key. The payload decodes to {\"role\":\"anon\"} and the signature is the literal string 'signature'."
-  regexes = ['''eyJhbGciOiJIUzI1NiJ9\.eyJyb2xlIjoiYW5vbiJ9\.c2lnbmF0dXJl''']
-  paths = ['''^__tests__/legal-configuration\.test\.ts$''']
+description = """
+Synthetic fixtures. Each entry is an exact literal, not a pattern:
+1. sb_publishable_CiPruefwert1234567890 - CI-only Supabase publishable key used
+   to prove the release gate accepts a complete environment. Publishable keys
+   are public by design and this one belongs to no project.
+2. sb_publishable_AbCdEf1234567890 - the same fixture inside the unit test.
+3. The unsigned three-part token whose payload decodes to {"role":"anon"} and
+   whose signature is the literal string 'signature'.
+"""
+# Deliberately regexes only, no `paths`. A global allowlist combines its
+# conditions with OR, so adding paths would exempt those whole files. Exact
+# literals cannot hide anything else.
+regexTarget = "match"
+regexes = [
+  '''sb_publishable_CiPruefwert1234567890''',
+  '''sb_publishable_AbCdEf1234567890''',
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJyb2xlIjoiYW5vbiJ9\.c2lnbmF0dXJl''',
+]
