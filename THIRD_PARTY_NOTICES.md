@@ -3799,59 +3799,57 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 ### lightningcss-android-arm64@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (android, arm64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-darwin-arm64@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (darwin, arm64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-darwin-x64@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (darwin, x64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-freebsd-x64@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (freebsd, x64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-linux-arm-gnueabihf@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (linux, arm); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-linux-arm64-gnu@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (linux, arm64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-linux-arm64-musl@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (linux, arm64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-linux-x64-gnu@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (linux, x64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-linux-x64-musl@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (linux, x64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-win32-arm64-msvc@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Plattformspezifisch (win32, arm64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lightningcss-win32-x64-msvc@1.33.0
 
 - Lizenz: `MPL-2.0`
-- Lizenzdatei im Paket: `LICENSE`
-
-> (c) under Patent Claims infringed by Covered Software in the absence of
+- Plattformspezifisch (win32, x64); Lizenztext liegt im Paket unter `LICENSE`.
 
 ### lines-and-columns@1.2.4
 

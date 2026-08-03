@@ -136,14 +136,19 @@ jobs:
         with:
           deno-version: v2.x
 
+      # Run inside supabase/functions so Deno uses that workspace's deno.json
+      # and deno.lock instead of discovering the Expo app's package.json.
       - name: Check formatting
-        run: deno fmt --check supabase/functions
+        working-directory: supabase/functions
+        run: deno fmt --check .
 
       - name: Lint
-        run: deno lint supabase/functions
+        working-directory: supabase/functions
+        run: deno lint .
 
-      - name: Typecheck
-        run: deno check supabase/functions/delete-account/index.ts
+      - name: Typecheck against the locked dependency graph
+        working-directory: supabase/functions
+        run: deno check --frozen delete-account/index.ts
 
   expo-export:
     name: Static production export

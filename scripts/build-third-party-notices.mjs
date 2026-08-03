@@ -73,13 +73,21 @@ function collectProductionPackages() {
     const key = `${name}@${version}`;
     if (seen.has(key)) continue;
 
-    const manifest = readPackageManifest(location);
+    // Packages restricted to a specific os/cpu are only installed on matching
+    // platforms. Reading their local files would make the generated output
+    // depend on where it ran, so they are recorded from the lockfile alone.
+    const platformSpecific = Boolean(entry.os || entry.cpu);
+    const manifest = platformSpecific ? null : readPackageManifest(location);
     seen.set(key, {
       name,
       version,
       license: normalizeLicense(entry.license ?? manifest?.license ?? manifest?.licenses),
       homepage: typeof manifest?.homepage === 'string' ? manifest.homepage : null,
-      resolvedPath: path.join(projectRoot, location),
+      resolvedPath: platformSpecific ? null : path.join(projectRoot, location),
+      platformSpecific,
+      platforms: platformSpecific
+        ? [...(entry.os ?? []), ...(entry.cpu ?? [])].join(', ')
+        : null,
       optional: entry.optional === true,
     });
   }
@@ -148,7 +156,11 @@ function readLicenseText(packagePath) {
     .sort();
   if (files.length === 0) return null;
   try {
-    const text = readFileSync(path.join(packagePath, files[0]), 'utf8').trim();
+    // Normalize line endings so the generated file is byte-identical whether it
+    // was produced on Windows or on a Linux runner.
+    const text = readFileSync(path.join(packagePath, files[0]), 'utf8')
+      .replaceAll('\r\n', '\n')
+      .trim();
     return text.length > 0 ? { file: files[0], text } : null;
   } catch {
     return null;
@@ -251,11 +263,15 @@ for (const entry of packages) {
   lines.push('');
   lines.push(`- Lizenz: \`${entry.license}\``);
   if (entry.homepage) lines.push(`- Projektseite: ${entry.homepage}`);
-  if (entry.licenseText) lines.push(`- Lizenzdatei im Paket: \`${entry.licenseText.file}\``);
+  if (entry.platformSpecific) {
+    lines.push(`- Plattformspezifisch (${entry.platforms}); Lizenztext liegt im Paket unter \`LICENSE\`.`);
+  } else if (entry.licenseText) {
+    lines.push(`- Lizenzdatei im Paket: \`${entry.licenseText.file}\``);
+  }
   if (entry.copyrights.length > 0) {
     lines.push('');
     for (const copyright of entry.copyrights) lines.push(`> ${copyright}`);
-  } else {
+  } else if (!entry.platformSpecific) {
     lines.push('- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.');
   }
   lines.push('');
