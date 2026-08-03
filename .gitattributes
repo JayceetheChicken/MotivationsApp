@@ -26,3 +26,8 @@
 
 # Keep lockfile diffs reviewable.
 package-lock.json -diff merge=binary
+
+# Generated file that reproduces third-party licence texts verbatim. Some of
+# those texts contain trailing whitespace; normalizing it would alter a licence
+# we are required to reproduce unchanged, so exempt it from whitespace checks.
+THIRD_PARTY_NOTICES.md -whitespace

@@ -59,6 +59,14 @@ jobs:
           node scripts/build-public-pages.mjs
           git diff --exit-code -- public/
 
+      # .gitattributes exempts THIRD_PARTY_NOTICES.md, which reproduces
+      # third-party licence texts verbatim including their trailing whitespace.
+      - name: Reject whitespace errors
+        run: |
+          set -euo pipefail
+          base=$(git merge-base HEAD origin/main 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          git diff --check "$base" HEAD
+
       - name: Run Expo Doctor
         run: npx --yes expo-doctor@1.20.1
 
