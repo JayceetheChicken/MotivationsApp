@@ -3,10 +3,14 @@
     "name": "Lernzeit",
     "slug": "lernzeit",
     "version": "1.0.0",
+    "scheme": "lernzeit",
+    "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "light",
+    "primaryColor": "#B44D2B",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
+      "supportsTablet": true,
       "infoPlist": {
         "CFBundleURLTypes": [
           {
@@ -20,6 +24,7 @@
     },
     "android": {
       "package": "de.lernzeit.app",
+      "versionCode": 1,
       "allowBackup": false,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
@@ -29,36 +34,11 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": true,
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ],
-          "data": [
-            {
-              "scheme": "lernzeit",
-              "host": "auth",
-              "path": "/update-password"
-            }
-          ]
-        },
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ],
-          "data": [
-            {
-              "scheme": "https",
-              "host": "lernzeit.example.invalid",
-              "path": "/update-password"
-            }
-          ]
-        }
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "web": {
@@ -68,9 +48,26 @@
     "plugins": [
       "expo-router",
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 24,
+            "buildToolsVersion": "36.0.0",
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "usesCleartextTraffic": false
+          }
+        }
+      ],
+      [
         "expo-splash-screen",
         {
-          "backgroundColor": "#B44D2B"
+          "backgroundColor": "#B44D2B",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain"
         }
       ],
       [

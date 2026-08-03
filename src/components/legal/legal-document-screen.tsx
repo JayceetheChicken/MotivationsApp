@@ -4,6 +4,7 @@ import { StyleSheet, Text } from 'react-native';
 import { LegalSections } from '@/components/legal/legal-sections';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
+import { OPERATOR_IS_DEVELOPMENT_ONLY } from '@/legal/operator';
 import type { LegalSection } from '@/legal/privacy-content';
 import { useAppTheme } from '@/theme';
 
@@ -22,7 +23,16 @@ export function LegalDocumentScreen({
       <Stack.Title>{title}</Stack.Title>
       <AppCard style={styles.introduction} variant="outlined">
         <Text accessibilityRole="header" selectable style={[theme.typography.heading, { color: theme.colors.text }]}>{title}</Text>
-        <Text accessibilityRole="alert" selectable style={[theme.typography.bodyMedium, { color: theme.colors.warning }]}>{notice}</Text>
+        <Text
+          accessibilityRole={OPERATOR_IS_DEVELOPMENT_ONLY ? 'alert' : 'text'}
+          selectable
+          style={[
+            theme.typography.bodyMedium,
+            { color: OPERATOR_IS_DEVELOPMENT_ONLY ? theme.colors.warning : theme.colors.textMuted },
+          ]}
+        >
+          {notice}
+        </Text>
       </AppCard>
       <LegalSections sections={sections} />
     </Screen>

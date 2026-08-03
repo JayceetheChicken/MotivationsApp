@@ -2,15 +2,36 @@
 
 ## Befund
 
-Unter `.codex-remote-attachments/` waren seit Commit `a9dc834` zwei
-Smartphone-Screenshots getrackt. Sie zeigen Lernzeit-Screens, Aufnahmezeitpunkte
-und Geräte-Statusinformationen; in einem öffentlichen Repository sind sie als
-personenbezogene beziehungsweise private Anhänge zu behandeln.
+Unter `.codex-remote-attachments/019f4bcf-…/7e1d6e85-…/` sind seit Commit
+`a9dc834` („Update Lern-App“) zwei Dateien getrackt:
 
-Der Release-Branch entfernt die Dateien und ignoriert den gesamten Ordner.
-Damit sind sie jedoch noch aus älteren Commits abrufbar. Die folgende
-History-Neuschreibung wurde **nicht** ausgeführt und darf erst nach
-ausdrücklicher Freigabe und Koordination mit allen Mitwirkenden erfolgen.
+| Datei | Größe | Inhalt |
+| --- | --- | --- |
+| `1-Photo-1.jpg` | 44 132 B | Screenshot der Statistik-Seite, Expo Go, 576 × 1280 |
+| `2-Photo-2.jpg` | 48 855 B | Screenshot der Statistik-Detailansicht, Expo Go, 576 × 1280 |
+
+Auswertung der Dateien (Stand dieser Prüfung):
+
+- **Keine Secrets.** Keine Tokens, Schlüssel, Zugangsdaten oder URLs mit
+  Anmeldeinformationen sichtbar.
+- **Keine EXIF- und keine GPS-Daten.** Die JPEG-Segmente enthalten nur `APP0`
+  (JFIF) und `APP2` (ICC-Profil); ein `APP1`/EXIF-Block ist nicht vorhanden.
+- **Personenbezug gering, aber vorhanden.** Sichtbar sind Aufnahmezeitpunkt und
+  Datum, Geräte-Statusleiste (Mobilfunk, Akku, Bluetooth) sowie ein sehr kleines
+  Profilbild-Thumbnail in der Benachrichtigungspille. Testdaten der App selbst
+  („3 Min. Mathematik“) sind keine echten personenbezogenen Lerndaten Dritter.
+
+**Bewertung:** kein Sicherheitsvorfall und kein Secret-Leak. Die Dateien gehören
+aber nicht in ein öffentliches Repository. Der Release-Branch entfernt sie aus
+dem Tree, `.gitignore` sperrt den Ordner und `scripts/check-sensitive-files.mjs`
+verhindert ein erneutes Tracking.
+
+**Status des Rewrites:** Die Dateien sind weiterhin über ältere Commits
+abrufbar, insbesondere über `main`. Die folgende History-Neuschreibung wurde
+**nicht ausgeführt**. Sie erfordert einen Force-Push, invalidiert die Commit-IDs
+aller offenen Pull Requests (#2, #3, #4) und jedes vorhandenen Klons. Angesichts
+des geringen Sensibilitätsgrades ist sie optional und ausschließlich nach
+ausdrücklicher Freigabe des Repository-Eigentümers durchzuführen.
 
 ## Sichere Vorbereitung
 
@@ -45,6 +66,13 @@ git fsck --full
 Die beiden Suchbefehle dürfen keine Anhänge mehr ausgeben. Die Bundle-Datei
 ist bis zur erfolgreichen Verifikation offline und zugriffsgeschützt
 aufzubewahren und anschließend gemäß der eigenen Löschrichtlinie zu entfernen.
+
+Anschließend im Mirror-Klon erneut mit Gitleaks über die vollständige Historie
+prüfen:
+
+```bash
+docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source=/repo --log-opts=--all --redact --verbose
+```
 
 ## Remote-Aktualisierung – nur nach Freigabe
 

@@ -5,6 +5,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
+import { OPERATOR } from '@/legal/operator';
 import { useAuthStore } from '@/state/auth-store';
 import { useAppTheme } from '@/theme';
 
@@ -41,7 +42,7 @@ export default function AccountDeletionInformationScreen() {
 
       <AppCard style={styles.card} variant="outlined">
         <Text accessibilityRole="header" selectable style={[theme.typography.subheading, { color: theme.colors.text }]}>Aufbewahrung und gemeinsame Inhalte</Text>
-        <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Es sind derzeit keine konkreten gesetzlichen Aufbewahrungsfristen dokumentiert. Vor Veröffentlichung muss der Verantwortliche bestätigen, ob Pflichten bestehen: [AUFBEWAHRUNGSPFLICHTEN EINFÜGEN ODER „KEINE“ NACH PRÜFUNG]. Pflichtdaten müssten bis zum Fristende gesperrt und anschließend gelöscht werden.</Text>
+        <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>{`Gesetzliche Aufbewahrungspflichten: ${OPERATOR.statutoryRetention} Pflichtdaten werden bis zum Fristende gesperrt und anschließend gelöscht.`}</Text>
         <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Gruppen, gemeinsame Ziele und gemeinsame Sessions mit verbleibenden akzeptierten Teilnehmenden werden vor der Löschung deterministisch auf eine berechtigte Person übertragen. Nur gemeinsame Objekte ohne verbleibende Teilnehmende werden gelöscht.</Text>
         <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Nach der finalen Bestätigung startet die technische Löschung unmittelbar. Die App zeigt Erfolg oder Fehler an und wechselt nach Erfolg in den Gastmodus.</Text>
       </AppCard>
@@ -60,7 +61,7 @@ export default function AccountDeletionInformationScreen() {
 
       <AppCard style={styles.card} variant="outlined">
         <Text accessibilityRole="header" selectable style={[theme.typography.subheading, { color: theme.colors.text }]}>Kontakt und Probleme beim Zugriff</Text>
-        <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>Kontakt für Löschanfragen und Identitätsprüfung: [KONTAKT-E-MAIL EINFÜGEN]. Keine Löschung wird allein aufgrund einer unbestätigten E-Mail-Eingabe durchgeführt.</Text>
+        <Text selectable style={[theme.typography.body, { color: theme.colors.textMuted }]}>{`Kontakt für Löschanfragen und Identitätsprüfung: ${OPERATOR.privacyContactEmail}. Keine Löschung wird allein aufgrund einer unbestätigten E-Mail-Eingabe durchgeführt.`}</Text>
       </AppCard>
 
       <AppButton fullWidth label="Datenschutzerklärung öffnen" onPress={() => router.push('/datenschutz' as Href)} variant="outline" />

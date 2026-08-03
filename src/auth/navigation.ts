@@ -1,9 +1,17 @@
+import { legalSiteHost } from '@/legal/operator';
+
 export type AuthMode = 'none' | 'supabase' | 'local';
 
 export const ROOT_NAVIGATION_ANCHOR = '(tabs)' as const;
 export const HOME_NAVIGATION_ANCHOR = '(home)' as const;
 export const PASSWORD_RECOVERY_REDIRECT_URL = 'lernzeit://auth/update-password?type=recovery' as const;
-export const VERIFIED_RECOVERY_HOST = 'lernzeit.example.invalid' as const;
+
+/**
+ * The single HTTPS host that may deliver a recovery callback. Derived from the
+ * operator domain so it can never drift apart from the verified Android App
+ * Link declared in app.config.js.
+ */
+export const VERIFIED_RECOVERY_HOST: string = legalSiteHost();
 
 const RECOVERY_SCHEME = 'lernzeit:';
 const RECOVERY_HOST = 'auth';

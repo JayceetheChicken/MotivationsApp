@@ -1,14 +1,54 @@
 {
   "cli": {
     "version": ">= 16.0.1",
-    "appVersionSource": "remote"
+    "appVersionSource": "remote",
+    "requireCommit": true
   },
   "build": {
+    "base": {
+      "node": "24.13.0",
+      "android": {
+        "image": "latest",
+        "resourceClass": "medium"
+      }
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "development",
+      "channel": "development",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      },
+      "env": {
+        "LERNZEIT_SKIP_RELEASE_GATE": "1"
+      }
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "environment": "preview",
+      "channel": "preview",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "LERNZEIT_SKIP_RELEASE_GATE": "1"
+      }
+    },
     "production": {
+      "extends": "base",
       "environment": "production",
+      "channel": "production",
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "LERNZEIT_RELEASE_GATE": "1"
       }
     }
   },
@@ -16,7 +56,8 @@
     "production": {
       "android": {
         "track": "internal",
-        "releaseStatus": "draft"
+        "releaseStatus": "draft",
+        "changesNotSentForReview": false
       }
     }
   }

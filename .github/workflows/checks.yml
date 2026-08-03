@@ -8,14 +8,20 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: app-quality-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   app-quality:
     name: Typecheck, tests, lint and Expo Doctor
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -29,6 +35,9 @@ jobs:
       - name: Reject sensitive tracked filenames
         run: node scripts/check-sensitive-files.mjs
 
+      - name: Report release configuration state
+        run: node scripts/check-release-config.mjs
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -38,8 +47,144 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Verify brand assets are reproducible
+        run: node scripts/build-brand-assets.mjs --check
+
+      - name: Verify third-party licence inventory
+        run: node scripts/build-third-party-notices.mjs --check
+
+      - name: Verify generated public pages are current
+        run: |
+          set -euo pipefail
+          node scripts/build-public-pages.mjs
+          git diff --exit-code -- public/
+
       - name: Run Expo Doctor
         run: npx --yes expo-doctor@1.20.1
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
+
+  release-gate:
+    name: Production release gate rejects placeholders
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A production build without operator values must fail. If this step ever
+      # succeeds, the gate has stopped protecting the release.
+      - name: Gate must reject an empty production environment
+        run: |
+          set +e
+          node scripts/check-release-config.mjs --production
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Das Release-Gate hat eine leere Produktionsumgebung akzeptiert."
+            exit 1
+          fi
+          echo "Release-Gate blockiert unvollstaendige Produktionsumgebungen wie erwartet."
+
+      - name: Expo config must refuse to resolve for a production build
+        env:
+          LERNZEIT_RELEASE_GATE: '1'
+        run: |
+          set +e
+          npx --yes expo config --type public --json > /dev/null 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::app.config.js hat einen Production-Build ohne Betreiberangaben zugelassen."
+            exit 1
+          fi
+          echo "app.config.js bricht Production-Builds ohne Betreiberangaben ab."
+
+      - name: Gate must accept a complete production environment
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          node scripts/check-release-config.mjs --production
+          npx --yes expo config --type public --json > "${RUNNER_TEMP}/expo-config.json"
+          node scripts/verify-expo-config.mjs "${RUNNER_TEMP}/expo-config.json"
+          echo "Expo-Config wurde mit vollstaendiger Produktionsumgebung aufgeloest."
+
+  edge-functions:
+    name: Deno format, lint and typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: v2.x
+
+      - name: Check formatting
+        run: deno fmt --check supabase/functions
+
+      - name: Lint
+        run: deno lint supabase/functions
+
+      - name: Typecheck
+        run: deno check supabase/functions/delete-account/index.ts
+
+  expo-export:
+    name: Static production export
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # End-to-end proof that a production build carries the configured operator
+      # values and no development placeholders.
+      - name: Export with a complete production environment
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          export NODE_ENV=production
+          node scripts/build-public-pages.mjs
+          npx --yes expo export --platform web --output-dir dist
+          node scripts/check-exported-bundle.mjs dist
+
+      - name: Export must fail with an incomplete production environment
+        run: |
+          set -euo pipefail
+          git checkout -- public/
+          set +e
+          LERNZEIT_RELEASE_GATE=1 NODE_ENV=production npx --yes expo export --platform web --output-dir dist-invalid > /dev/null 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Der Production-Export lief trotz fehlender Betreiberangaben durch."
+            exit 1
+          fi
+          echo "Production-Export bricht ohne vollstaendige Betreiberangaben ab."

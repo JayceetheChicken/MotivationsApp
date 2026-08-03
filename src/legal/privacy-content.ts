@@ -1,17 +1,21 @@
+import { OPERATOR, OPERATOR_IS_DEVELOPMENT_ONLY } from '@/legal/operator';
+
 export interface LegalSection {
   title: string;
   paragraphs?: readonly string[];
   bullets?: readonly string[];
 }
 
-export const privacyIntroduction = 'Entwurfsfassung – vor Veröffentlichung durch den Verantwortlichen und gegebenenfalls eine Datenschutzberatung zu prüfen. Angaben in eckigen Klammern müssen ausgefüllt werden.';
+export const privacyIntroduction = OPERATOR_IS_DEVELOPMENT_ONLY
+  ? 'Entwicklungsbuild mit klar gekennzeichneten Testwerten. Der Release-Gate blockiert Production-Builds, solange Betreiber-, Kontakt- oder Rechtsangaben fehlen.'
+  : `Stand: ${OPERATOR.legalEffectiveDate}. Diese Erklärung beschreibt die Verarbeitung personenbezogener Daten in Lernzeit.`;
 
 export const privacySections: readonly LegalSection[] = [
   {
     title: '1. Verantwortlicher und Kontakt',
     paragraphs: [
-      'Verantwortlich für die Verarbeitung personenbezogener Daten in Lernzeit: [NAME/FIRMA EINFÜGEN], [LADUNGSFÄHIGE ANSCHRIFT EINFÜGEN], E-Mail: [KONTAKT-E-MAIL EINFÜGEN].',
-      'Datenschutzkontakt beziehungsweise Datenschutzbeauftragter, sofern erforderlich: [ANGABE EINFÜGEN ODER „NICHT BESTELLT“ NACH PRÜFUNG].',
+      `Verantwortlich für die Verarbeitung personenbezogener Daten in Lernzeit: ${OPERATOR.operatorName}, ${OPERATOR.operatorAddress}, E-Mail: ${OPERATOR.operatorContactEmail}.`,
+      `Datenschutzkontakt: ${OPERATOR.privacyContactEmail}. Datenschutzbeauftragte Person: ${OPERATOR.privacyOfficer}.`,
     ],
   },
   {
@@ -31,7 +35,7 @@ export const privacySections: readonly LegalSection[] = [
     title: '4. Supabase-Online-Konto',
     paragraphs: [
       'Bei freiwilliger Registrierung werden E-Mail-Adresse, Authentifizierungsdaten in geschützter Form, eine technische Nutzer-ID sowie Anzeigename, eindeutiger Benutzername, Zeitzone und Profilstatus verarbeitet. Passwörter werden vom Authentifizierungsdienst verarbeitet und nicht im Anwendungscode gespeichert.',
-      'Die konkret anzuwendende Rechtsgrundlage für Registrierung, Kontoführung und optionale Social-Funktionen ist durch den Verantwortlichen vor Veröffentlichung festzulegen: [RECHTSGRUNDLAGE UND BEGRÜNDUNG EINFÜGEN].',
+      `Rechtsgrundlage für Registrierung, Kontoführung und optionale Social-Funktionen: ${OPERATOR.accountLegalBasis}`,
     ],
   },
   {
@@ -74,7 +78,7 @@ export const privacySections: readonly LegalSection[] = [
     title: '10. Technische Daten, Presence und Logs',
     paragraphs: [
       'Für Betrieb und Sicherheit können technische Nutzer- und Gerätekennungen, Revisionsnummern, Synchronisationscursor, Zeitstempel, Online-/Lernstatus, Rate-Limit-Daten sowie Fehler- und Serverlogs verarbeitet werden. Die App zeigt technische Supabase-Fehlermeldungen nicht unmittelbar im UI an.',
-      'Konkrete Logquellen, Protokollinhalte, Zugriffsberechtigungen und Löschfristen sind vor Veröffentlichung zu inventarisieren: [LOG- UND AUFBEWAHRUNGSKONZEPT EINFÜGEN]. Es sind derzeit keine eigenen Werbe-, Tracking- oder Analytics-SDKs im Projekt ausgewiesen; dies ist vor jedem Release erneut zu prüfen.',
+      `Logquellen, Protokollinhalte, Zugriffsberechtigungen und Löschfristen: ${OPERATOR.logRetentionPolicy} Es sind keine eigenen Werbe-, Tracking- oder Analytics-SDKs im Projekt enthalten.`,
     ],
   },
   {
@@ -87,8 +91,8 @@ export const privacySections: readonly LegalSection[] = [
   {
     title: '12. Dienstleister und Datenübermittlung',
     paragraphs: [
-      'Als Backend- und Authentifizierungsdienst wird Supabase eingesetzt. Betroffen sind insbesondere Datenbank, Authentifizierung, Realtime, Edge Functions, Storage und technische Logs. Vertragspartner, Projektregion, Auftragsverarbeitungsvertrag, Unterauftragsverarbeiter und mögliche Drittlandübermittlungen sind anhand des tatsächlich verwendeten Supabase-Projekts zu ergänzen: [SUPABASE-VERTRAGSPARTNER, REGION, AVV UND TRANSFERMECHANISMUS EINFÜGEN].',
-      'Für App-Verteilung und optionale Plattformdienste können Google Play, Expo/EAS und der jeweilige Betriebssystemanbieter eigenständig Daten verarbeiten. Welche Dienste im Produktionsbetrieb tatsächlich aktiviert werden, muss in der finalen Fassung konkret benannt werden: [PRODUKTIONS-DIENSTLEISTER EINFÜGEN].',
+      `Als Backend- und Authentifizierungsdienst wird Supabase eingesetzt. Betroffen sind insbesondere Datenbank, Authentifizierung, Realtime, Edge Functions, Storage und technische Logs. Vertragspartner: ${OPERATOR.supabaseContractParty}. Projektregion: ${OPERATOR.supabaseRegion}. Auftragsverarbeitung, Unterauftragsverarbeiter und Transfermechanismus: ${OPERATOR.supabaseDataProcessingAgreement}`,
+      `Für App-Verteilung und optionale Plattformdienste können weitere Anbieter eigenständig Daten verarbeiten. Im Produktionsbetrieb sind dies: ${OPERATOR.productionSubprocessors}`,
     ],
   },
   {
@@ -96,21 +100,21 @@ export const privacySections: readonly LegalSection[] = [
     paragraphs: [
       'Lokale Gast- und Profildaten bleiben bis zur lokalen Löschung, zum Zurücksetzen der App-Daten oder zur Deinstallation gespeichert. Online-Kontodaten bleiben bis zur Kontolöschung oder bis zu einer anderweitig festgelegten, zulässigen Löschung gespeichert.',
       'Ein maschinenlesbarer JSON-Export des eigenen Online-Kontos kann in den Kontoeinstellungen erstellt und über das System-Teilen-Menü gespeichert werden. Er enthält eigene Profil-, Privacy-, Lern-, Gruppen-, Beziehungs-, Blockierungs- und Meldedaten, aber keine Tokens, Rate-Limits, internen Moderationsnotizen oder privaten Daten anderer Personen. Die temporäre Klartextdatei wird nach dem Teilen aus dem App-Cache entfernt.',
-      'Die In-App-Kontolöschung erfordert eine erneute Passwortbestätigung, entfernt zuerst alle Profilbildobjekte, überträgt erforderlichenfalls gemeinsame Inhalte und löscht danach den Auth-Nutzer; private Datenbankdatensätze werden über geprüfte ON-DELETE-CASCADE-Beziehungen entfernt. Gesetzlich zwingende Aufbewahrungspflichten sind derzeit nicht festgelegt und dürfen nicht erfunden werden. Falls solche Pflichten bestehen, sind Datenarten, Rechtsgrund, Sperrung und konkrete Frist hier einzutragen: [AUFBEWAHRUNGSPFLICHTEN EINFÜGEN ODER NACH PRÜFUNG „KEINE“].',
+      `Die In-App-Kontolöschung erfordert eine erneute Passwortbestätigung, entfernt zuerst alle Profilbildobjekte, überträgt erforderlichenfalls gemeinsame Inhalte und löscht danach den Auth-Nutzer; private Datenbankdatensätze werden über geprüfte ON-DELETE-CASCADE-Beziehungen entfernt. Gesetzliche Aufbewahrungspflichten: ${OPERATOR.statutoryRetention}`,
     ],
   },
   {
     title: '14. Rechte betroffener Personen',
     paragraphs: [
       'Betroffene Personen können – soweit die gesetzlichen Voraussetzungen erfüllt sind – Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit und Widerspruch verlangen sowie eine erteilte Einwilligung mit Wirkung für die Zukunft widerrufen. Das Bestehen und der konkrete Umfang richten sich nach dem anwendbaren Recht und der jeweiligen Verarbeitung.',
-      'Anfragen sind an [DATENSCHUTZ-KONTAKT EINFÜGEN] zu richten. Außerdem besteht gegebenenfalls ein Beschwerderecht bei einer zuständigen Datenschutzaufsichtsbehörde; die für den Verantwortlichen zuständige Behörde ist vor Veröffentlichung einzutragen: [AUFSICHTSBEHÖRDE EINFÜGEN].',
+      `Anfragen sind an ${OPERATOR.privacyContactEmail} zu richten. Außerdem besteht gegebenenfalls ein Beschwerderecht bei einer Datenschutzaufsichtsbehörde. Zuständig ist: ${OPERATOR.dataProtectionAuthority}`,
     ],
   },
   {
     title: '15. Sicherheit, Änderungen und Stand',
     paragraphs: [
       'Lernzeit setzt unter anderem kontobezogene lokale Speicherbereiche, sichere Sessionablage, Row Level Security, verifizierte Nutzer-JWTs, private Realtime-Topics und eine serverseitige Kontolöschung ohne Service-Role-Key im Client ein. Kein Verfahren kann absolute Sicherheit garantieren.',
-      'Diese Erklärung ist bei Änderungen an Funktionen, Dienstleistern oder Rechtslage zu aktualisieren. Stand der Entwurfsfassung: 2. August 2026. Final freigegeben am: [DATUM EINFÜGEN].',
+      `Diese Erklärung ist bei Änderungen an Funktionen, Dienstleistern oder Rechtslage zu aktualisieren. Stand dieser Fassung: ${OPERATOR.legalEffectiveDate}.`,
     ],
   },
 ];

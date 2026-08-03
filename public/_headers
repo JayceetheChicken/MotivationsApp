@@ -4,3 +4,15 @@
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# Android App Links verification. Must be served over HTTPS as application/json,
+# without redirects and without any authentication, or autoVerify fails.
+/.well-known/assetlinks.json
+  Content-Type: application/json
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
+
+# Play requires this page to stay publicly reachable without app and without login.
+/account-deletion/*
+  Cache-Control: public, max-age=600

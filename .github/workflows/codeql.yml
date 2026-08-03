@@ -10,25 +10,38 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: codeql-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
-    name: Analyze JavaScript and TypeScript
+    name: Analyze ${{ matrix.language }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: read
       packages: read
       security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # `actions` covers the workflow files themselves, which is where an
+        # over-permissioned or injectable step would show up.
+        language: [javascript-typescript, actions]
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@47be0dbd5113ab1b79fe2dd3f68bdf7e426cdc87 # v3
         with:
-          languages: javascript-typescript
+          languages: ${{ matrix.language }}
+          queries: security-extended
 
       - name: Analyze
         uses: github/codeql-action/analyze@47be0dbd5113ab1b79fe2dd3f68bdf7e426cdc87 # v3
         with:
-          category: /language:javascript-typescript
+          category: /language:${{ matrix.language }}

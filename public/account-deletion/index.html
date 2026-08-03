@@ -15,12 +15,13 @@
       a { color: #7a321f; font-weight: 700; }
       .warning { border-color: #b44d2b; background: #fff1eb; }
       .draft { font-weight: 700; color: #8a5a00; }
+      footer { margin-top: 28px; font-size: 0.9rem; color: #6b5346; }
     </style>
   </head>
   <body>
     <main>
       <h1>Lernzeit-Konto dauerhaft löschen</h1>
-      <p class="draft">Entwurf – Betreiber-, Kontakt- und Aufbewahrungsangaben müssen vor Veröffentlichung rechtlich geprüft und ersetzt werden.</p>
+      <p class="draft">Entwicklungsfassung mit Testwerten. Vor der Veröffentlichung müssen die Betreiberangaben als EXPO_PUBLIC_*-Variablen gesetzt und diese Seite neu erzeugt werden.</p>
 
       <section>
         <h2>Direkt in der App</h2>
@@ -29,8 +30,15 @@
 
       <section>
         <h2>Ohne Zugriff auf die App</h2>
-        <p>Sende eine Löschanfrage an <a href="mailto:datenschutz@lernzeit.example.invalid?subject=Lernzeit-Konto%20löschen">datenschutz@lernzeit.example.invalid</a>. Nutze möglichst die E-Mail-Adresse des Kontos. Der Betreiber antwortet mit einer zeitlich begrenzten Verifikationsstrecke. Erst nach erfolgreicher Identitätsprüfung wird das zugehörige Konto gelöscht. Teile niemals dein Passwort oder einen Anmelde-Token per E-Mail.</p>
-        <p>Vor Veröffentlichung müssen diese Platzhalteradresse und die Domain durch echte Betreiberangaben ersetzt und die beschriebene Verifikationsstrecke organisatorisch eingerichtet werden.</p>
+        <p>Sende eine Löschanfrage von der E-Mail-Adresse des Kontos an <a href="mailto:privacycontactemail@lernzeit.invalid?subject=Lernzeit-Konto%20l%C3%B6schen">privacycontactemail@lernzeit.invalid</a>. Gib den Benutzernamen des Kontos an.</p>
+        <p>Die Identitätsprüfung läuft so ab:</p>
+        <ol>
+          <li>Der Betreiber sendet innerhalb von sieben Tagen eine Bestätigungs-E-Mail an die im Konto hinterlegte Adresse.</li>
+          <li>Diese E-Mail enthält einen einmaligen, auf 72 Stunden begrenzten Bestätigungscode.</li>
+          <li>Die Löschung wird erst nach Rücksendung des Codes von derselben Adresse ausgeführt.</li>
+          <li>Stimmt die Absenderadresse nicht mit der Kontoadresse überein, wird stattdessen um eine Anmeldung in der App gebeten.</li>
+        </ol>
+        <p>Der Betreiber fragt niemals nach dem Passwort oder einem Anmelde-Token. Teile beides niemals per E-Mail.</p>
       </section>
 
       <section class="warning">
@@ -46,8 +54,14 @@
 
       <section>
         <h2>Aufbewahrung</h2>
-        <p>Für Anwendungsdaten ist derzeit keine zusätzliche gesetzliche Aufbewahrungsfrist technisch hinterlegt. Falls der Betreiber rechtlich erforderliche Nachweise aufbewahren muss, müssen Datenarten, Rechtsgrund, Sperrung und konkrete Fristen vor Veröffentlichung hier ergänzt werden: [AUFBEWAHRUNGSANGABEN EINFÜGEN ODER RECHTLICH BESTÄTIGEN, DASS KEINE GELTEN].</p>
+        <p>Testwert: Gesetzliche Aufbewahrungspflichten (nur Entwicklungsbuild)</p>
+        <p>Testwert: Log- und Aufbewahrungskonzept (nur Entwicklungsbuild)</p>
       </section>
+
+      <footer>
+        <p>Testwert: Vollständiger Name beziehungsweise Firma des Betreibers (nur Entwicklungsbuild), Testwert: Ladungsfähige Anschrift (nur Entwicklungsbuild) &middot; operatorcontactemail@lernzeit.invalid</p>
+        <p>Diese Seite wird aus config/operator-fields.json erzeugt. Manuelle Änderungen gehen beim nächsten Build verloren.</p>
+      </footer>
     </main>
   </body>
 </html>

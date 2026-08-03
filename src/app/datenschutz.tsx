@@ -6,6 +6,7 @@ import { LegalSections } from '@/components/legal/legal-sections';
 import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Screen } from '@/components/ui/screen';
+import { OPERATOR_IS_DEVELOPMENT_ONLY } from '@/legal/operator';
 import { privacyIntroduction, privacySections } from '@/legal/privacy-content';
 import { useAppTheme } from '@/theme';
 
@@ -16,7 +17,16 @@ export default function PrivacyScreen() {
       <Stack.Title>Datenschutz</Stack.Title>
       <AppCard style={styles.introduction} variant="outlined">
         <Text accessibilityRole="header" selectable style={[theme.typography.heading, { color: theme.colors.text }]}>Datenschutzerklärung für Lernzeit</Text>
-        <Text accessibilityRole="alert" selectable style={[theme.typography.bodyMedium, { color: theme.colors.warning }]}>{privacyIntroduction}</Text>
+        <Text
+          accessibilityRole={OPERATOR_IS_DEVELOPMENT_ONLY ? 'alert' : 'text'}
+          selectable
+          style={[
+            theme.typography.bodyMedium,
+            { color: OPERATOR_IS_DEVELOPMENT_ONLY ? theme.colors.warning : theme.colors.textMuted },
+          ]}
+        >
+          {privacyIntroduction}
+        </Text>
       </AppCard>
       <LegalSections sections={privacySections} />
       <AppButton fullWidth label="Informationen zur Kontolöschung" onPress={() => router.push('/konto-loeschen' as Href)} variant="outline" />

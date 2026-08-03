@@ -7,6 +7,7 @@
     "@react-native-community/netinfo": "12.0.1",
     "@supabase/supabase-js": "^2.111.0",
     "expo": "~57.0.9",
+    "expo-build-properties": "~57.0.8",
     "expo-constants": "~57.0.8",
     "expo-crypto": "~57.0.1",
     "expo-device": "~57.0.1",
@@ -68,7 +69,15 @@
     "test:db": "supabase test db",
     "test:supabase:e2e": "node scripts/supabase-local-e2e.mjs",
     "types:db": "supabase gen types typescript --local > src/types/database.generated.ts",
-    "verify": "npm run typecheck && npm test && npm run lint && npx expo-doctor"
+    "release:check": "node scripts/check-release-config.mjs",
+    "release:gate": "node scripts/check-release-config.mjs --production",
+    "release:report": "node scripts/check-release-config.mjs --report",
+    "release:pages": "node scripts/build-public-pages.mjs",
+    "assets:build": "node scripts/build-brand-assets.mjs",
+    "licenses:check": "node scripts/build-third-party-notices.mjs --check",
+    "licenses:build": "node scripts/build-third-party-notices.mjs",
+    "check:sensitive": "node scripts/check-sensitive-files.mjs",
+    "verify": "npm run check:sensitive && npm run release:check && npm run typecheck && npm test && npm run lint && npm run licenses:check && npx expo-doctor"
   },
   "private": true
 }

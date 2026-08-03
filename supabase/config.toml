@@ -27,12 +27,14 @@ port = 54324
 
 [auth]
 enabled = true
-# Local-only Auth configuration. Production Site URL and redirects must be set
-# independently in the Supabase dashboard; see docs/SECURITY_RELEASE_CHECKLIST.md.
+# Local-only Auth configuration. The production Site URL and the redirect
+# allowlist are configured in the Supabase dashboard and must never contain a
+# placeholder domain; see docs/supabase-staging-deployment.md.
+# The verified operator domain callback is added there, not here, so this file
+# stays free of environment specific hosts.
 site_url = "http://127.0.0.1:8081"
 additional_redirect_urls = [
-  "lernzeit://auth/update-password?type=recovery",
-  "https://lernzeit.example.invalid/update-password?type=recovery"
+  "lernzeit://auth/update-password?type=recovery"
 ]
 jwt_expiry = 3600
 enable_signup = true
