@@ -36,6 +36,10 @@ solche benannt.
 | Gitleaks 8.28.0 über `--log-opts=--all` | Bestanden: 53 Commits, keine Funde |
 | Gitleaks Gegentest mit echtem `sb_secret_`-Muster | Erkannt durch Regel `supabase-secret-key` |
 | `npx expo prebuild --platform android --clean` | Bestanden, Manifest und Gradle geprüft |
+| `./gradlew :app:bundleRelease` | **BUILD SUCCESSFUL in 56m 26s**, 591 Tasks, AAB mit 75 817 432 Byte (debug-signiert) |
+| 16-KB-Alignment aller 100 `.so`-Dateien im AAB | Bestanden: `arm64-v8a` und `x86_64` durchgehend `0x4000` |
+| Secret-Scan über 1280 Dateien im AAB | Bestanden: 0 Treffer |
+| Manifestwerte im AAB | Bestanden: `de.lernzeit.app`, 1.0.0, versionCode 1, minSdk 24, targetSdk 36, `allowBackup=false`, `usesCleartextTraffic=false` |
 
 ## In GitHub Actions ausgeführt
 
@@ -56,7 +60,7 @@ solche benannt.
 | Schritt | Grund |
 | --- | --- |
 | Supabase-Deploy nach Staging oder Produktion | Externe Zugangsdaten; Ablauf in `docs/supabase-staging-deployment.md` |
-| `eas build --platform android --profile production` | Erfordert angemeldetes EAS-Konto und Play-App-Signing-Schlüssel |
+| `eas build --platform android --profile production` | Ein lokaler Release-AAB wurde erzeugt und vollständig geprüft, ist aber mit dem Debug-Keystore signiert. Ein hochladbares Artefakt erfordert den Play-Upload-Schlüssel aus EAS beziehungsweise Play App Signing |
 | Play-Console-Aktionen | Externe Freigabe erforderlich |
 | History-Rewrite mit `git filter-repo` | Erfordert Force-Push; Bewertung und Ablauf in `docs/repository-history-cleanup.md` |
 | Gerätetests auf Smartphone und Tablet | Erfordert ein signiertes Artefakt; Matrix in `docs/functional-test-matrix.md` |
