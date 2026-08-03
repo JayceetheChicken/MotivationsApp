@@ -68,6 +68,43 @@ Gastbereich bleiben unberührt. Die separate Aktion **Abmelden und Daten dieses
 Kontos vom Gerät löschen** verwendet dieselbe kontobezogene Schlüsselliste,
 löscht aber keine Cloud-Daten.
 
+## Idempotenz, Wiederholungen und Fehlerfälle
+
+Der Ablauf ist so gebaut, dass jeder Teilfehler entweder gefahrlos wiederholbar
+ist oder als Fehler gemeldet wird. Es gibt keinen Pfad, der Erfolg meldet, ohne
+dass der Auth-Nutzer tatsächlich gelöscht wurde.
+
+| Situation | Verhalten |
+| --- | --- |
+| Avatar-Auflistung schlägt fehl | Abbruch mit 500, nichts wurde gelöscht, Wiederholung gefahrlos |
+| Avatar-Löschung schlägt teilweise fehl | Abbruch mit 500. Beim nächsten Versuch werden die verbliebenen Objekte erneut aufgelistet und gelöscht |
+| `prepare_account_deletion` schlägt fehl | Abbruch mit 500. Die Funktion arbeitet auf dem aktuellen Zustand; ein zweiter Aufruf findet nur noch nicht übertragene Objekte |
+| `prepare_account_deletion` lief, `deleteUser` schlug fehl | Abbruch mit 500. Wiederholung überträgt nichts erneut (Eigentum liegt bereits beim Nachfolger) und löscht dann den Auth-Nutzer |
+| `deleteUser` meldet „user not found“ | Wird als Erfolg gewertet; der gewünschte Endzustand ist erreicht |
+| Zweiter Aufruf während der erste läuft | Beide durchlaufen dieselbe Reihenfolge. Der zweite findet keine Avatare und keine zu übertragenden Objekte mehr |
+| JWT älter als fünf Minuten | 403, keine Änderung |
+| Falsches Passwort | Die Re-Authentifizierung schlägt vor dem Function-Aufruf fehl |
+| Re-Authentifizierung liefert eine andere UID | Die vorherige Sitzung wird wiederhergestellt, kein Löschaufruf |
+
+### Bekannte Kante: Antwort geht nach erfolgreicher Löschung verloren
+
+Bricht die Verbindung genau zwischen erfolgreicher Serverlöschung und dem
+Eintreffen der Antwort ab, meldet ein Wiederholungsversuch **401** mit
+„Deine Anmeldung ist abgelaufen“. Ursache: `auth.getUser()` findet den Nutzer
+nicht mehr, und die Function unterscheidet bewusst nicht zwischen „Token
+ungültig“ und „Nutzer existiert nicht“.
+
+Diese Wahl ist beabsichtigt. Die Alternative — bei nicht auffindbarem Nutzer
+Erfolg zu melden — würde eine Fehlklassifikation eines lediglich abgelaufenen
+Tokens in eine **falsche Erfolgsmeldung** verwandeln, obwohl das Konto noch
+existiert. Die konservative Variante meldet im schlimmsten Fall einen Fehler,
+obwohl gelöscht wurde; sie meldet niemals Erfolg, obwohl nicht gelöscht wurde.
+
+Praktische Folge: In diesem seltenen Fall bleiben lokale, kontobezogene Caches
+auf dem Gerät. Der Nutzer kann sie über **Konto & Einstellungen → Abmelden und
+Daten dieses Kontos vom Gerät löschen** oder über die App-Daten in den
+Geräteeinstellungen entfernen. Der Support sollte diesen Hinweis kennen.
+
 ## Deployment und manuelle Abnahme
 
 Vor Produktion zuerst in Staging:
