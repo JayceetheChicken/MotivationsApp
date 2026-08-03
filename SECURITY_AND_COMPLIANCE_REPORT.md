@@ -134,9 +134,40 @@ erfordern und ist als spätere Architekturverbesserung dokumentiert.
 | `git diff --check` | Bestanden |
 | Supabase Reset/Lint/pgTAP/API-E2E | Bestanden im GitHub-Ubuntu-Workflow: frischer Reset, DB-Lint, 353 pgTAP-Tests und lokaler API-E2E-Test. Lokal ist auf diesem Windows-Rechner kein Docker-Daemon installiert/erreichbar. |
 
-Der transitive Moderate-Befund betrifft `uuid@7.0.3` über Expos Build-Time-
-Abhängigkeit `xcode`; npm bietet nur einen brechenden Downgrade-Pfad an. Kein
-ungeprüftes `--force` wurde ausgeführt. Vor dem finalen AAB erneut prüfen.
+### Bewertung der verbleibenden Moderate-Befunde
+
+`npm audit --omit=dev` meldet 12 moderate Befunde. Die Auswertung des
+JSON-Reports zeigt genau **eine** Ursache:
+
+- Advisory: `GHSA-w5hq-g745-h8pq`, `uuid` – fehlende Buffer-Bounds-Prüfung in
+  v3/v5/v6, wenn `buf` übergeben wird.
+- Betroffene Version im Baum: genau ein Eintrag, `node_modules/uuid@7.0.3`.
+- Erreichbarkeit: ausschließlich über `@expo/config-plugins` → `xcode`. `xcode`
+  wird nur von den **iOS**-Codepfaden von `@expo/config-plugins` verwendet
+  (`build/ios/BundleIdentifier.js`, `build/ios/DevelopmentTeam.js`,
+  `build/ios/utils/Xcodeproj.js`). Es handelt sich um Build-Zeit-Tooling.
+- Die restlichen 11 Meldungen sind dieselbe Ursache, entlang der Kette nach oben
+  gezählt.
+- Im ausgelieferten JavaScript-Bundle ist das npm-Paket `uuid` **nicht**
+  enthalten. Die dortigen `uuid`-Treffer stammen aus der eigenen
+  `expo-modules-core`-Implementierung auf Basis von `crypto.randomUUID`.
+
+Damit erreicht der Befund weder die Android-Laufzeit noch das Artefakt. npm
+bietet nur einen brechenden Downgrade an; kein `npm audit fix --force` wurde
+ausgeführt. Bei jedem Expo-SDK-Update erneut bewerten.
+
+### Gitleaks über die vollständige Historie
+
+Lokal mit Gitleaks 8.28.0 und `.gitleaks.toml` über alle Refs ausgeführt:
+
+```text
+gitleaks git --log-opts=--all --config=.gitleaks.toml --redact .
+53 commits scanned. no leaks found.
+```
+
+Die Allowlist enthält ausschließlich drei exakte Literale synthetischer
+Fixtures. Ein Gegentest mit einem realistisch geformten `sb_secret_`-Key wird
+weiterhin von der neu ergänzten Regel `supabase-secret-key` gemeldet.
 
 ## Manuelle Supabase-, Domain- und Play-Schritte
 
