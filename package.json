@@ -2,6 +2,9 @@
   "name": "lernzeit-app",
   "main": "expo-router/entry",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=20.19.4"
+  },
   "dependencies": {
     "@expo/ui": "~57.0.8",
     "@react-native-community/netinfo": "12.0.1",

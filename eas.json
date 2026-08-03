@@ -6,7 +6,6 @@
   },
   "build": {
     "base": {
-      "node": "24.13.0",
       "android": {
         "image": "latest",
         "resourceClass": "medium"
