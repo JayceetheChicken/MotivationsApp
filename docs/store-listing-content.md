@@ -1,6 +1,6 @@
 # Store-Listing-Inhalte für Lernzeit
 
-Stand: 31. Juli 2026
+Stand: 3. August 2026
 
 ## Statusübersicht
 
@@ -9,15 +9,19 @@ Stand: 31. Juli 2026
 | App-Titel | Entwurf fertig | `Lernzeit` endgültig bestätigen |
 | Kurzbeschreibung | Entwurf fertig | Text final freigeben |
 | Ausführliche Beschreibung | Entwurf fertig | Aussagen mit finalem Production-Funktionsumfang abgleichen |
-| App-Icon | Fehlt in finaler Form | Branded 512 × 512 PNG; aktuelle Datei ist ein Expo-Platzhalter |
-| Feature-Grafik | Fehlt | 1024 × 500 JPEG/24-Bit-PNG ohne Alpha |
-| Smartphone-Screenshots | Fehlen | Mindestens 2, empfohlen 4–8 echte Screenshots |
+| App-Icon | **Fertig** | `assets/store/play-icon-512.png`, erzeugt mit `npm run assets:build` |
+| Feature-Grafik | **Fertig** | `assets/store/play-feature-graphic-1024x500.png`, 24-Bit-PNG ohne Alpha |
+| Smartphone-Screenshots | Fehlen | Mindestens 2, empfohlen 4–8 echte Screenshots vom Gerät |
 | Tablet-Screenshots | Fehlen | Empfohlen mindestens 4 je verwendeter Tablet-Klasse |
-| Support-E-Mail | Fehlt | Öffentliche, überwachte Support-Adresse |
-| Datenschutzerklärung | Entwurf vorbereitet | Pflichtplatzhalter ausfüllen, rechtlich freigeben und öffentliche HTTPS-URL hosten |
-| Externe Kontolöschung | Technisch vorbereitet | Function deployen, End-to-End-Test und öffentliche HTTPS-Route hosten |
+| Support-E-Mail | Konfigurierbar | `EXPO_PUBLIC_SUPPORT_EMAIL` setzen; Wert erscheint in App und Store |
+| Datenschutzerklärung | **Technisch fertig** | Betreiberangaben setzen, rechtlich prüfen lassen und Seite hosten |
+| Externe Kontolöschung | **Technisch fertig** | `npm run release:pages` mit Produktionsumgebung, dann `public/` hosten |
 | Demo-Zugang | Fehlt | Dauerhaftes Reviewer-Konto und englische Anleitung |
 | Versionshinweise | Entwurf fertig | Siehe `release-notes.md` |
+
+Screenshots und der Reviewer-Zugang sind die einzigen Store-Inhalte, die sich
+nicht aus dem Repository erzeugen lassen: sie brauchen ein echtes Gerät
+beziehungsweise ein echtes Konto im Produktionsprojekt.
 
 ## App-Titel
 
@@ -66,32 +70,45 @@ Vor Freigabe prüfen:
 
 ## App-Icon
 
-Benötigt wird ein endgültiges Lernzeit-Store-Icon:
+**Vorhanden:** `assets/store/play-icon-512.png` (512 × 512, deckend, 10,6 KB).
 
-- 512 × 512 px.
-- 32-Bit-PNG mit Alpha.
-- Höchstens 1 MB.
-- Keine Preis-, Ranking- oder Play-Store-Badges.
-- Klare Lernzeit-Marke, die auch klein erkennbar bleibt.
-- Optisch konsistent mit den Launcher-/Adaptive-Icon-Ebenen.
+Das gesamte Icon-Set wird aus einer Geometriedefinition erzeugt:
 
-Die aktuelle Datei `assets/images/icon.png` ist zwar 1024 × 1024 px groß und technisch eingebunden, zeigt aber ein generisches Expo-Symbol. Auch Vordergrund, Hintergrund und Monochrom-Asset des Adaptive Icons sind Template-Material. Sie müssen gemeinsam ersetzt werden, damit Store-Icon und Launcher-Icon dieselbe Marke zeigen.
+```bash
+npm run assets:build      # schreibt PNG und SVG neu
+npm run assets:build -- --check   # schlaegt fehl, wenn Dateien abweichen
+```
+
+| Datei | Größe | Verwendung |
+| --- | --- | --- |
+| `assets/images/icon.png` | 1024 × 1024 | App-Icon, wird von Android und iOS maskiert |
+| `assets/images/android-icon-foreground.png` | 432 × 432 | Adaptive-Icon-Vordergrund, Motiv in der Safe Zone |
+| `assets/images/android-icon-background.png` | 432 × 432 | Adaptive-Icon-Hintergrund `#B44D2B` |
+| `assets/images/android-icon-monochrome.png` | 432 × 432 | Themed Icon ab Android 13 |
+| `assets/images/splash-icon.png` | 512 × 512 | Splashscreen |
+| `assets/images/favicon.png` | 48 × 48 | Web |
+| `assets/store/play-icon-512.png` | 512 × 512 | Play-Store-Icon |
+| `assets/brand/lernzeit-mark.svg` | Vektor | Master für Print und weitere Größen |
+
+Das Motiv ist ein Uhrring mit zwei Zeigern in Creme auf Terrakotta. Es enthält
+keinerlei Expo- oder React-Native-Template-Material, keine Badges und keine
+Preis- oder Ranking-Aussagen. Die Vordergrundgeometrie liegt vollständig
+innerhalb eines Kreises von 52 % der Kantenlänge und damit sicher in der
+Android-Safe-Zone von 66/108.
 
 ## Feature-Grafik
 
-Pflichtformat:
+**Vorhanden:** `assets/store/play-feature-graphic-1024x500.png`
+(1024 × 500, 24-Bit-PNG ohne Alpha, 28,2 KB).
 
-- 1024 × 500 px.
-- JPEG oder 24-Bit-PNG ohne Transparenz.
-- Wichtige Inhalte in der Mitte, weil Ränder je nach Play-Fläche beschnitten werden können.
+Bewusst ohne Text: Play beschneidet die Grafik je nach Fläche unterschiedlich,
+und ein Wortbild müsste für jede Store-Sprache neu erzeugt werden. Die Marke
+sitzt links im nie beschnittenen Bereich, rechts steht ein ruhiges Ringmotiv in
+derselben Formsprache.
 
-Creative Brief:
-
-- Warmes Lernzeit-Farbsystem rund um `#B44D2B` verwenden.
-- Eine klare Kombination aus Fokus-Timer, Ziel-Fortschritt und Statistik andeuten.
-- Optionaler kurzer Claim: `Fokus. Fortschritt. Gemeinsam.`
-- Keine Geräte-Rahmen, Play-Badges, Ranglistenbehauptungen, Preise oder zeitlich begrenzten Aussagen.
-- Wenn Text verwendet wird, für weitere Store-Sprachen lokalisierte Varianten erstellen.
+Falls später ein Claim gewünscht ist (`Fokus. Fortschritt. Gemeinsam.`), muss er
+mit einer echten lizenzierten Schrift gesetzt und je Store-Sprache lokalisiert
+werden.
 
 ## Smartphone-Screenshots
 

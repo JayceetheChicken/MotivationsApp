@@ -2,10 +2,17 @@ node_modules/
 .expo/
 .expo-web-check/
 dist/
+dist-invalid/
 web-build/
 coverage/
 *.log
 .DS_Store
+
+# Continuous Native Generation: android/ and ios/ are produced by
+# `npx expo prebuild` from app.json plus app.config.js and must never be
+# committed, otherwise the generated manifest can drift from the configuration.
+/android/
+/ios/
 
 # Codex- und temporäre Anhänge
 .codex-remote-attachments/

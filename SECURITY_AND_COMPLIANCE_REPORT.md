@@ -1,7 +1,7 @@
 # Security- und Compliance-Abschlussbericht
 
-Stand: 2. August 2026
-Branch: `codex/final-release-hardening`
+Stand: 3. August 2026
+Branch: `codex/release-ready-consolidation` (Basis: `codex/final-release-hardening`)
 
 ## Ergebnis und Release-Einstufung
 
@@ -12,9 +12,24 @@ Bereinigung, serverseitige Privacy-Projektionen, Blockieren/Melden,
 service-role-only Moderation, Community-Zustimmung und JSON-Datenexport.
 
 Ein Produktionsrelease bleibt blockiert, bis Backend und Edge Function in
-Staging/Produktion deployed, die Platzhalterdomain ersetzt, Android App Links
-verifiziert, Rechtstexte freigegeben, Betreiber-/Aufbewahrungsangaben ergänzt
-und ein signiertes AAB praktisch abgenommen wurden.
+Staging/Produktion deployed, die realen Betreiberangaben gesetzt, Android App
+Links verifiziert, Rechtstexte freigegeben und ein signiertes AAB praktisch
+abgenommen wurden. Die Platzhalter sind nicht mehr nur dokumentiert, sondern
+technisch erzwungen: ein Production-Build bricht ab, solange sie bestehen.
+
+## Nachtrag 3. August 2026: erzwungene Konfiguration und Branding
+
+| Bereich | Umsetzung |
+|---|---|
+| Betreiberkonfiguration | 24 Pflichtangaben in `config/operator-fields.json`; eine geteilte Validierung in `config/release-config.cjs` für App-Bundle, `app.config.js` und CI. |
+| Release-Gate | `app.config.js` wirft bei unvollständiger Produktionsumgebung. EAS, `expo export` und `expo run:android` brechen damit ab. CI prüft Blockieren und Akzeptieren. |
+| Rechtstexte | Impressum, Datenschutz, Bedingungen, Community-Regeln und Kontolöschseite lesen aufgelöste Werte statt Klammer-Platzhaltern. |
+| Behobene stille Fehlerquelle | Metro inlined nur literale `process.env.EXPO_PUBLIC_X`-Zugriffe. Die vorherige berechnete Auflösung hätte trotz grünem Gate ein Bundle mit Entwicklungswerten erzeugt. Jetzt literal gelesen, durch Test und Export-Scan abgesichert. |
+| App Links | Verifizierter Host wird aus `EXPO_PUBLIC_LEGAL_SITE_URL` abgeleitet; `assetlinks.json` wird aus derselben Quelle erzeugt. |
+| Android | `versionCode`, `scheme`, Portrait-Orientierung, `blockedPermissions`, `targetSdk`/`compileSdk` 36, `minSdk` 24 über `expo-build-properties`. |
+| Branding | Expo-Template-Icons vollständig ersetzt; komplettes Set reproduzierbar aus `scripts/build-brand-assets.mjs`, ohne native Abhängigkeit. |
+| Lizenzen | `THIRD_PARTY_NOTICES.md` aus dem Produktionsbaum erzeugt: 764 Pakete, 16 Lizenzausdrücke, kein Copyleft, keine unbekannte Lizenz. |
+| CI | Neue Jobs `release-gate`, `edge-functions` und `expo-export`; CodeQL zusätzlich für Workflows mit `security-extended`; OSV auch auf `push` und `schedule`; `persist-credentials: false`. |
 
 ## Behobene Befunde
 
@@ -100,10 +115,17 @@ erfordern und ist als spätere Architekturverbesserung dokumentiert.
 | Befehl | Ergebnis |
 |---|---|
 | `npm run typecheck` | Bestanden |
-| `npm test -- --runInBand` | Bestanden: 37 Suites, 348 Tests |
+| `npm test -- --runInBand` | Bestanden: 37 Suites, 367 Tests |
 | `npm run lint` | Bestanden ohne Fehler oder Warnungen |
 | `npx expo-doctor` | Bestanden: 20/20 Checks |
-| Expo Web-Export | Bestanden: 67 statische Routen |
+| Expo Production-Export | Bestanden: 67 statische Routen |
+| `node scripts/check-release-config.mjs --production` | Blockiert ohne Betreiberangaben, besteht mit vollständiger Umgebung |
+| `npx expo config` mit `LERNZEIT_RELEASE_GATE=1` | Bricht ohne Betreiberangaben ab, löst mit vollständiger Umgebung auf |
+| `node scripts/verify-expo-config.mjs` | Bestanden: Paket, versionCode, targetSdk 36, minSdk 24, App-Links-Host, keine Platzhalter, keine Secret-Muster |
+| `node scripts/check-exported-bundle.mjs dist` | Bestanden: keine Secret-Muster, Betreiberangaben nachweisbar im Bundle |
+| `node scripts/build-brand-assets.mjs --check` | Bestanden: alle Assets reproduzierbar |
+| `node scripts/build-third-party-notices.mjs --check` | Bestanden: 764 Pakete, kein Copyleft, keine unbekannte Lizenz |
+| `npx expo prebuild --platform android` | Bestanden: Manifest und Gradle entsprechen der Konfiguration |
 | `deno fmt --check supabase/functions` | Bestanden |
 | `deno lint supabase/functions` | Bestanden |
 | `deno check supabase/functions/delete-account/index.ts` | Bestanden |
@@ -118,21 +140,25 @@ ungeprüftes `--force` wurde ausgeführt. Vor dem finalen AAB erneut prüfen.
 
 ## Manuelle Supabase-, Domain- und Play-Schritte
 
-1. Migration und Function zuerst in Staging deployen; `ALLOWED_BROWSER_ORIGINS`
-   auf die echte Domain setzen. Auth Redirect-Allowlist ohne Wildcards, E-Mail-
-   Bestätigung, Passwort-/Recovery-Limits, CAPTCHA, SMTP, Security Advisor,
-   Log-Retention und Backups prüfen.
-2. `lernzeit.example.invalid`, Kontaktadresse und alle Rechtsplatzhalter
-   ersetzen. Statische Löschseite und Header unter einer stabilen HTTPS-URL
-   hosten.
-3. `assetlinks.json` mit Paket `de.lernzeit.app` und echtem Play-App-Signing-
-   Fingerprint ausliefern; Anleitung in `docs/web-auth-and-app-links.md`.
-4. Datenschutz, Impressum, Bedingungen, Community-Regeln, Rechtsgrundlagen,
-   Aufbewahrung, Supabase-Region/AVV/Transfers und Moderationsfristen rechtlich
-   freigeben.
+1. Die 24 Betreiberangaben in der EAS-Umgebung `production` setzen; Feldliste
+   und Anleitung in `docs/operator-configuration.md`. Danach
+   `npm run release:gate` und `npm run release:pages`.
+2. Migration und Function zuerst in Staging deployen; vollständiger Ablauf in
+   `docs/supabase-staging-deployment.md` inklusive Redirect-Allowlist ohne
+   Wildcards, E-Mail-Bestätigung, Rate Limits, CAPTCHA, SMTP, Security Advisor,
+   Log-Retention und Backups.
+3. `public/` auf der Betreiberdomain hosten. `assetlinks.json` mit dem echten
+   Play-App-Signing-Fingerprint erzeugen
+   (`ANDROID_SHA256_CERT_FINGERPRINTS=... npm run release:pages`) und die
+   Verifikation per ADB prüfen; Anleitung in `docs/web-auth-and-app-links.md`.
+4. Rechtstexte durch den Verantwortlichen freigeben lassen. Das Repository
+   erzwingt die Vollständigkeit der Angaben, ersetzt aber keine rechtliche
+   Prüfung.
 5. Play Data Safety, Kontolösch-URL, Zielgruppe, Reviewer-Zugang und
-   Moderations-/Beschwerdeprozess ausfüllen; signiertes AAB auf echtem Android-
-   Gerät testen.
+   Moderations-/Beschwerdeprozess ausfüllen; signiertes AAB auf echtem
+   Smartphone und Tablet testen.
+6. Branch Protection und Secret Scanning nach `docs/github-branch-protection.md`
+   aktivieren.
 
 ## Bekannte Restrisiken
 
