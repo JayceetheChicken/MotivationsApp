@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 
+import { PASSWORD_RECOVERY_REDIRECT_URL } from '@/auth/navigation';
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 
 const mockGetInitialURL = jest.fn<Promise<string | null>, []>();
@@ -341,9 +342,30 @@ describe('AuthStoreProvider startup', () => {
       message: 'Falls ein Konto besteht, erhältst du gleich eine E-Mail zum Zurücksetzen.',
     });
     expect(mockResetPasswordForEmail).toHaveBeenCalledWith('lea@example.com', {
-      redirectTo: 'lernzeit://auth/update-password?type=recovery',
+      redirectTo: PASSWORD_RECOVERY_REDIRECT_URL,
     });
     await guest.unmount();
+  });
+
+  // The end-to-end proof that the derived HTTPS App Link really reaches
+  // Supabase lives in __tests__/auth-store-recovery.test.tsx, which loads the
+  // store with a configured operator domain.
+  it('never sends the private scheme once a domain is configured', async () => {
+    const previous = process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+    process.env.EXPO_PUBLIC_LEGAL_SITE_URL = 'https://lernzeit.de';
+
+    try {
+      let navigation!: typeof import('@/auth/navigation');
+      jest.isolateModules(() => {
+        navigation = require('@/auth/navigation') as typeof import('@/auth/navigation');
+      });
+      expect(navigation.PASSWORD_RECOVERY_REDIRECT_URL).not.toContain('lernzeit://');
+      expect(navigation.PASSWORD_RECOVERY_REDIRECT_KIND).toBe('https-app-link');
+    } finally {
+      if (previous === undefined) delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+      else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = previous;
+      jest.resetModules();
+    }
   });
 
   it('does not disclose an existing account through the sign-up response', async () => {

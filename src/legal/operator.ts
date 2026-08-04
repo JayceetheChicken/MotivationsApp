@@ -44,6 +44,34 @@ export const collectOperatorReleaseIssues = releaseConfig.collectOperatorRelease
 export const collectReleaseBlockers = releaseConfig.collectReleaseBlockers as (
   environment: OperatorEnvironment,
 ) => readonly OperatorFieldIssue[];
+export const collectRecoveryReleaseIssues = releaseConfig.collectRecoveryReleaseIssues as (
+  environment: OperatorEnvironment,
+) => readonly OperatorFieldIssue[];
+
+export type PasswordRecoveryRedirect = Readonly<{
+  url: string;
+  kind: 'https-app-link' | 'custom-scheme';
+}>;
+
+/**
+ * Verified HTTPS App Link callback, or null when no real operator domain is
+ * configured.
+ */
+export const passwordRecoveryHttpsUrl = releaseConfig.passwordRecoveryHttpsUrl as (
+  environment: OperatorEnvironment,
+) => string | null;
+
+/** Private-scheme fallback, only reachable in development and preview builds. */
+export const passwordRecoverySchemeUrl = releaseConfig.passwordRecoverySchemeUrl as () => string;
+
+/** The single derivation of the recovery callback handed to Supabase. */
+export const recoveryRedirectUrl = releaseConfig.recoveryRedirectUrl as (
+  environment: OperatorEnvironment,
+) => PasswordRecoveryRedirect;
+
+const legalSiteHostFromBaseUrl = releaseConfig.legalSiteHostFromBaseUrl as (
+  baseUrl: string,
+) => string;
 
 /**
  * Metro only substitutes *literal* `process.env.EXPO_PUBLIC_X` member
@@ -93,9 +121,18 @@ export const ACCOUNT_DELETION_PUBLIC_URL = `${LEGAL_SITE_BASE_URL}/account-delet
 
 /** Host used for verified Android App Links and the HTTPS recovery callback. */
 export function legalSiteHost(baseUrl: string = LEGAL_SITE_BASE_URL): string {
-  try {
-    return new URL(baseUrl).hostname.toLowerCase();
-  } catch {
-    return DEVELOPMENT_MARKER_DOMAIN;
-  }
+  return legalSiteHostFromBaseUrl(baseUrl);
 }
+
+/**
+ * Recovery callback of this build, resolved from the same bundled environment
+ * that produced OPERATOR.
+ *
+ * With a real operator domain this is the verified HTTPS App Link. The private
+ * scheme remains only for development and preview builds, where no verified
+ * domain exists; a production build cannot reach that branch because
+ * `collectRecoveryReleaseIssues` turns it into a release blocker and
+ * app.config.js aborts the build.
+ */
+export const PASSWORD_RECOVERY_REDIRECT: PasswordRecoveryRedirect =
+  recoveryRedirectUrl(BUNDLED_ENVIRONMENT);

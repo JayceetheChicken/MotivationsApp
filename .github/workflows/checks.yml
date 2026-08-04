@@ -120,14 +120,46 @@ jobs:
           fi
           echo "app.config.js bricht Production-Builds ohne Betreiberangaben ab."
 
+      # Explicit negative and positive cases. Each asserts the exit code *and*
+      # the reason in the output, so a check that stops working cannot pass by
+      # accident. See scripts/ci-release-gate-matrix.sh for the full list.
+      - name: Release gate matrix (service_role, skipped gate, fingerprints, recovery)
+        run: bash scripts/ci-release-gate-matrix.sh
+
       - name: Gate must accept a complete production environment
         run: |
           set -euo pipefail
           source scripts/ci-production-env.sh
+          node scripts/build-public-pages.mjs
           node scripts/check-release-config.mjs --production
           npx --yes expo config --type public --json > "${RUNNER_TEMP}/expo-config.json"
           node scripts/verify-expo-config.mjs "${RUNNER_TEMP}/expo-config.json"
+          git checkout -- public/
           echo "Expo-Config wurde mit vollstaendiger Produktionsumgebung aufgeloest."
+
+      # app.config.js resolves the App Links host and the recovery callback from
+      # the same central function, so both must name the operator domain.
+      - name: Expo config must declare the verified App Link
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          npx --yes expo config --type public --json > "${RUNNER_TEMP}/expo-config-links.json"
+          node -e '
+            const config = require(process.env.RUNNER_TEMP + "/expo-config-links.json");
+            const manifest = config.expo ?? config;
+            const host = manifest.extra?.legalSiteHost;
+            const redirect = manifest.extra?.passwordRecoveryRedirect;
+            const kind = manifest.extra?.passwordRecoveryRedirectKind;
+            const appLink = (manifest.android?.intentFilters ?? []).find((f) => f.autoVerify === true);
+            const appLinkHost = appLink?.data?.[0]?.host ?? appLink?.data?.host;
+            const expected = "https://" + host + "/update-password?type=recovery";
+            const problems = [];
+            if (kind !== "https-app-link") problems.push("Recovery-Kind ist " + kind);
+            if (redirect !== expected) problems.push("Recovery-URL ist " + redirect + ", erwartet " + expected);
+            if (appLinkHost !== host) problems.push("App-Links-Host " + appLinkHost + " != " + host);
+            if (problems.length > 0) { console.error(problems.join("\n")); process.exit(1); }
+            console.log("Verifizierter App Link und Recovery-Callback stimmen ueberein: " + redirect);
+          '
 
   edge-functions:
     name: Deno format, lint and typecheck
@@ -187,6 +219,48 @@ jobs:
           node scripts/build-public-pages.mjs
           npx --yes expo export --platform web --output-dir dist
           node scripts/check-exported-bundle.mjs dist
+
+      # A Supabase key is a JWT: the role is Base64URL encoded and a plaintext
+      # grep for "service_role" finds nothing. Injecting a real service-role
+      # token into the finished export proves the scanner decodes candidates.
+      - name: Bundle scan must reject an embedded service_role JWT
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const b = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+            const header = b({ alg: "HS256", typ: "JWT" });
+            const token = header + "." + b({ iss: "supabase", role: "service_role", exp: 2000000000 })
+              + "." + Buffer.from("signature").toString("base64url");
+            if (/"role"\s*:\s*"service_role"/.test(token)) throw new Error("Token unerwartet im Klartext.");
+            fs.writeFileSync("dist/injected-service-role.js", "var k=\"" + token + "\";\n");
+            console.log("service_role-JWT in den Export injiziert.");
+          '
+          set +e
+          node scripts/check-exported-bundle.mjs dist
+          status=$?
+          set -e
+          rm -f dist/injected-service-role.js
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Der Bundle-Scanner hat einen eingebetteten service_role-JWT nicht erkannt."
+            exit 1
+          fi
+          echo "Bundle-Scanner erkennt kodierte service_role-JWTs."
+
+      - name: Bundle scan must accept a legitimate anon JWT
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          node -e '
+            const fs = require("node:fs");
+            const b = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+            const token = b({ alg: "HS256", typ: "JWT" }) + "." + b({ iss: "supabase", role: "anon", exp: 2000000000 })
+              + "." + Buffer.from("signature").toString("base64url");
+            fs.writeFileSync("dist/injected-anon.js", "var k=\"" + token + "\";\n");
+          '
+          node scripts/check-exported-bundle.mjs dist
+          rm -f dist/injected-anon.js
+          echo "Ein gueltiger Anon-JWT loest keinen Fehlalarm aus."
 
       - name: Export must fail with an incomplete production environment
         run: |

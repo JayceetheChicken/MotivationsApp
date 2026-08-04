@@ -17,6 +17,7 @@ import { authStorage } from '@/auth/storage';
 import {
   hasPasswordRecoveryMaterial,
   parsePasswordRecoveryUrl,
+  PASSWORD_RECOVERY_REDIRECT_KIND,
   PASSWORD_RECOVERY_REDIRECT_URL,
   passwordRecoveryRequestFingerprint,
 } from '@/auth/navigation';
@@ -432,6 +433,11 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     setNotice(null);
 
     try {
+      // PASSWORD_RECOVERY_REDIRECT_URL is derived from the operator domain in
+      // config/release-config.cjs. In a production build it is always the
+      // verified HTTPS App Link; the private scheme only survives in
+      // development and preview builds, which the release gate enforces.
+      safeDebug(`[AUTH] Recovery-Callback: ${PASSWORD_RECOVERY_REDIRECT_KIND}`);
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         email.trim().toLowerCase(),
         { redirectTo: PASSWORD_RECOVERY_REDIRECT_URL },

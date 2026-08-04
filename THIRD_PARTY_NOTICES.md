@@ -734,7 +734,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2020 Expo
 
-### @expo/cli@57.0.11
+### @expo/cli@57.0.12
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/cli
@@ -931,7 +931,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2025-present 650 Industries, Inc. (aka Expo)
 
-### @expo/router-server@57.0.4
+### @expo/router-server@57.0.5
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/routing/introduction/
@@ -968,7 +968,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015 Joran Dirk Greef
 
-### @expo/ui@57.0.8
+### @expo/ui@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/ui/
@@ -1783,10 +1783,10 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>
 
-### agent-cli-detector@0.1.4
+### agent-cli-detector@0.1.5
 
 - Lizenz: `MIT`
-- Projektseite: https://github.com/davidmokos/detect-agent#readme
+- Projektseite: https://github.com/expo/agent-cli-detector#readme
 - Lizenzdatei im Paket: `LICENSE`
 
 > Copyright (c) 2026 David Mokos
@@ -2749,7 +2749,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### expo@57.0.9
+### expo@57.0.10
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo
@@ -2773,7 +2773,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-constants@57.0.8
+### expo-constants@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/constants/
@@ -2861,7 +2861,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-linking@57.0.4
+### expo-linking@57.0.5
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/linking
@@ -2877,7 +2877,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-core@57.0.8
+### expo-modules-core@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-core
@@ -2893,7 +2893,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-router@57.0.9
+### expo-router@57.0.10
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/routing/introduction/
@@ -5656,7 +5656,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
 
-### ws@8.21.1
+### ws@8.21.2
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/websockets/ws

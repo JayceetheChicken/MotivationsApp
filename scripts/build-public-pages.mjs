@@ -4,12 +4,28 @@
  *   - public/account-deletion/index.html  (Play-required, reachable without app or login)
  *   - public/.well-known/assetlinks.json  (Android App Links verification)
  *
- * Run with the production environment loaded before publishing the site:
+ * Development run (no operator variables set): writes a clearly marked draft
+ * with Testwert values and an empty fingerprint list, so the repository has a
+ * deterministic checked-in state.
+ *
+ * Production run (release gate active, see isProductionRelease): every one of
+ * the following aborts with exit code 1 instead of writing a file:
+ *   - missing or placeholder operator values
+ *   - the reserved .invalid development domain
+ *   - a visible development banner on the generated page
+ *   - missing ANDROID_SHA256_CERT_FINGERPRINTS
+ *   - a malformed fingerprint (anything that is not 32 colon separated hex bytes)
+ *   - an empty fingerprint list after normalisation
+ *   - an unexpected Android package name
+ *
+ * An invalid fingerprint is never merely filtered out: silently dropping it
+ * would produce a file that looks complete while App Links verification stays
+ * broken, and the HTTPS recovery link would open a browser instead of the app.
+ *
  *   ANDROID_SHA256_CERT_FINGERPRINTS=AA:BB:.. node scripts/build-public-pages.mjs
  *
  * The fingerprint comes from Play Console > Test and release > App integrity >
- * App signing key certificate (SHA-256). Without it the assetlinks file is
- * written with an empty fingerprint list and the release gate fails.
+ * App signing key certificate (SHA-256).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -18,109 +34,71 @@ import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const releaseConfig = require('../config/release-config.cjs');
+const publicPages = require('./lib/public-pages.cjs');
 const appJson = require('../app.json');
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const environment = process.env;
+const argv = new Set(process.argv.slice(2));
+const enforce = argv.has('--production') || releaseConfig.isProductionRelease(environment);
+
+const EXPECTED_ANDROID_PACKAGE = 'de.lernzeit.app';
+const androidPackage = appJson.expo?.android?.package;
+
 const operator = releaseConfig.resolveOperatorValues(environment);
-const androidPackage = appJson.expo.android.package;
+const operatorIssues = releaseConfig.collectOperatorReleaseIssues(environment);
+const isDevelopment = operatorIssues.length > 0;
 
-const fingerprints = (environment.ANDROID_SHA256_CERT_FINGERPRINTS ?? '')
-  .split(/[,\s]+/)
-  .map((value) => value.trim().toUpperCase())
-  .filter((value) => /^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(value));
+const { fingerprints, invalid } = publicPages.parseFingerprints(
+  environment.ANDROID_SHA256_CERT_FINGERPRINTS,
+);
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+const accountDeletionHtml = publicPages.renderAccountDeletionPage(operator, { isDevelopment });
+const assetLinksJson = publicPages.renderAssetLinks(androidPackage, fingerprints);
+
+if (enforce) {
+  const blockers = [];
+
+  if (operatorIssues.length > 0) {
+    blockers.push(
+      `${operatorIssues.length} Betreiberangabe(n) fehlen oder sind Testwerte: `
+      + `${operatorIssues.map((issue) => issue.envVar).join(', ')}.`,
+    );
+  }
+  if (androidPackage !== EXPECTED_ANDROID_PACKAGE) {
+    blockers.push(
+      `Android-Paketname ist "${androidPackage}", erwartet "${EXPECTED_ANDROID_PACKAGE}".`,
+    );
+  }
+  if (invalid.length > 0) {
+    blockers.push(
+      `Ungueltige SHA-256-Fingerprints: ${invalid.join(', ')}. `
+      + 'Erwartet werden genau 32 hexadezimale Bytes im Format AA:BB:...:99.',
+    );
+  }
+  if (fingerprints.length === 0) {
+    blockers.push(
+      'ANDROID_SHA256_CERT_FINGERPRINTS enthaelt keinen gueltigen Fingerprint. '
+      + 'Ohne Fingerprint verifiziert Android den App Link nicht.',
+    );
+  }
+
+  blockers.push(...publicPages.collectAccountDeletionPageIssues(accountDeletionHtml, operator)
+    .map((issue) => `Kontoloeschseite: ${issue}`));
+  blockers.push(...publicPages.collectAssetLinksIssues(assetLinksJson, EXPECTED_ANDROID_PACKAGE)
+    .map((issue) => `assetlinks.json: ${issue}`));
+
+  if (blockers.length > 0) {
+    process.stderr.write('\nDie oeffentlichen Seiten koennen nicht produktiv erzeugt werden:\n');
+    for (const blocker of blockers) process.stderr.write(`- ${blocker}\n`);
+    process.stderr.write(
+      '\nEs wurde keine Datei geschrieben. Setze die EXPO_PUBLIC_*-Betreibervariablen und\n'
+      + 'ANDROID_SHA256_CERT_FINGERPRINTS (Play Console > App-Integritaet > App-Signaturschluessel)\n'
+      + 'und starte den Lauf erneut.\n',
+    );
+    process.exit(1);
+  }
 }
-
-const isDevelopment = releaseConfig.collectOperatorReleaseIssues(environment).length > 0;
-const draftBanner = isDevelopment
-  ? '      <p class="draft">Entwicklungsfassung mit Testwerten. Vor der Veröffentlichung müssen die Betreiberangaben als EXPO_PUBLIC_*-Variablen gesetzt und diese Seite neu erzeugt werden.</p>\n'
-  : '';
-
-const accountDeletionHtml = `<!doctype html>
-<html lang="de">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="referrer" content="no-referrer">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action mailto:; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'none'; style-src 'unsafe-inline'">
-    <title>Lernzeit-Konto löschen</title>
-    <style>
-      :root { color-scheme: light; font-family: system-ui, sans-serif; background: #f4e8d0; color: #382a21; }
-      body { margin: 0; padding: 32px 18px; }
-      main { max-width: 760px; margin: auto; }
-      section { margin: 18px 0; padding: 20px; border: 1px solid #bc9b78; border-radius: 16px; background: #fffaf0; }
-      h1, h2 { color: #7a321f; }
-      a { color: #7a321f; font-weight: 700; }
-      .warning { border-color: #b44d2b; background: #fff1eb; }
-      .draft { font-weight: 700; color: #8a5a00; }
-      footer { margin-top: 28px; font-size: 0.9rem; color: #6b5346; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Lernzeit-Konto dauerhaft löschen</h1>
-${draftBanner}
-      <section>
-        <h2>Direkt in der App</h2>
-        <p>Öffne nach der Anmeldung „Konto &amp; Einstellungen“, dann „Konto löschen“. Bestätige den Vorgang mit deinem Passwort und dem eingeblendeten Bestätigungstext. Die Löschung kann nicht rückgängig gemacht werden.</p>
-      </section>
-
-      <section>
-        <h2>Ohne Zugriff auf die App</h2>
-        <p>Sende eine Löschanfrage von der E-Mail-Adresse des Kontos an <a href="mailto:${escapeHtml(operator.privacyContactEmail)}?subject=Lernzeit-Konto%20l%C3%B6schen">${escapeHtml(operator.privacyContactEmail)}</a>. Gib den Benutzernamen des Kontos an.</p>
-        <p>Die Identitätsprüfung läuft so ab:</p>
-        <ol>
-          <li>Der Betreiber sendet innerhalb von sieben Tagen eine Bestätigungs-E-Mail an die im Konto hinterlegte Adresse.</li>
-          <li>Diese E-Mail enthält einen einmaligen, auf 72 Stunden begrenzten Bestätigungscode.</li>
-          <li>Die Löschung wird erst nach Rücksendung des Codes von derselben Adresse ausgeführt.</li>
-          <li>Stimmt die Absenderadresse nicht mit der Kontoadresse überein, wird stattdessen um eine Anmeldung in der App gebeten.</li>
-        </ol>
-        <p>Der Betreiber fragt niemals nach dem Passwort oder einem Anmelde-Token. Teile beides niemals per E-Mail.</p>
-      </section>
-
-      <section class="warning">
-        <h2>Was gelöscht, übertragen oder erhalten wird</h2>
-        <ul>
-          <li>Login, Profil, Profilbilder, private Fächer, Lernzeiten, Noten, persönliche Ziele, Geräte-Presence, Import- und Synchronisationsdaten werden gelöscht.</li>
-          <li>Freundschaften, offene Einladungen und personenbezogene Teilnehmerbeziehungen werden entfernt.</li>
-          <li>Gruppen mit weiteren akzeptierten Mitgliedern gehen deterministisch an das am längsten beteiligte verbleibende Mitglied über; leere Gruppen werden gelöscht.</li>
-          <li>Gemeinsame Ziele und Sessions werden an einen verbleibenden berechtigten Teilnehmer übertragen. Ohne verbleibende Teilnehmer werden sie gelöscht.</li>
-          <li>Lokale Daten anderer Konten auf demselben Gerät werden nicht gelöscht.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Aufbewahrung</h2>
-        <p>${escapeHtml(operator.statutoryRetention)}</p>
-        <p>${escapeHtml(operator.logRetentionPolicy)}</p>
-      </section>
-
-      <footer>
-        <p>${escapeHtml(operator.operatorName)}, ${escapeHtml(operator.operatorAddress)} &middot; ${escapeHtml(operator.operatorContactEmail)}</p>
-        <p>Diese Seite wird aus config/operator-fields.json erzeugt. Manuelle Änderungen gehen beim nächsten Build verloren.</p>
-      </footer>
-    </main>
-  </body>
-</html>
-`;
-
-const assetLinks = [
-  {
-    relation: ['delegate_permission/common.handle_all_urls'],
-    target: {
-      namespace: 'android_app',
-      package_name: androidPackage,
-      sha256_cert_fingerprints: fingerprints,
-    },
-  },
-];
 
 const accountDeletionPath = path.join(projectRoot, 'public', 'account-deletion', 'index.html');
 const assetLinksPath = path.join(projectRoot, 'public', '.well-known', 'assetlinks.json');
@@ -128,13 +106,21 @@ const assetLinksPath = path.join(projectRoot, 'public', '.well-known', 'assetlin
 mkdirSync(path.dirname(accountDeletionPath), { recursive: true });
 mkdirSync(path.dirname(assetLinksPath), { recursive: true });
 writeFileSync(accountDeletionPath, accountDeletionHtml, 'utf8');
-writeFileSync(assetLinksPath, `${JSON.stringify(assetLinks, null, 2)}\n`, 'utf8');
+writeFileSync(assetLinksPath, assetLinksJson, 'utf8');
 
 process.stdout.write(`Erzeugt: ${path.relative(projectRoot, accountDeletionPath)}\n`);
 process.stdout.write(`Erzeugt: ${path.relative(projectRoot, assetLinksPath)}\n`);
-if (fingerprints.length === 0) {
+process.stdout.write(
+  `Fingerprints: ${fingerprints.length === 0 ? '(keine)' : fingerprints.join(', ')}\n`,
+);
+
+if (!enforce && (fingerprints.length === 0 || invalid.length > 0 || isDevelopment)) {
   process.stdout.write(
-    'Hinweis: ANDROID_SHA256_CERT_FINGERPRINTS ist nicht gesetzt. assetlinks.json enthaelt noch keinen Fingerprint,\n'
-    + 'Android App Links werden damit nicht verifiziert. Fingerprint aus der Play Console (App-Signaturschluessel) nachtragen.\n',
+    '\nEntwicklungsfassung. Fuer die Veroeffentlichung muessen die EXPO_PUBLIC_*-Betreibervariablen\n'
+    + 'und ANDROID_SHA256_CERT_FINGERPRINTS gesetzt sein; ohne sie bricht der Lauf mit aktivem\n'
+    + 'Release-Gate ab (node scripts/build-public-pages.mjs --production).\n',
   );
+  if (invalid.length > 0) {
+    process.stdout.write(`Ignorierte ungueltige Fingerprints: ${invalid.join(', ')}\n`);
+  }
 }

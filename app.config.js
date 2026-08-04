@@ -13,20 +13,6 @@
  */
 const releaseConfig = require('./config/release-config.cjs');
 
-const DEVELOPMENT_APP_LINKS_HOST = releaseConfig.DEVELOPMENT_MARKER_DOMAIN;
-
-function appLinksHost(environment) {
-  const base = releaseConfig.normalizeHttpsBaseUrl(
-    environment.EXPO_PUBLIC_LEGAL_SITE_URL ?? '',
-  );
-  if (!base) return DEVELOPMENT_APP_LINKS_HOST;
-  try {
-    return new URL(base).hostname.toLowerCase();
-  } catch {
-    return DEVELOPMENT_APP_LINKS_HOST;
-  }
-}
-
 /**
  * Android requires a strictly increasing integer. EAS `appVersionSource:
  * "remote"` with `autoIncrement` owns the value during EAS builds; an explicit
@@ -55,7 +41,10 @@ module.exports = ({ config }) => {
     }
   }
 
-  const host = appLinksHost(environment);
+  // Same derivation the app itself uses for PASSWORD_RECOVERY_REDIRECT_URL, so
+  // the intent filter and resetPasswordForEmail can never name different hosts.
+  const host = releaseConfig.legalSiteHostFromEnvironment(environment);
+  const recovery = releaseConfig.recoveryRedirectUrl(environment);
 
   return {
     ...config,
@@ -83,6 +72,8 @@ module.exports = ({ config }) => {
     extra: {
       ...config.extra,
       legalSiteHost: host,
+      passwordRecoveryRedirect: recovery.url,
+      passwordRecoveryRedirectKind: recovery.kind,
       releaseGateEnforced: releaseConfig.isProductionRelease(environment),
     },
   };

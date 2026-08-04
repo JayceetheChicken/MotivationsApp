@@ -1,10 +1,27 @@
-import { legalSiteHost } from '@/legal/operator';
+import { legalSiteHost, PASSWORD_RECOVERY_REDIRECT } from '@/legal/operator';
 
 export type AuthMode = 'none' | 'supabase' | 'local';
 
 export const ROOT_NAVIGATION_ANCHOR = '(tabs)' as const;
 export const HOME_NAVIGATION_ANCHOR = '(home)' as const;
-export const PASSWORD_RECOVERY_REDIRECT_URL = 'lernzeit://auth/update-password?type=recovery' as const;
+
+/**
+ * Callback handed to `supabase.auth.resetPasswordForEmail`.
+ *
+ * With a configured operator domain this is
+ * `https://<domain>/update-password?type=recovery`, a verified Android App Link
+ * that no other app can intercept. `lernzeit://auth/update-password?type=recovery`
+ * is only used when no real domain exists, which the release gate permits solely
+ * for development and preview builds.
+ *
+ * Both forms are derived in config/release-config.cjs, the same module that
+ * app.config.js uses for the App Link intent filter, so the app and the manifest
+ * cannot disagree about the host.
+ */
+export const PASSWORD_RECOVERY_REDIRECT_URL: string = PASSWORD_RECOVERY_REDIRECT.url;
+
+/** 'https-app-link' in every correctly configured production build. */
+export const PASSWORD_RECOVERY_REDIRECT_KIND = PASSWORD_RECOVERY_REDIRECT.kind;
 
 /**
  * The single HTTPS host that may deliver a recovery callback. Derived from the

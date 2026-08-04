@@ -2,13 +2,32 @@ import { DEVELOPMENT_LEGAL_SITE, resolveLegalSiteBaseUrl } from '@/legal/configu
 import {
   BUNDLED_ENVIRONMENT,
   collectOperatorReleaseIssues,
+  collectRecoveryReleaseIssues,
   collectReleaseBlockers,
   isPlaceholderValue,
   legalSiteHost,
   normalizeHttpsBaseUrl,
   OPERATOR_FIELDS,
+  PASSWORD_RECOVERY_REDIRECT,
+  passwordRecoveryHttpsUrl,
+  passwordRecoverySchemeUrl,
+  recoveryRedirectUrl,
   resolveOperatorValues,
 } from '@/legal/operator';
+
+function base64Url(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64')
+    .replace(/=+$/, '')
+    .replaceAll('+', '-')
+    .replaceAll('/', '_');
+}
+
+function jwt(payload: unknown): string {
+  return `${base64Url('{"alg":"HS256","typ":"JWT"}')}.${base64Url(JSON.stringify(payload))}.${base64Url('signature')}`;
+}
+
+const ANON_JWT = jwt({ iss: 'supabase', role: 'anon' });
+const SERVICE_ROLE_JWT = jwt({ iss: 'supabase', role: 'service_role' });
 
 const completeEnvironment: Record<string, string> = {
   EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit.de',
@@ -130,13 +149,28 @@ describe('operator release gate', () => {
     expect(issues.map((issue) => issue.envVar)).toContain(envVar);
   });
 
-  it('never lets a secret Supabase key into the app configuration', () => {
-    const withSecret = {
+  it.each([
+    ['sb_secret_*', 'sb_secret_realsecretvalue'],
+    ['service_role-JWT', SERVICE_ROLE_JWT],
+    ['JWT mit unbekannter Rolle', jwt({ role: 'authenticated' })],
+    ['JWT ohne Rolle', jwt({ iss: 'supabase' })],
+  ])('never lets a %s into the app configuration', (_label, key) => {
+    const issues = collectReleaseBlockers({
       ...completeEnvironment,
-      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_realsecretvalue',
-    };
-    expect(collectReleaseBlockers(withSecret).map((issue) => issue.envVar))
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: key,
+    });
+    expect(issues.map((issue) => issue.envVar))
       .toContain('EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
+  });
+
+  it('explains a service_role key differently from a typo', () => {
+    const detailFor = (key: string) => collectReleaseBlockers({
+      ...completeEnvironment,
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: key,
+    }).find((issue) => issue.envVar === 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY')?.detail ?? '';
+
+    expect(detailFor(SERVICE_ROLE_JWT)).toMatch(/service_role/);
+    expect(detailFor('nonsense-key')).not.toMatch(/service_role/);
   });
 
   it('keeps development builds usable with clearly marked test values', () => {
@@ -151,11 +185,72 @@ describe('operator release gate', () => {
   });
 
   it('accepts a real anon JWT as the public key', () => {
-    const anonJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.c2lnbmF0dXJl';
     expect(collectReleaseBlockers({
       ...completeEnvironment,
       EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: '',
-      EXPO_PUBLIC_SUPABASE_ANON_KEY: anonJwt,
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ANON_JWT,
     })).toEqual([]);
+  });
+});
+
+/**
+ * The app, app.config.js and the release gate must all derive the recovery
+ * callback from the same place, otherwise the Android intent filter and the URL
+ * in the recovery mail can drift apart.
+ */
+describe('password recovery callback in the app', () => {
+  it('builds the HTTPS App Link from the operator domain', () => {
+    expect(recoveryRedirectUrl(completeEnvironment)).toEqual({
+      url: 'https://lernzeit.de/update-password?type=recovery',
+      kind: 'https-app-link',
+    });
+    expect(passwordRecoveryHttpsUrl(completeEnvironment))
+      .toBe('https://lernzeit.de/update-password?type=recovery');
+  });
+
+  it('uses the fixed recovery path even when the legal URL has a base path', () => {
+    expect(recoveryRedirectUrl({
+      ...completeEnvironment,
+      EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit.de/rechtliches',
+    }).url).toBe('https://lernzeit.de/update-password?type=recovery');
+  });
+
+  it('uses the private scheme only where no real domain exists', () => {
+    expect(recoveryRedirectUrl({})).toEqual({
+      url: passwordRecoverySchemeUrl(),
+      kind: 'custom-scheme',
+    });
+    expect(passwordRecoverySchemeUrl()).toBe('lernzeit://auth/update-password?type=recovery');
+    expect(passwordRecoveryHttpsUrl({})).toBeNull();
+  });
+
+  it('blocks a production release that would fall back to the private scheme', () => {
+    expect(collectRecoveryReleaseIssues(completeEnvironment)).toEqual([]);
+
+    const withoutDomain = { ...completeEnvironment, EXPO_PUBLIC_LEGAL_SITE_URL: '' };
+    const issues = collectRecoveryReleaseIssues(withoutDomain);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].detail).toContain('lernzeit://auth/update-password');
+    expect(collectReleaseBlockers(withoutDomain).map((issue) => issue.key))
+      .toContain('passwordRecoveryRedirect');
+  });
+
+  it.each([
+    ['Entwicklungsmarker', 'https://lernzeit.invalid'],
+    ['andere .invalid-Domain', 'https://lernzeit.example.invalid'],
+    ['HTTP', 'http://lernzeit.de'],
+  ])('blocks a production release with %s as the legal site URL', (_label, value) => {
+    expect(collectReleaseBlockers({ ...completeEnvironment, EXPO_PUBLIC_LEGAL_SITE_URL: value })
+      .map((issue) => issue.key)).toContain('passwordRecoveryRedirect');
+  });
+
+  it('resolves the redirect of this build from the bundled environment', () => {
+    expect(PASSWORD_RECOVERY_REDIRECT).toEqual(recoveryRedirectUrl(BUNDLED_ENVIRONMENT));
+    expect(PASSWORD_RECOVERY_REDIRECT.url).toContain('/update-password?type=recovery');
+  });
+
+  it('names the same host that app.config.js declares as the App Link host', () => {
+    expect(new URL(recoveryRedirectUrl(completeEnvironment).url).hostname)
+      .toBe(legalSiteHost(completeEnvironment.EXPO_PUBLIC_LEGAL_SITE_URL));
   });
 });

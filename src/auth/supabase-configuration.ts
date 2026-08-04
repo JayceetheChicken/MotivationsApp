@@ -1,3 +1,32 @@
+/**
+ * The key classification is deliberately *not* implemented here.
+ *
+ * config/release-config.cjs owns the single decoder that the release gate, the
+ * Expo config and the export scanner already use. A second implementation in
+ * the app (previously a hand-rolled `atob` decode) is exactly how a runtime
+ * ends up accepting a key that CI rejects, so this module only forwards.
+ */
+import releaseConfig from '../../config/release-config.cjs';
+
+export interface SupabasePublicKeyClassification {
+  readonly valid: boolean;
+  readonly kind:
+    | 'missing'
+    | 'secret-key'
+    | 'publishable'
+    | 'publishable-empty'
+    | 'malformed-jwt'
+    | 'jwt-role-missing'
+    | 'jwt-service-role'
+    | 'jwt-role-unknown'
+    | 'anon-jwt';
+  readonly reason: string;
+}
+
+export const classifySupabasePublicKey = releaseConfig.classifySupabasePublicKey as (
+  value: string,
+) => SupabasePublicKeyClassification;
+
 export type SupabaseConfiguration = Readonly<{
   isConfigured: boolean;
   mode: 'supabase' | 'local-development';
@@ -62,23 +91,16 @@ export function validateSupabaseUrl(
   }
 }
 
-function jwtRole(value: string): string | null {
-  const payload = value.split('.')[1];
-  if (!payload || typeof globalThis.atob !== 'function') return null;
-  try {
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    const decoded = JSON.parse(globalThis.atob(padded)) as { role?: unknown };
-    return typeof decoded.role === 'string' ? decoded.role : null;
-  } catch {
-    return null;
-  }
-}
-
+/**
+ * Accepts a non-empty `sb_publishable_*` key or a legacy JWT whose decoded
+ * payload carries exactly `role: "anon"`. Everything else — a secret key, a
+ * service_role or otherwise privileged JWT, or a token that is not decodable at
+ * all — disables online accounts instead of shipping the key.
+ */
 export function validateSupabasePublicKey(value: string): string | null {
-  if (value.startsWith('sb_publishable_')) return null;
-  if (jwtRole(value) === 'anon') return null;
-  return 'In der App sind nur Supabase Publishable- beziehungsweise Anon-Keys erlaubt.';
+  const classification = classifySupabasePublicKey(value);
+  if (classification.valid) return null;
+  return `In der App sind nur Supabase Publishable- beziehungsweise Anon-Keys erlaubt. ${classification.reason}`;
 }
 
 function missingConfigurationMessage(url: string | null, publicKey: string | null): string {

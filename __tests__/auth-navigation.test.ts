@@ -4,9 +4,38 @@ import {
   HOME_NAVIGATION_ANCHOR,
   isPasswordRecoveryUrl,
   parsePasswordRecoveryUrl,
+  PASSWORD_RECOVERY_REDIRECT_KIND,
   PASSWORD_RECOVERY_REDIRECT_URL,
   ROOT_NAVIGATION_ANCHOR,
+  VERIFIED_RECOVERY_HOST,
 } from '@/auth/navigation';
+
+type NavigationModule = typeof import('@/auth/navigation');
+
+/**
+ * Reloads the navigation module with a given operator domain.
+ *
+ * PASSWORD_RECOVERY_REDIRECT_URL and VERIFIED_RECOVERY_HOST are derived from
+ * EXPO_PUBLIC_LEGAL_SITE_URL when the module is first evaluated, exactly as
+ * Metro inlines it into the bundle.
+ */
+function withLegalSiteUrl<T>(value: string | undefined, run: (module: NavigationModule) => T): T {
+  const previous = process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+  if (value === undefined) delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+  else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = value;
+
+  let result!: T;
+  try {
+    jest.isolateModules(() => {
+      result = run(require('@/auth/navigation') as NavigationModule);
+    });
+  } finally {
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+    else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = previous;
+    jest.resetModules();
+  }
+  return result;
+}
 
 describe('optional authentication navigation', () => {
   it('keeps guest and local-profile learning data in the same local workspace', () => {
@@ -34,7 +63,6 @@ describe('optional authentication navigation', () => {
   });
 
   it('accepts only the exact PKCE password-recovery callback', () => {
-    expect(PASSWORD_RECOVERY_REDIRECT_URL).toBe('lernzeit://auth/update-password?type=recovery');
     expect(parsePasswordRecoveryUrl(
       'lernzeit://auth/update-password?code=pkce-code&type=recovery',
     )).toEqual({ kind: 'pkce', code: 'pkce-code' });
@@ -71,5 +99,76 @@ describe('optional authentication navigation', () => {
   ])('rejects %s', (_label, url) => {
     expect(parsePasswordRecoveryUrl(url)).toBeNull();
     expect(isPasswordRecoveryUrl(url)).toBe(false);
+  });
+});
+
+describe('password recovery redirect', () => {
+  it('uses the verified HTTPS App Link when an operator domain is configured', () => {
+    withLegalSiteUrl('https://lernzeit.de', (navigation) => {
+      expect(navigation.PASSWORD_RECOVERY_REDIRECT_URL).toBe(
+        'https://lernzeit.de/update-password?type=recovery',
+      );
+      expect(navigation.PASSWORD_RECOVERY_REDIRECT_KIND).toBe('https-app-link');
+      expect(navigation.VERIFIED_RECOVERY_HOST).toBe('lernzeit.de');
+    });
+  });
+
+  it('keeps the fixed recovery path when the legal base URL carries a path', () => {
+    withLegalSiteUrl('https://lernzeit.de/rechtliches', (navigation) => {
+      expect(navigation.PASSWORD_RECOVERY_REDIRECT_URL).toBe(
+        'https://lernzeit.de/update-password?type=recovery',
+      );
+    });
+  });
+
+  it('falls back to the private scheme only without a real domain', () => {
+    withLegalSiteUrl(undefined, (navigation) => {
+      expect(navigation.PASSWORD_RECOVERY_REDIRECT_URL).toBe(
+        'lernzeit://auth/update-password?type=recovery',
+      );
+      expect(navigation.PASSWORD_RECOVERY_REDIRECT_KIND).toBe('custom-scheme');
+    });
+  });
+
+  it('accepts the HTTPS callback on the configured domain', () => {
+    withLegalSiteUrl('https://lernzeit.de', (navigation) => {
+      expect(navigation.parsePasswordRecoveryUrl(
+        'https://lernzeit.de/update-password?code=pkce-code&type=recovery',
+      )).toEqual({ kind: 'pkce', code: 'pkce-code' });
+      expect(navigation.parsePasswordRecoveryUrl(
+        'https://lernzeit.de/update-password#access_token=access&refresh_token=refresh&type=recovery',
+      )).toEqual({ kind: 'tokens', accessToken: 'access', refreshToken: 'refresh' });
+    });
+  });
+
+  it.each([
+    ['fremde Domain', 'https://evil.test/update-password?code=pkce-code&type=recovery'],
+    ['Subdomain-Suffix', 'https://lernzeit.de.evil.test/update-password?code=c&type=recovery'],
+    ['HTTP statt HTTPS', 'http://lernzeit.de/update-password?code=c&type=recovery'],
+    ['Port', 'https://lernzeit.de:8443/update-password?code=c&type=recovery'],
+    ['Zugangsdaten', 'https://user:pw@lernzeit.de/update-password?code=c&type=recovery'],
+    ['falscher Pfad', 'https://lernzeit.de/reset?code=c&type=recovery'],
+    ['kodierter Slash', 'https://lernzeit.de/update-password%2f..%2fprofile?code=c&type=recovery'],
+    ['Backslash', 'https://lernzeit.de/update-password\\..\\profile?code=c&type=recovery'],
+    ['doppelter Parameter', 'https://lernzeit.de/update-password?code=a&code=b&type=recovery'],
+    ['unbekannter Parameter', 'https://lernzeit.de/update-password?code=a&type=recovery&next=x'],
+    ['falscher type', 'https://lernzeit.de/update-password?code=a&type=signup'],
+    [
+      'Query-Code und Fragment-Token zugleich',
+      'https://lernzeit.de/update-password?code=a&type=recovery#access_token=a&refresh_token=r&type=recovery',
+    ],
+  ])('still rejects %s on the HTTPS route', (_label, url) => {
+    withLegalSiteUrl('https://lernzeit.de', (navigation) => {
+      expect(navigation.parsePasswordRecoveryUrl(url)).toBeNull();
+      expect(navigation.isPasswordRecoveryUrl(url)).toBe(false);
+    });
+  });
+
+  it('exposes a redirect that matches the resolved kind', () => {
+    expect(PASSWORD_RECOVERY_REDIRECT_URL.startsWith(
+      PASSWORD_RECOVERY_REDIRECT_KIND === 'https-app-link' ? 'https://' : 'lernzeit://',
+    )).toBe(true);
+    expect(PASSWORD_RECOVERY_REDIRECT_URL).toContain('/update-password?type=recovery');
+    expect(VERIFIED_RECOVERY_HOST).toMatch(/^[a-z0-9.-]+$/);
   });
 });

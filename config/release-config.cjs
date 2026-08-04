@@ -230,6 +230,68 @@ function isShippableSupabasePublicKey(value) {
   return classifySupabasePublicKey(value).valid;
 }
 
+// --- Embedded JWT detection in built artefacts ------------------------------
+//
+// A JWT inside an export never appears as readable JSON, so grepping for
+// "role":"service_role" finds nothing. Instead every JWT-shaped candidate is
+// located and decoded with the same decoder used above.
+//
+// The candidate pattern is deliberately narrow: the first segment must start
+// with "eyJ", which is the Base64URL encoding of the two characters `{"` that
+// begin every JOSE header. A candidate is only ever reported once its payload
+// really decodes to a JSON object, so ordinary Base64 blobs, hashes and
+// minified identifiers cannot be mistaken for a token.
+
+/** Fresh regex per call: a shared /g regex would carry lastIndex between scans. */
+function jwtCandidatePattern() {
+  return /eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/g;
+}
+
+/**
+ * All JWT-shaped substrings of a text, de-duplicated.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function findJwtCandidates(text) {
+  return [...new Set(String(text ?? '').match(jwtCandidatePattern()) ?? [])];
+}
+
+/**
+ * Verdict for a token found inside a built artefact.
+ *
+ * `isJwt: false` means the candidate did not decode to a JSON object and is
+ * therefore not a token at all — no finding is raised for it.
+ * @param {string} token
+ * @returns {{ isJwt: boolean, allowed: boolean, role: string | null, reason: string }}
+ */
+function classifyEmbeddedJwt(token) {
+  const decoded = decodeJwtPayload(token);
+  if (!decoded.ok) {
+    return { isJwt: false, allowed: true, role: null, reason: decoded.reason };
+  }
+
+  const role = typeof decoded.payload.role === 'string' ? decoded.payload.role : null;
+  if (role === ALLOWED_JWT_ROLE) {
+    return { isJwt: true, allowed: true, role, reason: 'Anon-JWT, im Client erlaubt.' };
+  }
+  if (role === FORBIDDEN_JWT_ROLE) {
+    return {
+      isJwt: true,
+      allowed: false,
+      role,
+      reason: 'Eingebetteter JWT mit der Rolle service_role. Dieser Key umgeht jede RLS-Policy.',
+    };
+  }
+  return {
+    isJwt: true,
+    allowed: false,
+    role,
+    reason: role === null
+      ? 'Eingebetteter JWT ohne role-Feld. Nur ein Anon-JWT darf im Bundle liegen.'
+      : `Eingebetteter JWT mit der Rolle „${role}“. Erlaubt ist ausschließlich „${ALLOWED_JWT_ROLE}“.`,
+  };
+}
+
 /**
  * EAS build profiles that are known to be non-production. Only these may skip
  * the release gate; anything unknown is treated as production.
@@ -252,17 +314,27 @@ function passwordRecoverySchemeUrl() {
 }
 
 /**
- * Host of the operator domain, or the development marker when none is set.
- * @param {Record<string, string | undefined>} environment
+ * The one derivation of the operator host. app.config.js (App Link intent
+ * filter), src/legal/operator.ts and the recovery URL below all call this, so
+ * no caller can build a second, slightly different host.
+ * @param {string} baseUrl
  */
-function legalSiteHostFromEnvironment(environment) {
-  const base = normalizeHttpsBaseUrl(environment.EXPO_PUBLIC_LEGAL_SITE_URL ?? '');
+function legalSiteHostFromBaseUrl(baseUrl) {
+  const base = normalizeHttpsBaseUrl(baseUrl ?? '');
   if (!base) return DEVELOPMENT_MARKER_DOMAIN;
   try {
     return new URL(base).hostname.toLowerCase();
   } catch {
     return DEVELOPMENT_MARKER_DOMAIN;
   }
+}
+
+/**
+ * Host of the operator domain, or the development marker when none is set.
+ * @param {Record<string, string | undefined>} environment
+ */
+function legalSiteHostFromEnvironment(environment) {
+  return legalSiteHostFromBaseUrl(environment.EXPO_PUBLIC_LEGAL_SITE_URL ?? '');
 }
 
 /**
@@ -296,6 +368,28 @@ function recoveryRedirectUrl(environment) {
   return https
     ? { url: https, kind: 'https-app-link' }
     : { url: PASSWORD_RECOVERY_SCHEME_URL, kind: 'custom-scheme' };
+}
+
+/**
+ * A production build must reach the app through a verified HTTPS App Link.
+ * The private scheme can be claimed by any other installed app, so a recovery
+ * mail that carries `lernzeit://` is a genuine account-takeover risk. This is a
+ * release blocker in its own right and not merely a consequence of the missing
+ * legal site URL, so the report states the actual danger.
+ * @param {Record<string, string | undefined>} environment
+ */
+function collectRecoveryReleaseIssues(environment) {
+  if (passwordRecoveryHttpsUrl(environment)) return [];
+  return [{
+    key: 'passwordRecoveryRedirect',
+    envVar: 'EXPO_PUBLIC_LEGAL_SITE_URL',
+    label: 'Passwort-Recovery-Callback',
+    reason: 'missing',
+    detail:
+      'Ohne echte Betreiberdomain fällt resetPasswordForEmail auf das private Schema '
+      + `${PASSWORD_RECOVERY_SCHEME_URL} zurück. Ein Production-Build darf das nie tun, weil `
+      + 'jede andere installierte App dasselbe Schema beanspruchen kann.',
+  }];
 }
 
 /** @param {string} value */
@@ -496,6 +590,7 @@ function collectReleaseBlockers(environment) {
   return [
     ...collectOperatorReleaseIssues(environment),
     ...collectSupabaseReleaseIssues(environment),
+    ...collectRecoveryReleaseIssues(environment),
   ];
 }
 
@@ -517,6 +612,33 @@ function formatReleaseBlockerReport(issues) {
 
 /**
  * True when the current invocation must satisfy the production gate.
+ *
+ * Exact truth table (SKIP = LERNZEIT_SKIP_RELEASE_GATE=1, GATE =
+ * LERNZEIT_RELEASE_GATE=1). `__tests__/release-scripts.test.ts` asserts every
+ * row of this table.
+ *
+ *   GATE | EAS_BUILD | EAS_BUILD_PROFILE | SKIP | result   | rule
+ *   -----+-----------+-------------------+------+----------+-----
+ *    1   |  any      | any               |  1   | ENFORCED |  1
+ *    -   |  any      | production        |  1   | ENFORCED |  1
+ *    -   |  true     | (empty)           |  1   | ENFORCED |  1
+ *    -   |  any      | development       |  1   | skipped  |  2
+ *    -   |  any      | preview           |  1   | skipped  |  2
+ *    -   |  any      | staging (unknown) |  1   | ENFORCED |  2
+ *    -   |  false    | (empty)           |  -   | skipped  |  3
+ *    -   |  false    | development       |  -   | skipped  |  4
+ *    -   |  false    | preview           |  -   | skipped  |  4
+ *    -   |  false    | staging (unknown) |  -   | ENFORCED |  4
+ *    -   |  true     | development       |  -   | skipped  |  4
+ *    -   |  true     | preview           |  -   | skipped  |  4
+ *
+ * Two properties matter and are tested individually:
+ *   - LERNZEIT_SKIP_RELEASE_GATE can never disable the gate for a build that
+ *     identifies itself as production.
+ *   - A bare `development`/`preview` profile without EAS_BUILD=true does not
+ *     simulate production; only an unknown profile does, because an unknown
+ *     profile must block rather than silently release.
+ *
  * @param {Record<string, string | undefined>} environment
  */
 function isProductionRelease(environment) {
@@ -558,9 +680,12 @@ module.exports = {
   decodeJwtPayload,
   classifySupabasePublicKey,
   isShippableSupabasePublicKey,
+  findJwtCandidates,
+  classifyEmbeddedJwt,
   resolveOperatorValues,
   collectOperatorReleaseIssues,
   collectSupabaseReleaseIssues,
+  collectRecoveryReleaseIssues,
   collectReleaseBlockers,
   formatReleaseBlockerReport,
   isProductionRelease,
@@ -568,4 +693,5 @@ module.exports = {
   passwordRecoveryHttpsUrl,
   passwordRecoverySchemeUrl,
   legalSiteHostFromEnvironment,
+  legalSiteHostFromBaseUrl,
 };
