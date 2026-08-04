@@ -17,7 +17,6 @@ import { authStorage } from '@/auth/storage';
 import {
   hasPasswordRecoveryMaterial,
   parsePasswordRecoveryUrl,
-  PASSWORD_RECOVERY_REDIRECT_KIND,
   PASSWORD_RECOVERY_REDIRECT_URL,
   passwordRecoveryRequestFingerprint,
 } from '@/auth/navigation';
@@ -434,10 +433,18 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
 
     try {
       // PASSWORD_RECOVERY_REDIRECT_URL is derived from the operator domain in
-      // config/release-config.cjs. In a production build it is always the
-      // verified HTTPS App Link; the private scheme only survives in
-      // development and preview builds, which the release gate enforces.
-      safeDebug(`[AUTH] Recovery-Callback: ${PASSWORD_RECOVERY_REDIRECT_KIND}`);
+      // config/release-config.cjs, the same module app.config.js uses for the
+      // App Link intent filter. In a production build it is always the verified
+      // HTTPS App Link: the private lernzeit:// scheme only survives in
+      // development and preview builds, because collectRecoveryReleaseIssues
+      // turns that fallback into a release blocker.
+      //
+      // Deliberately not logged. The value is harmless ("https-app-link" or
+      // "custom-scheme"), but logging anything read from a PASSWORD_* constant
+      // trips CodeQL's clear-text-logging rule, and a debug breadcrumb is not
+      // worth an exception. The resolved callback is visible in the release
+      // gate output, in `expo config` (extra.passwordRecoveryRedirect) and in
+      // the export scan instead.
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         email.trim().toLowerCase(),
         { redirectTo: PASSWORD_RECOVERY_REDIRECT_URL },
