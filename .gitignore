@@ -3,6 +3,8 @@ node_modules/
 .expo-web-check/
 dist/
 dist-invalid/
+dist-development/
+dist-preview/
 web-build/
 coverage/
 *.log
