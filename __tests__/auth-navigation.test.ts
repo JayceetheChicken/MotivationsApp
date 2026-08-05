@@ -40,7 +40,16 @@ function withLegalSiteUrl<T>(value: string | undefined, run: (module: Navigation
 const withProductionBuild = <T,>(run: (module: NavigationModule) => T): T =>
   withLegalSiteUrl('https://lernzeit.de', run);
 
-/** A build without an operator domain, i.e. development and preview. */
+/**
+ * A build without an operator domain, i.e. development *and* preview.
+ *
+ * Both profiles are one runtime state, not two: the app cannot see
+ * EAS_BUILD_PROFILE (Metro inlines only EXPO_PUBLIC_* reads), so the transport
+ * follows solely from the absence of an operator domain. The profiles are told
+ * apart where they actually differ - in the manifest - and
+ * `__tests__/release-scripts.test.ts` asserts development and preview there
+ * separately.
+ */
 const withDevelopmentBuild = <T,>(run: (module: NavigationModule) => T): T =>
   withLegalSiteUrl(undefined, run);
 

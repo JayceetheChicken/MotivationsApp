@@ -872,12 +872,30 @@ describe('expo config release checks', () => {
     ).toEqual([]);
   });
 
-  it('accepts a development manifest with the private recovery filter', () => {
-    const config = manifest(DEVELOPMENT_ENVIRONMENT);
-    expect(expoConfigCheck.findPrivateRecoveryFilter(config.android.intentFilters)).not.toBeNull();
-    expect(
-      expoConfigCheck.collectExpoConfigIssues(config, DEVELOPMENT_ENVIRONMENT).failures,
-    ).toEqual([]);
+  // Both non-production profiles, separately: preview must not quietly drift
+  // into the production shape just because development is covered.
+  it.each(['development', 'preview'])(
+    'accepts a %s manifest with the private recovery filter',
+    (profile) => {
+      const environment = { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
+      const config = manifest(environment);
+      expect(expoConfigCheck.findPrivateRecoveryFilter(config.android.intentFilters)).not.toBeNull();
+      expect(config.extra.authBuildAttestation).toContain('transport=custom-scheme');
+      expect(expoConfigCheck.collectExpoConfigIssues(config, environment).failures).toEqual([]);
+    },
+  );
+
+  it.each(['development', 'preview'])('rejects an App Link in a %s manifest', (profile) => {
+    const environment = { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
+    const config = manifest(environment);
+    config.android.intentFilters.push({
+      action: 'VIEW',
+      autoVerify: true,
+      category: ['BROWSABLE', 'DEFAULT'],
+      data: [{ scheme: 'https', host: 'lernzeit.de', path: '/update-password' }],
+    });
+    expect(expoConfigCheck.collectExpoConfigIssues(config, environment).failures.join(' '))
+      .toMatch(/kein autoVerify-App-Link/);
   });
 
   it('production manifests carry no private recovery intent filter', () => {
@@ -985,6 +1003,19 @@ describe('bundled recovery attestation', () => {
       PRODUCTION,
     );
     expect(failures.join(' ')).toMatch(/keine Auth-Build-Attestierung/);
+  });
+
+  // A marker whose url field never made it into the build must not be treated
+  // as "no attestation at all" and must never pass.
+  it.each<[string, string]>([
+    ['fehlende URL', 'lernzeit.auth-build/v1;transport=https-app-link;host=lernzeit.de;appLinkHost=lernzeit.de;customScheme=off;schemeFilter=off;end'],
+    ['leere URL', 'lernzeit.auth-build/v1;transport=https-app-link;host=lernzeit.de;appLinkHost=lernzeit.de;customScheme=off;schemeFilter=off;url=;end'],
+  ])('rejects an export whose attestation has a %s', (_label, attestation) => {
+    const failures = recoveryAttestation.collectProductionRecoveryIssues(
+      [{ file: 'entry.js', content: `var m=${JSON.stringify(attestation)};` }],
+      PRODUCTION,
+    );
+    expect(failures.join(' ')).toMatch(/unlesbare Auth-Build-Attestierung/);
   });
 
   it('rejects custom-scheme as the production transport', () => {

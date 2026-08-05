@@ -111,6 +111,8 @@ describe('auth build attestation', () => {
     ['fehlender Abschluss', 'lernzeit.auth-build/v1;transport=https-app-link'],
     ['unbekannter Transport', 'lernzeit.auth-build/v1;transport=carrier-pigeon;host=a.de;url=x;customScheme=off;schemeFilter=off;end'],
     ['fehlender Host', 'lernzeit.auth-build/v1;transport=https-app-link;url=x;customScheme=off;schemeFilter=off;end'],
+    ['fehlende URL', 'lernzeit.auth-build/v1;transport=https-app-link;host=a.de;customScheme=off;schemeFilter=off;end'],
+    ['leere URL', 'lernzeit.auth-build/v1;transport=https-app-link;host=a.de;url=;customScheme=off;schemeFilter=off;end'],
     ['kaputtes Flag', 'lernzeit.auth-build/v1;transport=https-app-link;host=a.de;url=x;customScheme=maybe;schemeFilter=off;end'],
   ])('refuses to parse %s', (_label, attestation) => {
     expect(authBuild.parseAuthBuildAttestation(attestation)).toBeNull();
