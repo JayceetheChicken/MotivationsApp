@@ -212,13 +212,19 @@ jobs:
 
       # End-to-end proof that a production build carries the configured operator
       # values and no development placeholders.
+      #
+      # `--clear` on every export in this job is load-bearing: Metro caches the
+      # virtual expo-constants module, and its cache key does not include the
+      # resolved `extra`. Without it a second export in the same job embeds the
+      # first one's manifest, and the attestation would describe a build that was
+      # never produced.
       - name: Export with a complete production environment
         run: |
           set -euo pipefail
           source scripts/ci-production-env.sh
           export NODE_ENV=production
           node scripts/build-public-pages.mjs
-          npx --yes expo export --platform web --output-dir dist
+          npx --yes expo export --platform web --clear --output-dir dist
           node scripts/check-exported-bundle.mjs dist
 
       # A Supabase key is a JWT: the role is Base64URL encoded and a plaintext
@@ -314,7 +320,7 @@ jobs:
           set -euo pipefail
           for profile in development preview; do
             EAS_BUILD=true EAS_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
-              npx --yes expo export --platform web --output-dir "dist-$profile" > /dev/null
+              npx --yes expo export --platform web --clear --output-dir "dist-$profile" > /dev/null
             EAS_BUILD=true EAS_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
               node scripts/check-exported-bundle.mjs "dist-$profile" | tee "$profile.log"
             grep -q 'transport=custom-scheme' "$profile.log"
