@@ -12,7 +12,7 @@ import { useAppTheme } from '@/theme';
 const deletedData = [
   'Online-Profil, Benutzername und Profilbild',
   'synchronisierte Lernzeiten, Sessionsegmente, Fächer, Noten, persönliche Ziele und Statistiken',
-  'Freundschaften, Gruppenmitgliedschaften, gemeinsame Ziele und gemeinsame Sessions',
+  'Freundschaften, offene Einladungen und die eigenen Mitgliedschaften in Gruppen, gemeinsamen Zielen und gemeinsamen Sessions',
   'Presence-, Synchronisations-, Import-, Mutation-Receipt- und lokale Outbox-Daten',
   'Supabase-Authentifizierungsnutzer und lokale kontobezogene Caches',
 ] as const;

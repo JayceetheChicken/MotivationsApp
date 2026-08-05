@@ -8,17 +8,51 @@
  * app runtime load, so the tests exercise the shipped implementation instead of
  * a copy.
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import authBuild from '../config/auth-build.cjs';
+import publicHost from '../config/public-host.cjs';
 import releaseConfig from '../config/release-config.cjs';
+import atomicWrite from '../scripts/lib/atomic-write.cjs';
 import bundleScan from '../scripts/lib/bundle-scan.cjs';
+import expoConfigCheck from '../scripts/lib/expo-config-check.cjs';
 import publicPages from '../scripts/lib/public-pages.cjs';
+import recoveryAttestation from '../scripts/lib/recovery-attestation.cjs';
 import sensitiveFiles from '../scripts/lib/sensitive-files.cjs';
 
 type Environment = Record<string, string | undefined>;
-type Issue = { envVar: string; reason: string; detail: string };
+type Issue = { key?: string; envVar: string; reason: string; detail: string };
+
+type AuthBuildConfiguration = Readonly<{
+  recoveryTransport: 'https-app-link' | 'custom-scheme';
+  recoveryRedirectUrl: string;
+  recoveryHost: string;
+  androidAppLinkHost: string | null;
+  acceptsCustomRecoveryScheme: boolean;
+  registersCustomRecoverySchemeFilter: boolean;
+}>;
+
+type IntentFilterData = { scheme?: string; host?: string | null; path?: string };
+type IntentFilter = {
+  action: string;
+  autoVerify?: boolean;
+  category: string[];
+  data: IntentFilterData[];
+};
+type TestManifest = {
+  version?: string;
+  scheme?: string | string[];
+  android: {
+    package?: string;
+    versionCode?: number;
+    allowBackup?: boolean;
+    intentFilters: IntentFilter[];
+  };
+  plugins: unknown[];
+  extra: { authBuildAttestation?: string; legalSiteHost?: string };
+};
 
 // --- helpers ----------------------------------------------------------------
 
@@ -138,8 +172,23 @@ describe('classifySupabasePublicKey', () => {
 
   it.each<[string, string, string]>([
     ['leeres Publishable-Präfix', 'sb_publishable_', 'publishable-empty'],
+    // The suffix carries the random part. Anything that could not be a key -
+    // a space, a dot, a control character, a truncated value - is rejected
+    // rather than shipped as the app's Supabase credential.
+    ['Publishable Key mit Leerzeichen', 'sb_publishable_abc def ghi jklmn', 'publishable-charset'],
+    ['Publishable Key mit Punkt', 'sb_publishable_abcdef.1234567890', 'publishable-charset'],
+    ['Publishable Key mit Steuerzeichen', 'sb_publishable_abcdef1234567890', 'publishable-charset'],
+    ['Publishable Key mit Sonderzeichen', 'sb_publishable_abcdef+1234567890', 'publishable-charset'],
+    ['abgeschnittener Publishable Key', 'sb_publishable_kurz', 'publishable-short'],
     ['sb_secret_*', 'sb_secret_realsecretvalue', 'secret-key'],
     ['leerer Wert', '', 'missing'],
+    // Every JWT segment has to be structurally sound, not just the payload.
+    ['kaputter Header', `nicht-base64!.${base64Url('{"role":"anon"}')}.${base64Url('sig')}`, 'malformed-jwt'],
+    ['Header ist kein JSON-Objekt', `${base64Url('"HS256"')}.${base64Url('{"role":"anon"}')}.${base64Url('sig')}`, 'malformed-jwt'],
+    ['Header ist kein JSON', `${base64Url('{oops')}.${base64Url('{"role":"anon"}')}.${base64Url('sig')}`, 'malformed-jwt'],
+    ['Signatur kein Base64URL', `${base64Url('{}')}.${base64Url('{"role":"anon"}')}.sig!nature`, 'malformed-jwt'],
+    ['Signatur mit Padding', `${base64Url('{"alg":"HS256"}')}.${base64Url('{"role":"anon"}')}.c2ln==`, 'malformed-jwt'],
+    ['unmögliche Signaturlänge', `${base64Url('{"alg":"HS256"}')}.${base64Url('{"role":"anon"}')}.abcde`, 'malformed-jwt'],
     ['service_role-JWT', SERVICE_ROLE_JWT, 'jwt-service-role'],
     ['unbekannte Rolle', jwtWithPayload({ role: 'authenticated' }), 'jwt-role-unknown'],
     ['fehlende Rolle', jwtWithPayload({ iss: 'supabase' }), 'jwt-role-missing'],
@@ -162,6 +211,32 @@ describe('classifySupabasePublicKey', () => {
     expect(result.kind).toBe(kind);
     expect(result.reason.length).toBeGreaterThan(0);
     expect(releaseConfig.isShippableSupabasePublicKey(key)).toBe(false);
+  });
+
+  it('accepts every documented shape of a shippable key', () => {
+    // https://supabase.com/docs/guides/api/api-keys - the documentation fixes
+    // the prefixes, not a length, so no exact length is asserted here either.
+    expect(releaseConfig.classifySupabasePublicKey('sb_publishable_A1b2C3d4E5f6G7h8').kind)
+      .toBe('publishable');
+    expect(releaseConfig.classifySupabasePublicKey('sb_publishable_a-b_c-d_e-f_g-h_i-j').kind)
+      .toBe('publishable');
+    expect(releaseConfig.classifySupabasePublicKey(`  ${ANON_JWT}  `).valid).toBe(true);
+  });
+
+  it('validates every JWT segment, not only the payload', () => {
+    expect(releaseConfig.isBase64UrlSegment('abcd')).toBe(true);
+    expect(releaseConfig.isBase64UrlSegment('abcde')).toBe(false);
+    expect(releaseConfig.isBase64UrlSegment('ab=d')).toBe(false);
+    expect(releaseConfig.isBase64UrlSegment('')).toBe(false);
+
+    const decoded = releaseConfig.decodeJwt(ANON_JWT) as {
+      ok: boolean;
+      header: Record<string, unknown>;
+      payload: Record<string, unknown>;
+    };
+    expect(decoded.ok).toBe(true);
+    expect(decoded.header).toEqual({ alg: 'HS256', typ: 'JWT' });
+    expect(decoded.payload.role).toBe('anon');
   });
 
   it('names service_role explicitly so the operator knows what leaked', () => {
@@ -525,6 +600,22 @@ describe('account deletion page', () => {
       .toMatch(/Betreibername \(operatorName\) steht nicht auf der Seite/);
   });
 
+  /**
+   * The page may only describe a process that exists. There is no implemented
+   * workflow that mails a one-time confirmation code, and no binding deadline
+   * the operator has committed to, so the page must promise neither.
+   */
+  it('promises no confirmation-code workflow and no deadline', () => {
+    const html = publicPages.renderAccountDeletionPage(productionOperator, { isDevelopment: false });
+    expect(html).not.toMatch(/Best(ä|ae)tigungscode/i);
+    expect(html).not.toMatch(/72\s*Stunden/i);
+    expect(html).not.toMatch(/innerhalb von sieben Tagen/i);
+    // What it does say: a manual identity check that never deletes on an
+    // unverified mail alone.
+    expect(html).toMatch(/l(ö|oe)st f(ü|ue)r sich genommen keine L(ö|oe)schung aus/i);
+    expect(html).toMatch(/gesetzlichen Fristen/i);
+  });
+
   it('escapes operator values into the page', () => {
     const html = publicPages.renderAccountDeletionPage(
       { ...productionOperator, operatorName: 'Müller & Co <GmbH>' },
@@ -599,5 +690,447 @@ describe('password recovery callback', () => {
     expect(releaseConfig.recoveryRedirectUrl(completeEnvironment).url).toBe(
       `https://${host}/update-password?type=recovery`,
     );
+  });
+});
+
+// --- 7. public operator hosts -----------------------------------------------
+//
+// The ranges are checked numerically. A prefix test such as
+// startsWith('172.16.') would miss 172.20.0.1 and wrongly reject 172.160.0.1,
+// so the boundaries of every range are asserted individually.
+
+describe('public operator hosts', () => {
+  it.each([
+    ['gewoehnliche Domain', 'lernzeit.de'],
+    ['Subdomain', 'legal.lernzeit.de'],
+    ['Punycode', 'xn--bcher-kva.de'],
+    ['Punycode-TLD', 'lernzeit.xn--p1ai'],
+    ['langes TLD', 'lernzeit.software'],
+    ['abschliessender Punkt', 'lernzeit.de.'],
+    ['Grossschreibung', 'LERNZEIT.DE'],
+  ])('accepts %s', (_label, host) => {
+    expect(publicHost.classifyPublicHost(host).public).toBe(true);
+    expect(publicHost.isPublicOperatorHost(host)).toBe(true);
+    expect(publicHost.publicOperatorHostIssue(host)).toBeNull();
+  });
+
+  it.each([
+    ['localhost', 'localhost'],
+    ['*.localhost', 'app.localhost'],
+    ['*.local', 'drucker.local'],
+    ['Single-Label', 'intranet'],
+    ['*.invalid', 'lernzeit.invalid'],
+    ['*.test', 'lernzeit.test'],
+    ['*.example', 'lernzeit.example'],
+    ['RFC-2606-Beispieldomain', 'example.com'],
+    ['numerisches TLD', 'lernzeit.12'],
+    ['leerer Host', ''],
+    ['Host mit Pfad', 'lernzeit.de/pfad'],
+    ['Host mit Zugangsdaten', 'user@lernzeit.de'],
+    // IDNA is performed differently by different URL implementations, so the
+    // punycode form has to be configured explicitly.
+    ['nicht-ASCII', 'bücher.de'],
+  ])('rejects %s', (_label, host) => {
+    expect(publicHost.classifyPublicHost(host).public).toBe(false);
+    expect(publicHost.isPublicOperatorHost(host)).toBe(false);
+    expect(publicHost.publicOperatorHostIssue(host)).toEqual(expect.any(String));
+  });
+
+  // The exact boundaries of every non-public IPv4 range.
+  it.each<[string, boolean]>([
+    ['0.0.0.0', false],
+    ['0.255.255.255', false],
+    ['1.0.0.0', true],
+    ['9.255.255.255', true],
+    ['10.0.0.0', false],
+    ['10.255.255.255', false],
+    ['11.0.0.0', true],
+    ['100.63.255.255', true],
+    ['100.64.0.0', false],
+    ['100.127.255.255', false],
+    ['100.128.0.0', true],
+    ['126.255.255.255', true],
+    ['127.0.0.0', false],
+    ['127.255.255.255', false],
+    ['128.0.0.0', true],
+    ['169.253.255.255', true],
+    ['169.254.0.0', false],
+    ['169.254.255.255', false],
+    ['169.255.0.0', true],
+    ['172.15.255.255', true],
+    ['172.16.0.0', false],
+    ['172.31.255.255', false],
+    ['172.32.0.0', true],
+    ['192.167.255.255', true],
+    ['192.168.0.0', false],
+    ['192.168.255.255', false],
+    ['192.169.0.0', true],
+    ['223.255.255.255', true],
+    ['224.0.0.1', false],
+    ['255.255.255.255', false],
+  ])('classifies IPv4 %s as public=%s', (host, expected) => {
+    expect(publicHost.classifyPublicHost(host).public).toBe(expected);
+  });
+
+  it.each<[string, boolean]>([
+    ['[::]', false],
+    ['[::1]', false],
+    ['[fe80::1]', false],
+    ['[febf:ffff::1]', false],
+    ['[fc00::1]', false],
+    ['[fd12:3456::1]', false],
+    ['[fdff:ffff::1]', false],
+    ['[2001:db8::1]', false],
+    ['[2606:4700:4700::1111]', true],
+    ['[2a00:1450:4001:80e::200e]', true],
+    // IPv4-mapped addresses reach the IPv4 stack, so the embedded address
+    // decides. The URL parser rewrites the dotted quad to hex groups first.
+    ['[::ffff:127.0.0.1]', false],
+    ['[::ffff:10.0.0.1]', false],
+    ['[::ffff:8.8.8.8]', true],
+  ])('classifies IPv6 %s as public=%s', (host, expected) => {
+    expect(publicHost.classifyPublicHost(host).public).toBe(expected);
+  });
+
+  // Every legal spelling of an address must reach the same verdict as the
+  // canonical one, otherwise an operator could smuggle a loopback past the gate.
+  it.each(['0x7f.1', '2130706433', '127.1', '0177.0.0.1'])(
+    'normalises the loopback spelling %s before classifying it',
+    (host) => {
+      expect(publicHost.classifyPublicHost(host).public).toBe(false);
+    },
+  );
+
+  it('refuses a bare public IP as an operator domain', () => {
+    expect(publicHost.classifyPublicHost('8.8.8.8').public).toBe(true);
+    expect(publicHost.isPublicOperatorHost('8.8.8.8')).toBe(false);
+    expect(publicHost.publicOperatorHostIssue('8.8.8.8')).toMatch(/App Links|Domainname/);
+  });
+
+  it('blocks a non-public legal site URL in the release gate', () => {
+    for (const url of ['https://localhost', 'https://192.168.1.10', 'https://intranet']) {
+      const issues = releaseConfig.collectReleaseBlockers({
+        ...completeEnvironment,
+        EXPO_PUBLIC_LEGAL_SITE_URL: url,
+      }) as Issue[];
+      expect(issues.map((issue) => issue.envVar)).toContain('EXPO_PUBLIC_LEGAL_SITE_URL');
+      expect(issues.map((issue) => issue.key)).toContain('passwordRecoveryRedirect');
+    }
+  });
+});
+
+// --- 8. resolved Expo configuration -----------------------------------------
+
+describe('expo config release checks', () => {
+  const PRODUCTION_ENVIRONMENT = { ...completeEnvironment, LERNZEIT_RELEASE_GATE: '1' };
+  const DEVELOPMENT_ENVIRONMENT = { EAS_BUILD_PROFILE: 'development' };
+
+  function manifest(environment: Record<string, string | undefined>): TestManifest {
+    const auth = releaseConfig.resolveAuthBuildConfiguration(environment) as AuthBuildConfiguration;
+    const intentFilters: IntentFilter[] = auth.recoveryTransport === 'https-app-link'
+      ? [{
+        action: 'VIEW',
+        autoVerify: true,
+        category: ['BROWSABLE', 'DEFAULT'],
+        data: [{ scheme: 'https', host: auth.androidAppLinkHost, path: '/update-password' }],
+      }]
+      : [{
+        action: 'VIEW',
+        category: ['BROWSABLE', 'DEFAULT'],
+        data: [{ scheme: 'lernzeit', host: 'auth', path: '/update-password' }],
+      }];
+    return {
+      version: '1.0.0',
+      scheme: 'lernzeit',
+      android: {
+        package: 'de.lernzeit.app',
+        versionCode: 1,
+        allowBackup: false,
+        intentFilters,
+      },
+      plugins: [['expo-build-properties', {
+        android: {
+          compileSdkVersion: 36,
+          targetSdkVersion: 36,
+          minSdkVersion: 24,
+          usesCleartextTraffic: false,
+        },
+      }]],
+      extra: { authBuildAttestation: authBuild.serializeAuthBuildConfiguration(auth) },
+    };
+  }
+
+  const PRIVATE_RECOVERY_FILTER: IntentFilter = {
+    action: 'VIEW',
+    category: ['BROWSABLE', 'DEFAULT'],
+    data: [{ scheme: 'lernzeit', host: 'auth', path: '/update-password' }],
+  };
+
+  it('accepts a production manifest', () => {
+    expect(
+      expoConfigCheck.collectExpoConfigIssues(manifest(PRODUCTION_ENVIRONMENT), PRODUCTION_ENVIRONMENT).failures,
+    ).toEqual([]);
+  });
+
+  it('accepts a development manifest with the private recovery filter', () => {
+    const config = manifest(DEVELOPMENT_ENVIRONMENT);
+    expect(expoConfigCheck.findPrivateRecoveryFilter(config.android.intentFilters)).not.toBeNull();
+    expect(
+      expoConfigCheck.collectExpoConfigIssues(config, DEVELOPMENT_ENVIRONMENT).failures,
+    ).toEqual([]);
+  });
+
+  it('production manifests carry no private recovery intent filter', () => {
+    const config = manifest(PRODUCTION_ENVIRONMENT);
+    expect(expoConfigCheck.findPrivateRecoveryFilter(config.android.intentFilters)).toBeNull();
+  });
+
+  // The gate must fail loudly, not merely stay silent, when the private
+  // recovery route is put back into a production manifest.
+  it('rejects a production manifest that still registers the private scheme', () => {
+    const config = manifest(PRODUCTION_ENVIRONMENT);
+    config.android.intentFilters.push(PRIVATE_RECOVERY_FILTER);
+    const { failures } = expoConfigCheck.collectExpoConfigIssues(config, PRODUCTION_ENVIRONMENT);
+    expect(failures.join(' ')).toMatch(/privaten Recovery-Intent-Filter/);
+  });
+
+  it('rejects a development manifest without the private scheme', () => {
+    const config = manifest(DEVELOPMENT_ENVIRONMENT);
+    config.android.intentFilters = [];
+    expect(expoConfigCheck.collectExpoConfigIssues(config, DEVELOPMENT_ENVIRONMENT).failures.join(' '))
+      .toMatch(/fehlt der private Recovery-Deep-Link/);
+  });
+
+  it('rejects a development manifest that claims a verified App Link', () => {
+    const config = manifest(DEVELOPMENT_ENVIRONMENT);
+    config.android.intentFilters.push({
+      action: 'VIEW',
+      autoVerify: true,
+      category: ['BROWSABLE', 'DEFAULT'],
+      data: [{ scheme: 'https', host: 'lernzeit.de', path: '/update-password' }],
+    });
+    expect(expoConfigCheck.collectExpoConfigIssues(config, DEVELOPMENT_ENVIRONMENT).failures.join(' '))
+      .toMatch(/kein autoVerify-App-Link/);
+  });
+
+  it.each<[string, (config: TestManifest) => void, RegExp]>([
+    ['fehlender App Link', (config) => { config.android.intentFilters = []; }, /kein verifizierter Android App Link/],
+    [
+      'abweichender App-Links-Host',
+      (config) => { config.android.intentFilters[0].data[0].host = 'andere.de'; },
+      /App-Links-Host/,
+    ],
+    ['fehlende Attestierung', (config) => { delete config.extra.authBuildAttestation; }, /keine lesbare Auth-Build-Attestierung/],
+    [
+      'manipulierte Attestierung',
+      (config) => {
+        config.extra.authBuildAttestation = authBuild.serializeAuthBuildConfiguration(
+          releaseConfig.resolveAuthBuildConfiguration({}),
+        );
+      },
+      /passt nicht zur aufgeloesten Konfiguration/,
+    ],
+    ['falscher Paketname', (config) => { config.android.package = 'com.other.app'; }, /Paketname/],
+    ['Backup erlaubt', (config) => { config.android.allowBackup = true; }, /allowBackup/],
+    ['fehlendes App-Scheme', (config) => { config.scheme = undefined; }, /App-Scheme/],
+  ])('rejects a production manifest with %s', (_label, mutate, expected) => {
+    const config = manifest(PRODUCTION_ENVIRONMENT);
+    mutate(config);
+    expect(expoConfigCheck.collectExpoConfigIssues(config, PRODUCTION_ENVIRONMENT).failures.join(' '))
+      .toMatch(expected);
+  });
+
+  it('rejects a production manifest that carries the development marker domain', () => {
+    const config = manifest(PRODUCTION_ENVIRONMENT);
+    config.extra.legalSiteHost = 'lernzeit.invalid';
+    expect(expoConfigCheck.collectExpoConfigIssues(config, PRODUCTION_ENVIRONMENT).failures.join(' '))
+      .toMatch(/lernzeit\.invalid/);
+  });
+});
+
+// --- 9. bundled recovery attestation ----------------------------------------
+//
+// The scanner must prove what the *built* app does, not recompute the expected
+// value from the environment and agree with itself.
+
+describe('bundled recovery attestation', () => {
+  const PRODUCTION = releaseConfig
+    .resolveAuthBuildConfiguration(completeEnvironment) as AuthBuildConfiguration;
+  const DEVELOPMENT = releaseConfig.resolveAuthBuildConfiguration({}) as AuthBuildConfiguration;
+
+  /** An export document shaped like the escaped manifest Metro embeds. */
+  function exportWith(configuration: AuthBuildConfiguration, file = 'entry.js') {
+    const manifest = JSON.stringify({
+      extra: { authBuildAttestation: authBuild.serializeAuthBuildConfiguration(configuration) },
+    });
+    return [{ file, content: `var m=${JSON.stringify(manifest)};console.log(m);` }];
+  }
+
+  it('accepts a correct production export', () => {
+    expect(recoveryAttestation.collectProductionRecoveryIssues(exportWith(PRODUCTION), PRODUCTION))
+      .toEqual([]);
+  });
+
+  it('rejects an export whose bundled HTTPS domain is not the expected one', () => {
+    const other = releaseConfig.resolveAuthBuildConfiguration({
+      EXPO_PUBLIC_LEGAL_SITE_URL: 'https://angreifer.de',
+    }) as AuthBuildConfiguration;
+    const failures = recoveryAttestation.collectProductionRecoveryIssues(exportWith(other), PRODUCTION);
+    expect(failures.join(' ')).toMatch(/gebuendelte Recovery-URL/);
+  });
+
+  it('rejects an export without any attestation', () => {
+    const failures = recoveryAttestation.collectProductionRecoveryIssues(
+      [{ file: 'entry.js', content: 'var a=1;' }],
+      PRODUCTION,
+    );
+    expect(failures.join(' ')).toMatch(/keine Auth-Build-Attestierung/);
+  });
+
+  it('rejects custom-scheme as the production transport', () => {
+    const failures = recoveryAttestation.collectProductionRecoveryIssues(
+      exportWith(DEVELOPMENT),
+      PRODUCTION,
+    );
+    expect(failures.join(' ')).toMatch(/custom-scheme/);
+  });
+
+  it('rejects a host mismatch between manifest App Link and runtime', () => {
+    const drifted = { ...PRODUCTION, androidAppLinkHost: 'andere.de' };
+    const failures = recoveryAttestation.collectProductionRecoveryIssues(
+      exportWith(drifted),
+      PRODUCTION,
+    );
+    expect(failures.join(' ')).toMatch(/App-Link-Host/);
+  });
+
+  it('rejects an export that carries two different attestations', () => {
+    const documents = [...exportWith(PRODUCTION, 'a.js'), ...exportWith(DEVELOPMENT, 'b.js')];
+    expect(recoveryAttestation.collectProductionRecoveryIssues(documents, PRODUCTION).join(' '))
+      .toMatch(/verschiedene Attestierungen/);
+  });
+
+  it('rejects a second, foreign HTTPS recovery domain in the bundle', () => {
+    const documents = [
+      ...exportWith(PRODUCTION),
+      { file: 'other.js', content: 'var u="https://angreifer.de/update-password?type=recovery";' },
+    ];
+    expect(recoveryAttestation.collectProductionRecoveryIssues(documents, PRODUCTION).join(' '))
+      .toMatch(/fremde HTTPS-Recovery-URLs/);
+  });
+
+  /**
+   * The private scheme URL is a constant of the shared derivation module and
+   * CommonJS has no tree shaking, so it is present even in a production export.
+   * Its presence must not be mistaken for it being the active transport - the
+   * attestation is what decides.
+   */
+  it('tolerates the inactive custom-scheme constant in a production export', () => {
+    const documents = [
+      ...exportWith(PRODUCTION),
+      { file: 'shared.js', content: `var fallback="${releaseConfig.CUSTOM_RECOVERY_URL}";` },
+    ];
+    expect(recoveryAttestation.collectProductionRecoveryIssues(documents, PRODUCTION)).toEqual([]);
+  });
+
+  it('accepts a development export that attests the custom scheme', () => {
+    expect(recoveryAttestation.collectDevelopmentRecoveryIssues(exportWith(DEVELOPMENT))).toEqual([]);
+    expect(recoveryAttestation.collectAttestationConsistencyIssues(exportWith(DEVELOPMENT))).toEqual([]);
+  });
+
+  it('rejects a development export that attests an App Link', () => {
+    expect(recoveryAttestation.collectDevelopmentRecoveryIssues(exportWith(PRODUCTION)).join(' '))
+      .toMatch(/erwartet "custom-scheme"/);
+  });
+});
+
+// --- 10. atomic generation of the published files ---------------------------
+
+describe('atomic public page generation', () => {
+  let directory: string;
+
+  beforeEach(() => {
+    directory = mkdtempSync(path.join(tmpdir(), 'lernzeit-atomic-'));
+  });
+
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const pagePath = () => path.join(directory, 'account-deletion', 'index.html');
+  const linksPath = () => path.join(directory, '.well-known', 'assetlinks.json');
+
+  it('writes both files and creates the target directories', () => {
+    atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: '<html>neu</html>' },
+      { path: linksPath(), content: '[]\n' },
+    ]);
+    expect(readFileSync(pagePath(), 'utf8')).toBe('<html>neu</html>');
+    expect(readFileSync(linksPath(), 'utf8')).toBe('[]\n');
+  });
+
+  it('replaces both files together', () => {
+    atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'alt-1' },
+      { path: linksPath(), content: 'alt-2' },
+    ]);
+    atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'neu-1' },
+      { path: linksPath(), content: 'neu-2' },
+    ]);
+    expect(readFileSync(pagePath(), 'utf8')).toBe('neu-1');
+    expect(readFileSync(linksPath(), 'utf8')).toBe('neu-2');
+  });
+
+  /**
+   * The point of the module: a failure on the second file must not leave the
+   * first one updated. A published deletion page next to a stale
+   * assetlinks.json is exactly the mixed state nobody notices.
+   */
+  it('leaves the previous state untouched when the second write fails', () => {
+    atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'alt-1' },
+      { path: linksPath(), content: 'alt-2' },
+    ]);
+    // A directory can never be replaced by a file rename.
+    const blocked = path.join(directory, 'blocked');
+    mkdirSync(path.join(blocked, 'inner'), { recursive: true });
+
+    expect(() => atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'neu-1' },
+      { path: blocked, content: 'neu-2' },
+    ])).toThrow();
+
+    expect(readFileSync(pagePath(), 'utf8')).toBe('alt-1');
+    expect(readFileSync(linksPath(), 'utf8')).toBe('alt-2');
+  });
+
+  it('removes a file again that did not exist before a failed run', () => {
+    const blocked = path.join(directory, 'blocked');
+    mkdirSync(path.join(blocked, 'inner'), { recursive: true });
+
+    expect(() => atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'neu-1' },
+      { path: blocked, content: 'neu-2' },
+    ])).toThrow();
+
+    expect(atomicWrite.readExisting(pagePath())).toBeNull();
+  });
+
+  it('leaves no temporary files behind', () => {
+    const blocked = path.join(directory, 'blocked');
+    mkdirSync(blocked, { recursive: true });
+    try {
+      atomicWrite.writeFilesAtomically([
+        { path: pagePath(), content: 'neu-1' },
+        { path: blocked, content: 'neu-2' },
+      ]);
+    } catch {
+      // expected
+    }
+    const leftovers = bundleScan.scanExportDirectory(directory).documents
+      .map((document: { file: string }) => document.file)
+      .filter((file: string) => file.includes('.tmp-'));
+    expect(leftovers).toEqual([]);
   });
 });

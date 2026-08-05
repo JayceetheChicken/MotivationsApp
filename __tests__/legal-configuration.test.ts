@@ -2,18 +2,22 @@ import { DEVELOPMENT_LEGAL_SITE, resolveLegalSiteBaseUrl } from '@/legal/configu
 import {
   BUNDLED_ENVIRONMENT,
   collectOperatorReleaseIssues,
-  collectRecoveryReleaseIssues,
   collectReleaseBlockers,
   isPlaceholderValue,
   legalSiteHost,
   normalizeHttpsBaseUrl,
   OPERATOR_FIELDS,
-  PASSWORD_RECOVERY_REDIRECT,
+  resolveOperatorValues,
+} from '@/legal/operator';
+
+import releaseConfig from '../config/release-config.cjs';
+
+const {
+  collectRecoveryReleaseIssues,
   passwordRecoveryHttpsUrl,
   passwordRecoverySchemeUrl,
   recoveryRedirectUrl,
-  resolveOperatorValues,
-} from '@/legal/operator';
+} = releaseConfig;
 
 function base64Url(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64')
@@ -59,19 +63,26 @@ const completeEnvironment: Record<string, string> = {
 
 describe('legal site configuration', () => {
   it('accepts only a clean HTTPS origin or base path', () => {
-    expect(resolveLegalSiteBaseUrl('https://legal.example.com/lernzeit/')).toBe(
-      'https://legal.example.com/lernzeit',
+    expect(resolveLegalSiteBaseUrl('https://legal.lernzeit.de/lernzeit/')).toBe(
+      'https://legal.lernzeit.de/lernzeit',
     );
   });
 
   it.each([
-    'http://legal.example.com',
+    'http://legal.lernzeit.de',
     'javascript:alert(1)',
-    'https://user:password@legal.example.com',
-    'https://legal.example.com?token=value',
-    'https://legal.example.com/#fragment',
-    'https://legal.example.com:8443',
+    'https://user:password@legal.lernzeit.de',
+    'https://legal.lernzeit.de?token=value',
+    'https://legal.lernzeit.de/#fragment',
+    'https://legal.lernzeit.de:8443',
     'not a URL',
+    // Not publicly usable: see config/public-host.cjs.
+    'https://localhost',
+    'https://lernzeit.localhost',
+    'https://192.168.10.4',
+    'https://[::1]',
+    'https://lernzeit',
+    'https://example.com',
   ])('falls back to the development marker for %s', (value) => {
     expect(resolveLegalSiteBaseUrl(value)).toBe(DEVELOPMENT_LEGAL_SITE);
     expect(normalizeHttpsBaseUrl(value)).toBeNull();
@@ -245,8 +256,7 @@ describe('password recovery callback in the app', () => {
   });
 
   it('resolves the redirect of this build from the bundled environment', () => {
-    expect(PASSWORD_RECOVERY_REDIRECT).toEqual(recoveryRedirectUrl(BUNDLED_ENVIRONMENT));
-    expect(PASSWORD_RECOVERY_REDIRECT.url).toContain('/update-password?type=recovery');
+    expect(recoveryRedirectUrl(BUNDLED_ENVIRONMENT).url).toContain('/update-password?type=recovery');
   });
 
   it('names the same host that app.config.js declares as the App Link host', () => {

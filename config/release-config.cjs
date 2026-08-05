@@ -11,6 +11,8 @@
  */
 
 const catalogue = require('./operator-fields.json');
+const authBuild = require('./auth-build.cjs');
+const publicHost = require('./public-host.cjs');
 
 /** @type {readonly {key:string,envVar:string,label:string,requirement:'required'|'optional',kind:'text'|'email'|'https-url'|'iso-date',description:string}[]} */
 const OPERATOR_FIELDS = catalogue.fields;
@@ -53,6 +55,23 @@ const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const BASE64URL_ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/**
+ * True for a syntactically usable unpadded Base64URL segment.
+ *
+ * A JWT segment is Base64URL without padding, so `=` is rejected outright. A
+ * length with remainder 1 modulo 4 cannot be produced by any byte sequence and
+ * is therefore structurally impossible, not merely unusual.
+ *
+ * @param {unknown} segment
+ * @returns {boolean}
+ */
+function isBase64UrlSegment(segment) {
+  return typeof segment === 'string'
+    && segment.length > 0
+    && /^[A-Za-z0-9_-]+$/.test(segment)
+    && segment.length % 4 !== 1;
+}
 
 /**
  * Decodes a Base64URL segment to bytes. Returns null for any character outside
@@ -132,42 +151,137 @@ function decodeUtf8(bytes) {
 }
 
 /**
- * Decodes the payload of a JWT without verifying its signature. Signature
- * verification is impossible here and unnecessary: the point is to refuse to
- * ship a key whose own claims say it is privileged.
- * @param {string} token
- * @returns {{ ok: true, payload: Record<string, unknown> } | { ok: false, reason: string }}
+ * Decodes one Base64URL segment to a JSON object.
+ * @param {string} segment
+ * @param {string} label
+ * @returns {{ ok: true, value: Record<string, unknown> } | { ok: false, reason: string }}
  */
-function decodeJwtPayload(token) {
-  const segments = token.split('.');
+function decodeJsonSegment(segment, label) {
+  const bytes = decodeBase64UrlBytes(segment);
+  if (!bytes) return { ok: false, reason: `Der JWT-${label} ist kein gültiges Base64URL.` };
+
+  const text = decodeUtf8(bytes);
+  if (text === null) return { ok: false, reason: `Der JWT-${label} ist kein gültiges UTF-8.` };
+
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { ok: false, reason: `Der JWT-${label} ist kein gültiges JSON.` };
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, reason: `Der JWT-${label} ist kein JSON-Objekt.` };
+  }
+  return { ok: true, value };
+}
+
+/**
+ * Decodes a JWT without verifying its signature.
+ *
+ * Signature verification is impossible here (the signing key is server side)
+ * and unnecessary for this purpose: the point is to refuse to ship a key whose
+ * own claims say it is privileged. What *is* checked is that the token is
+ * structurally a JWT in every one of its three segments - header and payload
+ * must decode to JSON objects, and the signature must at least be well formed
+ * Base64URL. A "token" that fails any of these is not a key, it is noise, and
+ * accepting it would mean shipping an unvalidated string as the app's Supabase
+ * credential.
+ *
+ * @param {string} token
+ * @returns {{ ok: true, header: Record<string, unknown>, payload: Record<string, unknown> }
+ *          | { ok: false, reason: string }}
+ */
+function decodeJwt(token) {
+  const segments = String(token ?? '').split('.');
   if (segments.length !== 3) {
     return { ok: false, reason: `Ein JWT muss genau drei Segmente haben, gefunden: ${segments.length}.` };
   }
   if (segments.some((segment) => segment.length === 0)) {
     return { ok: false, reason: 'Mindestens ein JWT-Segment ist leer.' };
   }
-
-  const bytes = decodeBase64UrlBytes(segments[1]);
-  if (!bytes) return { ok: false, reason: 'Der JWT-Payload ist kein gültiges Base64URL.' };
-
-  const text = decodeUtf8(bytes);
-  if (text === null) return { ok: false, reason: 'Der JWT-Payload ist kein gültiges UTF-8.' };
-
-  let payload;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    return { ok: false, reason: 'Der JWT-Payload ist kein gültiges JSON.' };
+  const invalid = ['Header', 'Payload', 'Signatur'].find(
+    (_label, index) => !isBase64UrlSegment(segments[index]),
+  );
+  if (invalid) {
+    return { ok: false, reason: `Das JWT-Segment „${invalid}“ ist kein strukturell gültiges Base64URL.` };
   }
-  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
-    return { ok: false, reason: 'Der JWT-Payload ist kein JSON-Objekt.' };
-  }
-  return { ok: true, payload };
+
+  const header = decodeJsonSegment(segments[0], 'Header');
+  if (!header.ok) return header;
+  const payload = decodeJsonSegment(segments[1], 'Payload');
+  if (!payload.ok) return payload;
+
+  return { ok: true, header: header.value, payload: payload.value };
+}
+
+/**
+ * Backwards compatible view of {@link decodeJwt} for callers that only need the
+ * payload.
+ * @param {string} token
+ * @returns {{ ok: true, payload: Record<string, unknown> } | { ok: false, reason: string }}
+ */
+function decodeJwtPayload(token) {
+  const decoded = decodeJwt(token);
+  return decoded.ok ? { ok: true, payload: decoded.payload } : decoded;
 }
 
 /** The only role a key embedded in the app may carry. */
 const ALLOWED_JWT_ROLE = 'anon';
 const FORBIDDEN_JWT_ROLE = 'service_role';
+
+// --- New-format Supabase API keys -------------------------------------------
+//
+// Supabase issues `sb_publishable_…` for the client and `sb_secret_…` for
+// server-side use; the new keys are not JWTs and carry no decodable claims, so
+// the prefix *is* the privilege statement.
+// https://supabase.com/docs/guides/api/api-keys
+//
+// The published documentation fixes the two prefixes but not an exact suffix
+// length, so none is invented here. What is checked is everything that can be
+// checked without guessing: the exact prefix, a suffix built only from
+// URL-safe characters (no whitespace, no dot, no control character, nothing
+// that would silently break an HTTP header), and a floor that is far below any
+// key Supabase actually issues.
+
+const PUBLISHABLE_KEY_PREFIX = 'sb_publishable_';
+const SECRET_KEY_PREFIX = 'sb_secret_';
+/** Characters Supabase uses for the random part of a new-format key. */
+const NEW_KEY_SUFFIX_PATTERN = /^[A-Za-z0-9_-]+$/;
+/**
+ * Lower bound, not the real length. Issued keys are considerably longer; this
+ * only rejects a truncated or hand-typed value that could never be a key.
+ */
+const MIN_NEW_KEY_SUFFIX_LENGTH = 16;
+
+/**
+ * Classifies a `sb_publishable_…` key.
+ * @param {string} key
+ * @returns {{ valid: boolean, kind: string, reason: string }}
+ */
+function classifyPublishableKey(key) {
+  const suffix = key.slice(PUBLISHABLE_KEY_PREFIX.length);
+  if (suffix.length === 0) {
+    return { valid: false, kind: 'publishable-empty', reason: 'Der Publishable Key besteht nur aus dem Präfix.' };
+  }
+  if (!NEW_KEY_SUFFIX_PATTERN.test(suffix)) {
+    return {
+      valid: false,
+      kind: 'publishable-charset',
+      reason: 'Der Publishable Key enthält Zeichen, die Supabase nicht vergibt. '
+        + 'Erlaubt sind ausschließlich Buchstaben, Ziffern, Bindestrich und Unterstrich - '
+        + 'kein Leerzeichen, kein Punkt, kein Steuerzeichen.',
+    };
+  }
+  if (suffix.length < MIN_NEW_KEY_SUFFIX_LENGTH) {
+    return {
+      valid: false,
+      kind: 'publishable-short',
+      reason: `Der Publishable Key ist mit ${suffix.length} Zeichen nach dem Präfix zu kurz, `
+        + `erwartet werden mindestens ${MIN_NEW_KEY_SUFFIX_LENGTH}. Der Wert ist vermutlich abgeschnitten.`,
+    };
+  }
+  return { valid: true, kind: 'publishable', reason: 'Publishable Key.' };
+}
 
 /**
  * Single source of truth for "may this key be shipped inside the app?".
@@ -182,20 +296,16 @@ function classifySupabasePublicKey(value) {
   if (!key) {
     return { valid: false, kind: 'missing', reason: 'Es ist kein öffentlicher Supabase-Key gesetzt.' };
   }
-  if (key.startsWith('sb_secret_')) {
+  if (key.startsWith(SECRET_KEY_PREFIX)) {
     return {
       valid: false,
       kind: 'secret-key',
       reason: 'Das ist ein Supabase-Secret-Key. Ein Secret- oder service_role-Key darf niemals in die App gelangen.',
     };
   }
-  if (key.startsWith('sb_publishable_')) {
-    return key.length > 'sb_publishable_'.length
-      ? { valid: true, kind: 'publishable', reason: 'Publishable Key.' }
-      : { valid: false, kind: 'publishable-empty', reason: 'Der Publishable Key besteht nur aus dem Präfix.' };
-  }
+  if (key.startsWith(PUBLISHABLE_KEY_PREFIX)) return classifyPublishableKey(key);
 
-  const decoded = decodeJwtPayload(key);
+  const decoded = decodeJwt(key);
   if (!decoded.ok) {
     return { valid: false, kind: 'malformed-jwt', reason: decoded.reason };
   }
@@ -300,33 +410,30 @@ const NON_PRODUCTION_PROFILES = new Set(['development', 'preview']);
 
 // --- Password recovery callback --------------------------------------------
 //
-// Exactly one place derives the recovery callback. app.config.js (App Link
-// intent filter), src/auth/navigation.ts (the accepted host) and
-// resetPasswordForEmail() all read from here, so the domain cannot drift.
+// The derivation itself lives in config/auth-build.cjs, which the app bundle
+// and app.config.js also load. This module only adds the release-gate view of
+// it, so the gate can never disagree with the shipped configuration.
 
-const RECOVERY_PATH = '/update-password';
-const RECOVERY_QUERY = 'type=recovery';
-/** Private scheme callback, used for development, preview and as platform fallback. */
-const PASSWORD_RECOVERY_SCHEME_URL = `lernzeit://auth${RECOVERY_PATH}?${RECOVERY_QUERY}`;
+const passwordRecoveryHttpsUrl = authBuild.passwordRecoveryHttpsUrl;
+const resolveAuthBuildConfiguration = authBuild.resolveAuthBuildConfiguration;
 
 function passwordRecoverySchemeUrl() {
-  return PASSWORD_RECOVERY_SCHEME_URL;
+  return authBuild.CUSTOM_RECOVERY_URL;
 }
 
 /**
  * The one derivation of the operator host. app.config.js (App Link intent
- * filter), src/legal/operator.ts and the recovery URL below all call this, so
- * no caller can build a second, slightly different host.
+ * filter), src/legal/operator.ts and the recovery URL all call this, so no
+ * caller can build a second, slightly different host.
+ *
+ * Returns the development marker whenever the configured value is not a public
+ * operator domain, so a private, loopback or reserved host can never end up in
+ * an intent filter or on a published page.
+ *
  * @param {string} baseUrl
  */
 function legalSiteHostFromBaseUrl(baseUrl) {
-  const base = normalizeHttpsBaseUrl(baseUrl ?? '');
-  if (!base) return DEVELOPMENT_MARKER_DOMAIN;
-  try {
-    return new URL(base).hostname.toLowerCase();
-  } catch {
-    return DEVELOPMENT_MARKER_DOMAIN;
-  }
+  return authBuild.publicHostFromBaseUrl(baseUrl ?? '') ?? DEVELOPMENT_MARKER_DOMAIN;
 }
 
 /**
@@ -338,57 +445,36 @@ function legalSiteHostFromEnvironment(environment) {
 }
 
 /**
- * Verified HTTPS App Link callback on the operator domain, or null when no
- * usable domain is configured.
- * @param {Record<string, string | undefined>} environment
- */
-function passwordRecoveryHttpsUrl(environment) {
-  const base = normalizeHttpsBaseUrl(environment.EXPO_PUBLIC_LEGAL_SITE_URL ?? '');
-  if (!base) return null;
-  const host = legalSiteHostFromEnvironment(environment);
-  if (host === DEVELOPMENT_MARKER_DOMAIN || isPlaceholderValue(host)) return null;
-  // Always the bare origin plus the fixed path: the parser accepts nothing else.
-  return `https://${host}${RECOVERY_PATH}?${RECOVERY_QUERY}`;
-}
-
-/**
- * The redirect handed to Supabase `resetPasswordForEmail`.
- *
- * A verified Android App Link is preferred because it cannot be hijacked by
- * another app that claims the same custom scheme. The private scheme remains
- * the fallback whenever no verified domain exists, which is exactly the
- * development and preview case; a production build cannot reach that branch
- * because the release gate refuses to build without a real domain.
- *
+ * The redirect handed to Supabase `resetPasswordForEmail`, in the shape the
+ * older callers expect.
  * @param {Record<string, string | undefined>} environment
  * @returns {{ url: string, kind: 'https-app-link' | 'custom-scheme' }}
  */
 function recoveryRedirectUrl(environment) {
-  const https = passwordRecoveryHttpsUrl(environment);
-  return https
-    ? { url: https, kind: 'https-app-link' }
-    : { url: PASSWORD_RECOVERY_SCHEME_URL, kind: 'custom-scheme' };
+  const configuration = resolveAuthBuildConfiguration(environment);
+  return { url: configuration.recoveryRedirectUrl, kind: configuration.recoveryTransport };
 }
 
 /**
  * A production build must reach the app through a verified HTTPS App Link.
  * The private scheme can be claimed by any other installed app, so a recovery
- * mail that carries `lernzeit://` is a genuine account-takeover risk. This is a
- * release blocker in its own right and not merely a consequence of the missing
- * legal site URL, so the report states the actual danger.
+ * mail that carries the app's own scheme is a genuine account-takeover risk.
+ * This is a release blocker in its own right and not merely a consequence of the
+ * missing legal site URL, so the report states the actual danger.
  * @param {Record<string, string | undefined>} environment
  */
 function collectRecoveryReleaseIssues(environment) {
-  if (passwordRecoveryHttpsUrl(environment)) return [];
+  const issues = authBuild.collectProductionAuthBuildIssues(
+    resolveAuthBuildConfiguration(environment),
+  );
+  if (issues.length === 0) return [];
   return [{
     key: 'passwordRecoveryRedirect',
     envVar: 'EXPO_PUBLIC_LEGAL_SITE_URL',
     label: 'Passwort-Recovery-Callback',
     reason: 'missing',
-    detail:
-      'Ohne echte Betreiberdomain fällt resetPasswordForEmail auf das private Schema '
-      + `${PASSWORD_RECOVERY_SCHEME_URL} zurück. Ein Production-Build darf das nie tun, weil `
-      + 'jede andere installierte App dasselbe Schema beanspruchen kann.',
+    detail: `${issues.join(' ')} Ohne echte, öffentlich erreichbare Betreiberdomain gibt es keinen `
+      + 'verifizierbaren App Link, und der Recovery-Link wäre für jede andere installierte App abfangbar.',
   }];
 }
 
@@ -400,26 +486,36 @@ function isPlaceholderValue(value) {
 }
 
 /**
- * Accepts only a clean HTTPS origin with an optional base path. Returns null for
- * anything that must not become a public legal or Android App Links base.
+ * Accepts only a clean HTTPS origin with an optional base path on a *public*
+ * operator domain. Returns null for anything that must not become a public
+ * legal, recovery or Android App Links base - including localhost, private and
+ * link-local addresses and reserved test domains, which config/public-host.cjs
+ * rejects numerically rather than by string prefix.
  * @param {string} value
  * @returns {string | null}
  */
 function normalizeHttpsBaseUrl(value) {
+  return authBuild.normalizePublicHttpsBaseUrl(value);
+}
+
+/**
+ * Why an HTTPS base URL is unusable, in one sentence.
+ * @param {string} value
+ * @returns {string}
+ */
+function httpsBaseUrlIssueDetail(value) {
+  let parsed;
   try {
-    const parsed = new URL(String(value ?? '').trim());
-    if (
-      parsed.protocol !== 'https:'
-      || parsed.username
-      || parsed.password
-      || parsed.search
-      || parsed.hash
-      || parsed.port
-    ) return null;
-    return `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`;
+    parsed = new URL(String(value ?? '').trim());
   } catch {
-    return null;
+    return 'Keine gültige URL.';
   }
+  if (parsed.protocol !== 'https:') return 'Nur https:// ist zulässig.';
+  if (parsed.username || parsed.password) return 'Zugangsdaten sind in einer öffentlichen Basis-URL nicht zulässig.';
+  if (parsed.port) return 'Ein abweichender Port ist nicht zulässig.';
+  if (parsed.search || parsed.hash) return 'Query- und Fragmentanteile sind nicht zulässig.';
+  return publicHost.publicOperatorHostIssue(parsed.hostname)
+    ?? 'Keine saubere HTTPS-Basis-URL ohne Zugangsdaten, Port, Query oder Fragment.';
 }
 
 /** @param {{key:string,label:string,kind:string}} field */
@@ -469,7 +565,7 @@ function formatIssue(field, value) {
     case 'https-url':
       return normalizeHttpsBaseUrl(value)
         ? null
-        : { ...base, detail: 'Keine saubere HTTPS-Basis-URL ohne Zugangsdaten, Port, Query oder Fragment.' };
+        : { ...base, detail: httpsBaseUrlIssueDetail(value) };
     case 'iso-date':
       return ISO_DATE_PATTERN.test(value) && !Number.isNaN(Date.parse(value))
         ? null
@@ -543,7 +639,7 @@ function collectSupabaseReleaseIssues(environment) {
       envVar: 'EXPO_PUBLIC_SUPABASE_URL',
       label: 'Supabase-Projekt-URL',
       reason: isPlaceholderValue(url) ? 'placeholder' : 'invalid-format',
-      detail: `„${url}“ ist keine echte HTTPS-Projekt-URL.`,
+      detail: `„${url}“ ist keine echte HTTPS-Projekt-URL. ${httpsBaseUrlIssueDetail(url)}`,
     });
   }
 
@@ -675,8 +771,14 @@ module.exports = {
   NON_PRODUCTION_PROFILES,
   ALLOWED_JWT_ROLE,
   FORBIDDEN_JWT_ROLE,
+  PUBLISHABLE_KEY_PREFIX,
+  SECRET_KEY_PREFIX,
+  MIN_NEW_KEY_SUFFIX_LENGTH,
   isPlaceholderValue,
   normalizeHttpsBaseUrl,
+  httpsBaseUrlIssueDetail,
+  isBase64UrlSegment,
+  decodeJwt,
   decodeJwtPayload,
   classifySupabasePublicKey,
   isShippableSupabasePublicKey,
@@ -694,4 +796,19 @@ module.exports = {
   passwordRecoverySchemeUrl,
   legalSiteHostFromEnvironment,
   legalSiteHostFromBaseUrl,
+  // Auth build configuration and public-host classification, re-exported so the
+  // scripts have a single module to require.
+  resolveAuthBuildConfiguration,
+  collectProductionAuthBuildIssues: authBuild.collectProductionAuthBuildIssues,
+  serializeAuthBuildConfiguration: authBuild.serializeAuthBuildConfiguration,
+  parseAuthBuildAttestation: authBuild.parseAuthBuildAttestation,
+  findAuthBuildAttestations: authBuild.findAuthBuildAttestations,
+  findRecoveryCallbackUrls: authBuild.findRecoveryCallbackUrls,
+  AUTH_BUILD_ATTESTATION_PREFIX: authBuild.AUTH_BUILD_ATTESTATION_PREFIX,
+  APP_SCHEME: authBuild.APP_SCHEME,
+  RECOVERY_PATH: authBuild.RECOVERY_PATH,
+  CUSTOM_RECOVERY_URL: authBuild.CUSTOM_RECOVERY_URL,
+  classifyPublicHost: publicHost.classifyPublicHost,
+  isPublicOperatorHost: publicHost.isPublicOperatorHost,
+  publicOperatorHostIssue: publicHost.publicOperatorHostIssue,
 };

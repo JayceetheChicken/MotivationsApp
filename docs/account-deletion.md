@@ -51,6 +51,29 @@ Die funktionale pgTAP-Datei
 `supabase/tests/008_privacy_moderation_deletion.sql` prüft Transfer, Auth-
 Cascade und Erhalt der gemeinsamen Objekte.
 
+## Löschanfrage ohne Zugriff auf die App
+
+Es gibt **keinen** implementierten Workflow, der ein Konto aufgrund einer
+eingehenden E-Mail löscht, und keinen automatisch versendeten Bestätigungscode.
+Der einzige technische Löschpfad ist der oben beschriebene, in der App
+angemeldete Ablauf.
+
+Für Menschen, die sich nicht mehr anmelden können, bleibt nur ein manueller
+Supportprozess über die Datenschutzkontaktadresse:
+
+1. Die Anfrage geht bei der Datenschutzkontaktadresse ein.
+2. Der Betreiber prüft von Hand, ob die Anfrage der Kontoinhaberin oder dem
+   Kontoinhaber zugeordnet werden kann, und stellt bei Bedarf Rückfragen oder
+   bittet um eine Anmeldung in der App.
+3. Nur bei eindeutiger Zuordnung wird gelöscht — technisch über denselben
+   serverseitigen Pfad. Bleibt die Zuordnung unklar, wird nicht gelöscht.
+
+`public/account-deletion/index.html` beschreibt genau diesen Prozess und sagt
+weder eine Frist noch einen Bestätigungscode zu. Die konkrete Ausgestaltung
+(Postfach, Zuständigkeit, Reaktionszeit, Dokumentation der Identitätsprüfung)
+ist ein **betrieblicher, außerhalb des Codes zu erledigender Punkt** und Teil
+der ausstehenden rechtlichen Prüfung.
+
 ## Lokale Bereinigung nach Servererfolg
 
 Die App entfernt nur den Bereich der gelöschten Nutzer-ID:

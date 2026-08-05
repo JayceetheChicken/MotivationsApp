@@ -27,7 +27,6 @@
  * The fingerprint comes from Play Console > Test and release > App integrity >
  * App signing key certificate (SHA-256).
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -35,6 +34,7 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const releaseConfig = require('../config/release-config.cjs');
 const publicPages = require('./lib/public-pages.cjs');
+const { writeFilesAtomically } = require('./lib/atomic-write.cjs');
 const appJson = require('../app.json');
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -103,10 +103,21 @@ if (enforce) {
 const accountDeletionPath = path.join(projectRoot, 'public', 'account-deletion', 'index.html');
 const assetLinksPath = path.join(projectRoot, 'public', '.well-known', 'assetlinks.json');
 
-mkdirSync(path.dirname(accountDeletionPath), { recursive: true });
-mkdirSync(path.dirname(assetLinksPath), { recursive: true });
-writeFileSync(accountDeletionPath, accountDeletionHtml, 'utf8');
-writeFileSync(assetLinksPath, assetLinksJson, 'utf8');
+// Both files are rendered and validated above; they are now published together
+// or not at all. A deletion page next to a stale assetlinks.json is a state
+// nobody reviews - see scripts/lib/atomic-write.cjs.
+try {
+  writeFilesAtomically([
+    { path: accountDeletionPath, content: accountDeletionHtml },
+    { path: assetLinksPath, content: assetLinksJson },
+  ]);
+} catch (error) {
+  process.stderr.write(
+    '\nDie oeffentlichen Seiten konnten nicht geschrieben werden. Der vorherige Stand ist unveraendert:\n'
+    + `- ${error?.message ?? error}\n`,
+  );
+  process.exit(1);
+}
 
 process.stdout.write(`Erzeugt: ${path.relative(projectRoot, accountDeletionPath)}\n`);
 process.stdout.write(`Erzeugt: ${path.relative(projectRoot, assetLinksPath)}\n`);

@@ -30,7 +30,7 @@ describe('Supabase environment configuration', () => {
     expect(validateSupabaseUrl('https://project.supabase.co')).toBeNull();
     expect(resolveSupabaseEnvironment({
       url: 'https://project.supabase.co',
-      publishableKey: 'sb_publishable_example',
+      publishableKey: 'sb_publishable_AbCdEf1234567890',
     }).configuration.isConfigured).toBe(true);
   });
 
@@ -75,7 +75,7 @@ describe('Supabase environment configuration', () => {
   });
 
   it.each([
-    [{ publishableKey: 'sb_publishable_example' }, 'EXPO_PUBLIC_SUPABASE_URL fehlt.'],
+    [{ publishableKey: 'sb_publishable_AbCdEf1234567890' }, 'EXPO_PUBLIC_SUPABASE_URL fehlt.'],
     [{ url: 'https://project.supabase.co' }, 'PUBLISHABLE_KEY beziehungsweise EXPO_PUBLIC_SUPABASE_ANON_KEY fehlt.'],
     [{}, 'Supabase ist noch nicht konfiguriert.'],
   ] as const)('disables online accounts for missing configuration %#', (input, message) => {
@@ -107,6 +107,9 @@ describe('Supabase public key validation uses the central classifier', () => {
   it.each<[string, string, RegExp]>([
     ['sb_secret_*', 'sb_secret_realsecretvalue', /Secret-Key/],
     ['leeres Publishable-Präfix', 'sb_publishable_', /nur aus dem Präfix/],
+    ['Publishable Key mit Leerzeichen', 'sb_publishable_abc def ghi jklmn', /Leerzeichen/],
+    ['Publishable Key mit Punkt', 'sb_publishable_abcdef.1234567890', /Punkt/],
+    ['abgeschnittener Publishable Key', 'sb_publishable_kurz', /zu kurz/],
     ['service_role-JWT', SERVICE_ROLE_JWT, /service_role/],
     ['JWT mit unbekannter Rolle', jwt({ role: 'authenticated' }), /unbekannte Rolle/],
     ['JWT ohne Rolle', jwt({ iss: 'supabase' }), /kein role-Feld/],

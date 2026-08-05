@@ -48,27 +48,6 @@ export const collectRecoveryReleaseIssues = releaseConfig.collectRecoveryRelease
   environment: OperatorEnvironment,
 ) => readonly OperatorFieldIssue[];
 
-export type PasswordRecoveryRedirect = Readonly<{
-  url: string;
-  kind: 'https-app-link' | 'custom-scheme';
-}>;
-
-/**
- * Verified HTTPS App Link callback, or null when no real operator domain is
- * configured.
- */
-export const passwordRecoveryHttpsUrl = releaseConfig.passwordRecoveryHttpsUrl as (
-  environment: OperatorEnvironment,
-) => string | null;
-
-/** Private-scheme fallback, only reachable in development and preview builds. */
-export const passwordRecoverySchemeUrl = releaseConfig.passwordRecoverySchemeUrl as () => string;
-
-/** The single derivation of the recovery callback handed to Supabase. */
-export const recoveryRedirectUrl = releaseConfig.recoveryRedirectUrl as (
-  environment: OperatorEnvironment,
-) => PasswordRecoveryRedirect;
-
 const legalSiteHostFromBaseUrl = releaseConfig.legalSiteHostFromBaseUrl as (
   baseUrl: string,
 ) => string;
@@ -119,20 +98,15 @@ export const OPERATOR_IS_DEVELOPMENT_ONLY: boolean =
 export const LEGAL_SITE_BASE_URL: string = OPERATOR.legalSiteUrl;
 export const ACCOUNT_DELETION_PUBLIC_URL = `${LEGAL_SITE_BASE_URL}/account-deletion/`;
 
-/** Host used for verified Android App Links and the HTTPS recovery callback. */
+/**
+ * Host of the operator domain, or the development marker when the configured
+ * value is missing or not a publicly usable domain.
+ *
+ * The password recovery transport is *not* derived here. It lives in
+ * config/auth-build.cjs and is exposed to the app by
+ * src/auth/build-configuration.ts, so there is exactly one derivation shared by
+ * the app, the Android manifest and the release gate.
+ */
 export function legalSiteHost(baseUrl: string = LEGAL_SITE_BASE_URL): string {
   return legalSiteHostFromBaseUrl(baseUrl);
 }
-
-/**
- * Recovery callback of this build, resolved from the same bundled environment
- * that produced OPERATOR.
- *
- * With a real operator domain this is the verified HTTPS App Link. The private
- * scheme remains only for development and preview builds, where no verified
- * domain exists; a production build cannot reach that branch because
- * `collectRecoveryReleaseIssues` turns it into a release blocker and
- * app.config.js aborts the build.
- */
-export const PASSWORD_RECOVERY_REDIRECT: PasswordRecoveryRedirect =
-  recoveryRedirectUrl(BUNDLED_ENVIRONMENT);

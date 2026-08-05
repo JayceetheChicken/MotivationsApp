@@ -191,9 +191,10 @@ jobs:
         run: deno check --frozen delete-account/index.ts
 
   expo-export:
-    name: Static production export
+    name: Static export per build profile
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Four web exports (production, tampering check, development, preview).
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -236,6 +237,7 @@ jobs:
             fs.writeFileSync("dist/injected-service-role.js", "var k=\"" + token + "\";\n");
             console.log("service_role-JWT in den Export injiziert.");
           '
+          source scripts/ci-production-env.sh
           set +e
           node scripts/check-exported-bundle.mjs dist
           status=$?
@@ -246,6 +248,35 @@ jobs:
             exit 1
           fi
           echo "Bundle-Scanner erkennt kodierte service_role-JWTs."
+
+      # The scan must prove which recovery transport the *built* app uses. A
+      # tampered attestation in the finished export has to fail, otherwise the
+      # check would only be re-deriving the expected value from the environment.
+      - name: Bundle scan must reject a tampered recovery attestation
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          entry=$(find dist/_expo/static/js/web -name 'entry-*.js' | head -1)
+          cp "$entry" "${RUNNER_TEMP}/entry-original.js"
+          node -e '
+            const fs = require("node:fs");
+            const file = process.argv[1];
+            const text = fs.readFileSync(file, "utf8");
+            const replaced = text.replace(/host=lernzeit-ci\.de/g, "host=angreifer.de")
+              .replace(/https:\/\/lernzeit-ci\.de\/update-password/g, "https://angreifer.de/update-password");
+            if (replaced === text) throw new Error("Attestierung nicht im Export gefunden.");
+            fs.writeFileSync(file, replaced);
+          ' "$entry"
+          set +e
+          node scripts/check-exported-bundle.mjs dist
+          status=$?
+          set -e
+          cp "${RUNNER_TEMP}/entry-original.js" "$entry"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Der Bundle-Scanner hat eine manipulierte Recovery-Attestierung akzeptiert."
+            exit 1
+          fi
+          echo "Bundle-Scanner erkennt eine manipulierte Recovery-Attestierung."
 
       - name: Bundle scan must accept a legitimate anon JWT
         run: |
@@ -275,3 +306,18 @@ jobs:
             exit 1
           fi
           echo "Production-Export bricht ohne vollstaendige Betreiberangaben ab."
+
+      # Development and preview must ship the private scheme and nothing else.
+      # Without this the per-profile split would only be asserted for production.
+      - name: Development and preview export must attest the private scheme
+        run: |
+          set -euo pipefail
+          for profile in development preview; do
+            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
+              npx --yes expo export --platform web --output-dir "dist-$profile" > /dev/null
+            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
+              node scripts/check-exported-bundle.mjs "dist-$profile" | tee "$profile.log"
+            grep -q 'transport=custom-scheme' "$profile.log"
+            rm -rf "dist-$profile" "$profile.log"
+          done
+          echo "Development- und Preview-Export verwenden ausschliesslich das private Schema."

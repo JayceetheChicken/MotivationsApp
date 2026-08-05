@@ -244,14 +244,9 @@ ${draftBanner}
 
       <section>
         <h2>Ohne Zugriff auf die App</h2>
-        <p>Sende eine Löschanfrage von der E-Mail-Adresse des Kontos an <a href="mailto:${escapeHtml(operator.privacyContactEmail)}?subject=Lernzeit-Konto%20l%C3%B6schen">${escapeHtml(operator.privacyContactEmail)}</a>. Gib den Benutzernamen des Kontos an.</p>
-        <p>Die Identitätsprüfung läuft so ab:</p>
-        <ol>
-          <li>Der Betreiber sendet innerhalb von sieben Tagen eine Bestätigungs-E-Mail an die im Konto hinterlegte Adresse.</li>
-          <li>Diese E-Mail enthält einen einmaligen, auf 72 Stunden begrenzten Bestätigungscode.</li>
-          <li>Die Löschung wird erst nach Rücksendung des Codes von derselben Adresse ausgeführt.</li>
-          <li>Stimmt die Absenderadresse nicht mit der Kontoadresse überein, wird stattdessen um eine Anmeldung in der App gebeten.</li>
-        </ol>
+        <p>Schreibe an <a href="mailto:${escapeHtml(operator.privacyContactEmail)}?subject=Lernzeit-Konto%20l%C3%B6schen">${escapeHtml(operator.privacyContactEmail)}</a> und gib den Benutzernamen des Kontos an. Schreibe möglichst von der E-Mail-Adresse, die im Konto hinterlegt ist.</p>
+        <p>Eine eingehende E-Mail löst für sich genommen keine Löschung aus. Der Betreiber prüft zuerst manuell, ob die Anfrage tatsächlich von der Person stammt, der das Konto gehört, und kann dazu Rückfragen stellen oder um eine Anmeldung in der App bitten. Bleibt die Zuordnung unklar, wird nicht gelöscht.</p>
+        <p>Die Bearbeitung erfolgt von Hand. Für Anträge auf Löschung gelten die gesetzlichen Fristen; eine kürzere Bearbeitungszeit sagt diese Seite nicht zu.</p>
         <p>Der Betreiber fragt niemals nach dem Passwort oder einem Anmelde-Token. Teile beides niemals per E-Mail.</p>
       </section>
 

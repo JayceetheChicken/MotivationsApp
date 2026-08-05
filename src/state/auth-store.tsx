@@ -17,6 +17,7 @@ import { authStorage } from '@/auth/storage';
 import {
   hasPasswordRecoveryMaterial,
   parsePasswordRecoveryUrl,
+  PASSWORD_RECOVERY_AVAILABLE,
   PASSWORD_RECOVERY_REDIRECT_URL,
   passwordRecoveryRequestFingerprint,
 } from '@/auth/navigation';
@@ -426,18 +427,26 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
 
   const sendPasswordReset = useCallback(async (email: string): Promise<AuthActionResult> => {
     if (!supabase) return configurationFailure();
+    // Manifest and bundle disagree about the recovery transport. Sending a mail
+    // whose callback the app will then refuse - or worse, whose transport the
+    // manifest routes somewhere else - is not something to attempt.
+    if (!PASSWORD_RECOVERY_AVAILABLE) {
+      const message = 'Das Zurücksetzen des Passworts ist in dieser App-Version nicht verfügbar.';
+      setError(message);
+      setNotice(null);
+      return { ok: false, message };
+    }
 
     setPendingAction('reset-password');
     setError(null);
     setNotice(null);
 
     try {
-      // PASSWORD_RECOVERY_REDIRECT_URL is derived from the operator domain in
-      // config/release-config.cjs, the same module app.config.js uses for the
-      // App Link intent filter. In a production build it is always the verified
-      // HTTPS App Link: the private lernzeit:// scheme only survives in
-      // development and preview builds, because collectRecoveryReleaseIssues
-      // turns that fallback into a release blocker.
+      // PASSWORD_RECOVERY_REDIRECT_URL comes from config/auth-build.cjs, the
+      // same module app.config.js uses for the intent filters. In a production
+      // build it is always the verified HTTPS App Link: the private scheme only
+      // survives in development and preview builds, because
+      // collectRecoveryReleaseIssues turns that fallback into a release blocker.
       //
       // Deliberately not logged. The value is harmless ("https-app-link" or
       // "custom-scheme"), but logging anything read from a PASSWORD_* constant

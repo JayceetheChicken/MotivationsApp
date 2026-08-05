@@ -10,17 +10,7 @@
     "primaryColor": "#B44D2B",
     "ios": {
       "icon": "./assets/images/icon.png",
-      "supportsTablet": true,
-      "infoPlist": {
-        "CFBundleURLTypes": [
-          {
-            "CFBundleURLName": "password-recovery",
-            "CFBundleURLSchemes": [
-              "lernzeit"
-            ]
-          }
-        ]
-      }
+      "supportsTablet": true
     },
     "android": {
       "package": "de.lernzeit.app",

@@ -133,7 +133,7 @@ function* walk(directory) {
  *   skipped: number,
  *   findings: {file: string, name: string, detail: string}[],
  *   unreadable: {file: string, reason: string}[],
- *   corpus: string[],
+ *   documents: {file: string, content: string}[],
  * }}
  */
 function scanExportDirectory(root, options = {}) {
@@ -142,7 +142,8 @@ function scanExportDirectory(root, options = {}) {
   let skipped = 0;
   const findings = [];
   const unreadable = [];
-  const corpus = [];
+  /** Every inspected file with its content, so later checks can name the file. */
+  const documents = [];
 
   for (const file of walk(root)) {
     if (!TEXT_EXTENSIONS.has(path.extname(file).toLowerCase())) {
@@ -157,13 +158,13 @@ function scanExportDirectory(root, options = {}) {
     }
 
     scanned += 1;
-    corpus.push(result.content);
+    documents.push({ file: path.relative(root, file), content: result.content });
     for (const finding of scanTextForSecrets(result.content)) {
       findings.push({ file: path.relative(root, file), ...finding });
     }
   }
 
-  return { scanned, skipped, findings, unreadable, corpus };
+  return { scanned, skipped, findings, unreadable, documents };
 }
 
 module.exports = {

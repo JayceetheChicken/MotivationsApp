@@ -1,4 +1,7 @@
-import { legalSiteHost, PASSWORD_RECOVERY_REDIRECT } from '@/legal/operator';
+import {
+  AUTH_BUILD_CONFIGURATION,
+  AUTH_BUILD_IS_CONSISTENT,
+} from '@/auth/build-configuration';
 
 export type AuthMode = 'none' | 'supabase' | 'local';
 
@@ -8,30 +11,36 @@ export const HOME_NAVIGATION_ANCHOR = '(home)' as const;
 /**
  * Callback handed to `supabase.auth.resetPasswordForEmail`.
  *
- * With a configured operator domain this is
- * `https://<domain>/update-password?type=recovery`, a verified Android App Link
- * that no other app can intercept. `lernzeit://auth/update-password?type=recovery`
- * is only used when no real domain exists, which the release gate permits solely
- * for development and preview builds.
+ * In a production build this is always
+ * `https://<operator-domain>/update-password?type=recovery`, a verified Android
+ * App Link that no other app can intercept. `lernzeit://auth/update-password`
+ * exists only in development and preview builds, where no verified domain is
+ * available; the release gate refuses to build production in that state.
  *
- * Both forms are derived in config/release-config.cjs, the same module that
- * app.config.js uses for the App Link intent filter, so the app and the manifest
- * cannot disagree about the host.
+ * The value comes from config/auth-build.cjs, the same module app.config.js
+ * uses for the intent filters, so the mail, the manifest and the parser below
+ * cannot disagree about host or transport.
  */
-export const PASSWORD_RECOVERY_REDIRECT_URL: string = PASSWORD_RECOVERY_REDIRECT.url;
+export const PASSWORD_RECOVERY_REDIRECT_URL: string = AUTH_BUILD_CONFIGURATION.recoveryRedirectUrl;
 
-/** 'https-app-link' in every correctly configured production build. */
-export const PASSWORD_RECOVERY_REDIRECT_KIND = PASSWORD_RECOVERY_REDIRECT.kind;
+/** 'https-app-link' in every production build, 'custom-scheme' otherwise. */
+export const PASSWORD_RECOVERY_REDIRECT_KIND = AUTH_BUILD_CONFIGURATION.recoveryTransport;
 
 /**
- * The single HTTPS host that may deliver a recovery callback. Derived from the
- * operator domain so it can never drift apart from the verified Android App
- * Link declared in app.config.js.
+ * The single host that may deliver a recovery callback: the operator domain for
+ * an App Link build, `auth` for a private-scheme build.
  */
-export const VERIFIED_RECOVERY_HOST: string = legalSiteHost();
+export const VERIFIED_RECOVERY_HOST: string = AUTH_BUILD_CONFIGURATION.recoveryHost;
 
-const RECOVERY_SCHEME = 'lernzeit:';
-const RECOVERY_HOST = 'auth';
+/**
+ * False when the manifest and the bundle describe different transports. Every
+ * recovery entry point then refuses to act; see
+ * src/auth/build-configuration.ts.
+ */
+export const PASSWORD_RECOVERY_AVAILABLE: boolean = AUTH_BUILD_IS_CONSISTENT;
+
+const CUSTOM_RECOVERY_PROTOCOL = 'lernzeit:';
+const CUSTOM_RECOVERY_HOST = 'auth';
 const RECOVERY_PATH = '/update-password';
 const MAX_AUTH_PARAMETER_LENGTH = 16_384;
 
@@ -108,11 +117,20 @@ function isSafeAuthValue(value: string | null, maxLength = MAX_AUTH_PARAMETER_LE
 }
 
 /**
- * Accepts only the one production recovery callback owned by this app. Normal
- * deep links are deliberately ignored even when they carry auth-looking keys.
+ * Accepts only the one recovery callback this build actually uses.
+ *
+ * Deliberately *not* "either transport": a production build must reject
+ * `lernzeit://auth/update-password` outright. That scheme can be registered by
+ * any other installed app, so accepting it would let a second app hand the
+ * running Lernzeit app a recovery link of its choosing. A development build in
+ * turn has no verified domain, so it must not honour an HTTPS callback either.
+ *
+ * Normal deep links are ignored even when they carry auth-looking keys.
  */
 export function parsePasswordRecoveryUrl(url: string | null): PasswordRecoveryRequest | null {
   if (!url || url.length > 40_000) return null;
+  // Manifest and bundle disagree about the transport: accept nothing.
+  if (!PASSWORD_RECOVERY_AVAILABLE) return null;
 
   try {
     const routeText = url.split(/[?#]/, 1)[0];
@@ -121,9 +139,11 @@ export function parsePasswordRecoveryUrl(url: string | null): PasswordRecoveryRe
     if (/%[0-9a-f]{2}|\\/i.test(routeText)) return null;
 
     const parsedUrl = new URL(url);
-    const isCustomRecoveryRoute = parsedUrl.protocol.toLowerCase() === RECOVERY_SCHEME
-      && parsedUrl.hostname.toLowerCase() === RECOVERY_HOST;
-    const isVerifiedRecoveryRoute = parsedUrl.protocol.toLowerCase() === 'https:'
+    const isCustomRecoveryRoute = AUTH_BUILD_CONFIGURATION.acceptsCustomRecoveryScheme
+      && parsedUrl.protocol.toLowerCase() === CUSTOM_RECOVERY_PROTOCOL
+      && parsedUrl.hostname.toLowerCase() === CUSTOM_RECOVERY_HOST;
+    const isVerifiedRecoveryRoute = AUTH_BUILD_CONFIGURATION.recoveryTransport === 'https-app-link'
+      && parsedUrl.protocol.toLowerCase() === 'https:'
       && parsedUrl.hostname.toLowerCase() === VERIFIED_RECOVERY_HOST;
     if (
       (!isCustomRecoveryRoute && !isVerifiedRecoveryRoute)
