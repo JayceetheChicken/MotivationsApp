@@ -1,6 +1,6 @@
 # Abhängigkeits-Audit
 
-Stand: 2026-08-06, Branch `codex/release-ready-consolidation`.
+Stand: 2026-08-07, Branch `codex/release-ready-consolidation`.
 
 ## Baseline
 
@@ -83,6 +83,42 @@ ausgeführt, und iOS-Prebuild ist unter Windows nicht möglich
 („Skipping generating the iOS native project files“). Der Override ist daher
 über die API-Oberfläche und den Android-Prebuild verifiziert, nicht über einen
 ausgeführten iOS-Prebuild. Das Projekt liefert kein iOS-Artefakt aus.
+
+## Behobener Befund: GHSA-5p4m-2wfm-xmqj (`js-yaml`)
+
+| Feld | Wert |
+| --- | --- |
+| Advisory | [GHSA-5p4m-2wfm-xmqj](https://github.com/advisories/GHSA-5p4m-2wfm-xmqj) |
+| Titel | JS-YAML: Quadratic CPU consumption in `!!omap` resolution (CVE-2026-59870 nicht zurückportiert) |
+| Schweregrad | high |
+| Verwundbare Versionen | `3.0.0 – 3.15.0` und `4.0.0 – 4.3.0` |
+| Vorher installiert | `js-yaml@3.15.0` und `js-yaml@4.3.0` |
+| Betroffene Phase | Build- und Werkzeugzeit |
+
+Die Advisory wurde am 2026-08-07 veröffentlicht und ließ den CI-Lauf
+fehlschlagen – genau das Verhalten, das die auf `moderate` gesenkte Schwelle
+herbeiführen soll.
+
+Zwei Pfade, beide über Werkzeuge, keiner im App-Bundle:
+
+* `expo` → `@expo/cli` → `@expo/xcpretty@4.4.4` → `js-yaml@^4.1.0` (der Pfad, den
+  `--omit=dev` sieht: `@expo/xcpretty` formatiert xcodebuild-Ausgaben)
+* `eslint` → `@eslint/eslintrc@3.3.6` → `js-yaml@^4.3.0` (nur `devDependencies`)
+* `jest` → `babel-plugin-istanbul` → `@istanbuljs/load-nyc-config@1.1.0` →
+  `js-yaml@^3.13.1` (nur `devDependencies`)
+
+Beide Major-Linien haben einen Patch-Release mit dem Fix (`3.15.1`, `4.3.1`).
+`package.json` verwendet deshalb bereichsbezogene Overrides, damit die
+v3-Konsumenten nicht auf v4 gezwungen werden – js-yaml 4 hat `safeLoad` entfernt,
+ein Sprung auf eine Major-Version wäre hier ein echter Bruch:
+
+```json
+"js-yaml@^3.0.0": "^3.15.1",
+"js-yaml@^4.0.0": "^4.3.1"
+```
+
+Ergebnis im Lockfile: exakt zwei geänderte Versionen (`3.15.0 → 3.15.1`,
+`4.3.0 → 4.3.1`), sonst nichts.
 
 ## Install-Skripte
 

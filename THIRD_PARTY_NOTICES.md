@@ -3712,7 +3712,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2014, 2015, 2016, 2017, 2018 Simon Lydell
 
-### js-yaml@3.15.0
+### js-yaml@3.15.1
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/nodeca/js-yaml
@@ -3720,7 +3720,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (C) 2011-2015 by Vitaly Puzrin
 
-### js-yaml@4.3.0
+### js-yaml@4.3.1
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
