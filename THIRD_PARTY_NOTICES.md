@@ -734,7 +734,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2020 Expo
 
-### @expo/cli@57.0.12
+### @expo/cli@57.0.13
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/cli
@@ -758,7 +758,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/config-plugins@57.0.6
+### @expo/config-plugins@57.0.7
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/guides/config-plugins/
@@ -1981,7 +1981,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2020 Nicolò Ribaudo and other contributors
 
-### babel-preset-expo@57.0.5
+### babel-preset-expo@57.0.6
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/babel-preset-expo#readme
@@ -2749,7 +2749,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### expo@57.0.10
+### expo@57.0.11
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo
@@ -2757,7 +2757,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-asset@57.0.8
+### expo-asset@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/asset/
@@ -2765,7 +2765,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-build-properties@57.0.8
+### expo-build-properties@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/build-properties
@@ -2797,7 +2797,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-file-system@57.0.1
+### expo-file-system@57.0.2
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/filesystem/
@@ -2837,7 +2837,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-image-manipulator@57.0.7
+### expo-image-manipulator@57.0.8
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/imagemanipulator/
@@ -2845,7 +2845,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-image-picker@57.0.7
+### expo-image-picker@57.0.8
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/imagepicker/
@@ -2877,7 +2877,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-core@57.0.9
+### expo-modules-core@57.0.10
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-core
@@ -2893,7 +2893,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-router@57.0.10
+### expo-router@57.0.11
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/routing/introduction/
@@ -2947,7 +2947,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-symbols@57.0.1
+### expo-symbols@57.0.2
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/symbols/
@@ -4164,7 +4164,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2020 Vercel, Inc.
 
-### multitars@1.0.0
+### multitars@1.0.1
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE.md`
@@ -4172,7 +4172,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 > Copyright (c) Phil Pluckthun,
 > Copyright (c) 650 Industries, Inc. (aka Expo),
 
-### nanoid@3.3.16
+### nanoid@3.3.17
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -4493,7 +4493,7 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 - Lizenzdatei im Paket: `LICENSE`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### postcss@8.5.25
+### postcss@8.5.26
 
 - Lizenz: `MIT`
 - Projektseite: https://postcss.org/
@@ -5505,12 +5505,12 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 > Copyright (c) 2013-2017 Jared Hanson
 > COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 
-### uuid@7.0.3
+### uuid@11.1.1
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE.md`
 
-> Copyright (c) 2010-2016 Robert Kieffer and other contributors
+> Copyright (c) 2010-2020 Robert Kieffer and other contributors
 
 ### v8-to-istanbul@9.3.0
 

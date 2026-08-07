@@ -19,12 +19,12 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -70,8 +70,20 @@ jobs:
       - name: Run Expo Doctor
         run: npx --yes expo-doctor@1.20.1
 
+      # The baseline is "no findings at all", which is the only baseline that
+      # cannot silently hide one. The previous `--audit-level=high` kept the job
+      # green while twelve moderate advisories stood open; the last of them
+      # (GHSA-w5hq-g745-h8pq, uuid < 11.1.1 via xcode) is resolved by the
+      # `overrides` entry in package.json - see docs/dependency-audit.md. A new
+      # moderate advisory therefore fails this job instead of accumulating.
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=moderate
+
+      # Only one package in the whole tree carries an install hook. Asserting the
+      # exact set turns "a dependency update quietly added a postinstall script"
+      # into a failed build rather than something nobody looks at.
+      - name: Enforce the install-script allowlist
+        run: node scripts/check-install-scripts.mjs
 
   release-gate:
     name: Production release gate rejects placeholders
@@ -79,12 +91,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -167,12 +179,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Deno
-        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: v2.x
 
@@ -197,12 +209,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -319,11 +331,122 @@ jobs:
         run: |
           set -euo pipefail
           for profile in development preview; do
-            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
+            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" EXPO_PUBLIC_BUILD_PROFILE="$profile" \
+              LERNZEIT_SKIP_RELEASE_GATE=1 \
               npx --yes expo export --platform web --clear --output-dir "dist-$profile" > /dev/null
-            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
+            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" EXPO_PUBLIC_BUILD_PROFILE="$profile" \
+              LERNZEIT_SKIP_RELEASE_GATE=1 \
               node scripts/check-exported-bundle.mjs "dist-$profile" | tee "$profile.log"
             grep -q 'transport=custom-scheme' "$profile.log"
+            grep -q "profile=$profile" "$profile.log"
             rm -rf "dist-$profile" "$profile.log"
           done
           echo "Development- und Preview-Export verwenden ausschliesslich das private Schema."
+
+  native-linking:
+    name: Generated AndroidManifest.xml per build profile
+    runs-on: ubuntu-latest
+    # Three full prebuilds; each writes a fresh android/ directory.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [production, development, preview]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `expo config` is Expo's *input* to the prebuild; @expo/config-plugins is
+      # what turns it into XML. Only the generated manifest proves what Google
+      # Play will actually install, which is why this job runs the real prebuild
+      # instead of asserting against the resolved config alone.
+      #
+      # android/ is gitignored and produced from scratch here (Continuous Native
+      # Generation), so the checkout is disposable by construction.
+      - name: Prebuild and verify the native manifest
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          if [ "$PROFILE" = 'production' ]; then
+            source scripts/ci-production-env.sh
+          else
+            export EXPO_PUBLIC_BUILD_PROFILE="$PROFILE"
+            export EAS_BUILD=true
+            export EAS_BUILD_PROFILE="$PROFILE"
+            export LERNZEIT_SKIP_RELEASE_GATE=1
+          fi
+          npx --yes expo prebuild --platform android --clean --no-install
+          node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+
+      # The check must fail for the other profiles, otherwise it is asserting
+      # nothing. Production and development are each other's negative case.
+      - name: The manifest must fail the other profile's rules
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          if [ "$PROFILE" = 'production' ]; then
+            set +e
+            EXPO_PUBLIC_BUILD_PROFILE=development EAS_BUILD_PROFILE=development \
+              LERNZEIT_SKIP_RELEASE_GATE=1 \
+              node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+            status=$?
+            set -e
+          else
+            set +e
+            (
+              source scripts/ci-production-env.sh
+              node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+            )
+            status=$?
+            set -e
+          fi
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Das Manifest von $PROFILE hat auch die Regeln des anderen Profils erfuellt."
+            exit 1
+          fi
+          echo "Das $PROFILE-Manifest wird von den Regeln des anderen Profils abgelehnt."
+
+      # Read straight out of the XML, independent of the checker above, so a bug
+      # in the checker cannot make this job pass.
+      - name: Assert the scheme directly in the XML
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          manifest=android/app/src/main/AndroidManifest.xml
+          if [ "$PROFILE" = 'production' ]; then
+            if grep -q 'android:scheme="lernzeit"' "$manifest"; then
+              echo "::error::Das Production-Manifest registriert weiterhin das lernzeit-Scheme."
+              exit 1
+            fi
+            if grep -q 'android:host="auth"' "$manifest"; then
+              echo "::error::Das Production-Manifest enthaelt einen Recovery-Filter auf host=auth."
+              exit 1
+            fi
+            grep -q 'android:autoVerify="true"' "$manifest"
+            grep -q 'android:host="lernzeit-ci.de"' "$manifest"
+            grep -q 'android:path="/update-password"' "$manifest"
+            echo "Production: nur der verifizierte App Link, kein lernzeit-Scheme."
+          else
+            grep -q 'android:scheme="lernzeit"' "$manifest"
+            grep -q 'android:host="auth"' "$manifest"
+            grep -q 'android:path="/update-password"' "$manifest"
+            if grep -q 'android:autoVerify="true"' "$manifest"; then
+              echo "::error::Ein $PROFILE-Manifest darf keinen verifizierten App Link deklarieren."
+              exit 1
+            fi
+            echo "$PROFILE: nur der private Recovery-Link, kein verifizierter App Link."
+          fi
