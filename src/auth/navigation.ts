@@ -14,27 +14,38 @@ export const HOME_NAVIGATION_ANCHOR = '(home)' as const;
  * In a production build this is always
  * `https://<operator-domain>/update-password?type=recovery`, a verified Android
  * App Link that no other app can intercept. `lernzeit://auth/update-password`
- * exists only in development and preview builds, where no verified domain is
- * available; the release gate refuses to build production in that state.
+ * exists only in development and preview builds, whose signing certificate is
+ * not in the operator's assetlinks.json and which therefore have no verifiable
+ * App Link; the release gate refuses to build production in that state.
+ *
+ * The empty string when recovery is disabled - a build whose manifest could not
+ * be reconciled with its bundle. `PASSWORD_RECOVERY_AVAILABLE` is the flag to
+ * check; the empty URL only makes sure a caller that forgets cannot send a
+ * plausible-looking callback.
  *
  * The value comes from config/auth-build.cjs, the same module app.config.js
- * uses for the intent filters, so the mail, the manifest and the parser below
- * cannot disagree about host or transport.
+ * uses for the app scheme and the intent filters, so the mail, the manifest and
+ * the parser below cannot disagree about host or transport.
  */
 export const PASSWORD_RECOVERY_REDIRECT_URL: string = AUTH_BUILD_CONFIGURATION.recoveryRedirectUrl;
 
-/** 'https-app-link' in every production build, 'custom-scheme' otherwise. */
+/**
+ * 'https-app-link' in every production build, 'custom-scheme' in development,
+ * preview and local runs, 'disabled' when the build could not be attested.
+ */
 export const PASSWORD_RECOVERY_REDIRECT_KIND = AUTH_BUILD_CONFIGURATION.recoveryTransport;
 
 /**
  * The single host that may deliver a recovery callback: the operator domain for
- * an App Link build, `auth` for a private-scheme build.
+ * an App Link build, `auth` for a private-scheme build, and the empty string
+ * when recovery is disabled - which matches no host, by construction.
  */
 export const VERIFIED_RECOVERY_HOST: string = AUTH_BUILD_CONFIGURATION.recoveryHost;
 
 /**
- * False when the manifest and the bundle describe different transports. Every
- * recovery entry point then refuses to act; see
+ * False when the manifest and the bundle do not provably describe the same
+ * build - they disagree, or a production build carries no readable attestation
+ * at all. Every recovery entry point then refuses to act; see
  * src/auth/build-configuration.ts.
  */
 export const PASSWORD_RECOVERY_AVAILABLE: boolean = AUTH_BUILD_IS_CONSISTENT;
@@ -124,6 +135,11 @@ function isSafeAuthValue(value: string | null, maxLength = MAX_AUTH_PARAMETER_LE
  * any other installed app, so accepting it would let a second app hand the
  * running Lernzeit app a recovery link of its choosing. A development build in
  * turn has no verified domain, so it must not honour an HTTPS callback either.
+ *
+ * A production build registers no `lernzeit` scheme at all, so Expo falls back
+ * to the Android package name as the app's general incoming scheme. That
+ * fallback is never a recovery transport either: neither branch below can match
+ * it, because one requires `lernzeit:` and the other requires `https:`.
  *
  * Normal deep links are ignored even when they carry auth-looking keys.
  */

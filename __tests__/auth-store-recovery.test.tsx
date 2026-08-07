@@ -60,10 +60,32 @@ jest.mock('@/auth/supabase', () => ({
   },
 }));
 
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: {
+    get expoConfig() {
+      return {
+        extra: {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          authBuildAttestation: require('./support/auth-build-manifest')
+            .embeddedAuthBuildAttestation.value,
+        },
+      };
+    },
+  },
+}));
+
 const OPERATOR_DOMAIN = 'https://lernzeit.de';
 const EXPECTED_REDIRECT = 'https://lernzeit.de/update-password?type=recovery';
 
+// A production build: the profile decides the transport, and the manifest
+// attestation has to agree with the bundle before recovery is enabled at all.
+process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
 process.env.EXPO_PUBLIC_LEGAL_SITE_URL = OPERATOR_DOMAIN;
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const manifest = require('./support/auth-build-manifest') as typeof import('./support/auth-build-manifest');
+manifest.embeddedAuthBuildAttestation.value = manifest.attestationFor(process.env);
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const navigation = require('@/auth/navigation') as typeof import('@/auth/navigation');
@@ -88,12 +110,14 @@ describe('password recovery with a configured operator domain', () => {
   afterAll(() => {
     jest.restoreAllMocks();
     delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+    delete process.env.EXPO_PUBLIC_BUILD_PROFILE;
   });
 
   it('derives the verified HTTPS App Link', () => {
     expect(navigation.PASSWORD_RECOVERY_REDIRECT_URL).toBe(EXPECTED_REDIRECT);
     expect(navigation.PASSWORD_RECOVERY_REDIRECT_KIND).toBe('https-app-link');
     expect(navigation.VERIFIED_RECOVERY_HOST).toBe('lernzeit.de');
+    expect(navigation.PASSWORD_RECOVERY_AVAILABLE).toBe(true);
   });
 
   it('hands exactly that URL to resetPasswordForEmail', async () => {

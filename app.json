@@ -3,7 +3,6 @@
     "name": "Lernzeit",
     "slug": "lernzeit",
     "version": "1.0.0",
-    "scheme": "lernzeit",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "light",

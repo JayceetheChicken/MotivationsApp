@@ -34,6 +34,9 @@ const ANON_JWT = jwt({ iss: 'supabase', role: 'anon' });
 const SERVICE_ROLE_JWT = jwt({ iss: 'supabase', role: 'service_role' });
 
 const completeEnvironment: Record<string, string> = {
+  // A complete production environment names its build profile: it decides the
+  // recovery transport and whether the private URL scheme is registered.
+  EXPO_PUBLIC_BUILD_PROFILE: 'production',
   EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit.de',
   EXPO_PUBLIC_OPERATOR_NAME: 'Muster Lern GmbH',
   EXPO_PUBLIC_OPERATOR_LEGAL_FORM: 'GmbH, vertreten durch die Geschäftsführung',

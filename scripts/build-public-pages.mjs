@@ -112,6 +112,32 @@ try {
     { path: assetLinksPath, content: assetLinksJson },
   ]);
 } catch (error) {
+  // "Nothing changed" may only be claimed when the rollback provably succeeded.
+  // AtomicWriteRollbackError means at least one already-replaced file could not
+  // be restored, and sending the operator away with a false all-clear would
+  // leave a half-published domain configuration nobody looks at again.
+  if (error?.name === 'AtomicWriteRollbackError') {
+    process.stderr.write(
+      '\nDer Schreibvorgang und mindestens ein Rollback sind fehlgeschlagen.\n'
+      + 'Die folgenden Dateien koennen bereits veraendert sein:\n',
+    );
+    for (const file of error.possiblyChangedPaths ?? []) {
+      process.stderr.write(`- ${path.relative(projectRoot, file)}\n`);
+    }
+    for (const file of error.temporaryPaths ?? []) {
+      process.stderr.write(`- uebrig gebliebene temporaere Datei: ${path.relative(projectRoot, file)}\n`);
+    }
+    process.stderr.write(
+      `\nUrspruenglicher Fehler: ${error.originalFailure?.message ?? error.originalFailure}\n`,
+    );
+    for (const rollbackError of error.rollbackFailures ?? []) {
+      process.stderr.write(`Rollback-Fehler: ${rollbackError?.message ?? rollbackError}\n`);
+    }
+    process.stderr.write(
+      '\nPruefe den Inhalt der genannten Dateien, bevor du den Lauf wiederholst.\n',
+    );
+    process.exit(1);
+  }
   process.stderr.write(
     '\nDie oeffentlichen Seiten konnten nicht geschrieben werden. Der vorherige Stand ist unveraendert:\n'
     + `- ${error?.message ?? error}\n`,

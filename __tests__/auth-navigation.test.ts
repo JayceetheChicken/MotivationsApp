@@ -9,19 +9,52 @@ import {
   VERIFIED_RECOVERY_HOST,
 } from '@/auth/navigation';
 
+import { attestationFor, embeddedAuthBuildAttestation } from './support/auth-build-manifest';
+
+// The runtime reads the attestation back out of the embedded manifest. Under
+// Jest there is none, so every build shape below supplies the one app.config.js
+// would have written; a production build without it is denied recovery, which
+// `reconciling manifest and bundle` in auth-build-configuration.test.ts asserts.
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: {
+    get expoConfig() {
+      return {
+        extra: {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          authBuildAttestation: require('./support/auth-build-manifest')
+            .embeddedAuthBuildAttestation.value,
+        },
+      };
+    },
+  },
+}));
+
 type NavigationModule = typeof import('@/auth/navigation');
 
 /**
- * Reloads the navigation module with a given operator domain.
+ * Reloads the navigation module as a build of `environment` would have produced
+ * it: the environment variables Metro inlines, plus the manifest attestation
+ * app.config.js derives from exactly the same values.
  *
- * The recovery transport is resolved once when the module is first evaluated,
- * exactly as Metro inlines EXPO_PUBLIC_LEGAL_SITE_URL into the bundle: a domain
- * means the verified App Link, no domain means the private scheme.
+ * The transport follows the *build profile*, not the presence of a domain - a
+ * development build handed the real operator domain still uses the private
+ * scheme, because its signing certificate is not in the operator's
+ * assetlinks.json.
  */
-function withLegalSiteUrl<T>(value: string | undefined, run: (module: NavigationModule) => T): T {
-  const previous = process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
-  if (value === undefined) delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
-  else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = value;
+function withBuild<T>(
+  environment: Readonly<Record<string, string | undefined>>,
+  run: (module: NavigationModule) => T,
+): T {
+  const keys = ['EXPO_PUBLIC_BUILD_PROFILE', 'EXPO_PUBLIC_LEGAL_SITE_URL'] as const;
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) {
+    const value = environment[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  const previousAttestation = embeddedAuthBuildAttestation.value;
+  embeddedAuthBuildAttestation.value = attestationFor(environment);
 
   let result!: T;
   try {
@@ -29,29 +62,27 @@ function withLegalSiteUrl<T>(value: string | undefined, run: (module: Navigation
       result = run(require('@/auth/navigation') as NavigationModule);
     });
   } finally {
-    if (previous === undefined) delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
-    else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = previous;
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+    embeddedAuthBuildAttestation.value = previousAttestation;
     jest.resetModules();
   }
   return result;
 }
 
-/** A build with a real operator domain, i.e. the production shape. */
+/** Reloads the module with a given operator domain in a production build. */
+const withLegalSiteUrl = <T,>(value: string | undefined, run: (module: NavigationModule) => T): T =>
+  withBuild({ EXPO_PUBLIC_BUILD_PROFILE: 'production', EXPO_PUBLIC_LEGAL_SITE_URL: value }, run);
+
+/** A production build with a real operator domain. */
 const withProductionBuild = <T,>(run: (module: NavigationModule) => T): T =>
   withLegalSiteUrl('https://lernzeit.de', run);
 
-/**
- * A build without an operator domain, i.e. development *and* preview.
- *
- * Both profiles are one runtime state, not two: the app cannot see
- * EAS_BUILD_PROFILE (Metro inlines only EXPO_PUBLIC_* reads), so the transport
- * follows solely from the absence of an operator domain. The profiles are told
- * apart where they actually differ - in the manifest - and
- * `__tests__/release-scripts.test.ts` asserts development and preview there
- * separately.
- */
+/** A development build, whether or not a domain happens to be configured. */
 const withDevelopmentBuild = <T,>(run: (module: NavigationModule) => T): T =>
-  withLegalSiteUrl(undefined, run);
+  withBuild({ EXPO_PUBLIC_BUILD_PROFILE: 'development' }, run);
 
 describe('optional authentication navigation', () => {
   it('keeps guest and local-profile learning data in the same local workspace', () => {
@@ -224,6 +255,87 @@ describe('development and preview recovery transport', () => {
       expect(navigation.parsePasswordRecoveryUrl(url)).toBeNull();
       expect(navigation.isPasswordRecoveryUrl(url)).toBe(false);
     });
+  });
+});
+
+// --- The transport follows the profile, never the domain --------------------
+
+describe('recovery transport per build profile', () => {
+  /**
+   * The distinction this whole split exists for. A development or preview build
+   * can be handed the real operator values, and deriving the transport from
+   * "is a domain configured?" would make it claim an App Link whose development
+   * signing certificate is not listed in the operator's assetlinks.json.
+   */
+  it.each(['development', 'preview'])(
+    'keeps the private scheme in a %s build that has a real operator domain',
+    (profile) => {
+      withBuild(
+        { EXPO_PUBLIC_BUILD_PROFILE: profile, EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit.de' },
+        (navigation) => {
+          expect(navigation.PASSWORD_RECOVERY_REDIRECT_KIND).toBe('custom-scheme');
+          expect(navigation.PASSWORD_RECOVERY_REDIRECT_URL).toBe(
+            'lernzeit://auth/update-password?type=recovery',
+          );
+          expect(navigation.parsePasswordRecoveryUrl(
+            'https://lernzeit.de/update-password?code=c&type=recovery',
+          )).toBeNull();
+        },
+      );
+    },
+  );
+
+  it.each(['development', 'preview'])('uses the private scheme in a %s build without a domain', (profile) => {
+    withBuild({ EXPO_PUBLIC_BUILD_PROFILE: profile }, (navigation) => {
+      expect(navigation.PASSWORD_RECOVERY_REDIRECT_KIND).toBe('custom-scheme');
+      expect(navigation.PASSWORD_RECOVERY_AVAILABLE).toBe(true);
+    });
+  });
+
+  /**
+   * Without `expo.scheme` Expo falls back to the Android package name as the
+   * app's general scheme. That is acceptable only because the parser does not
+   * treat it as a recovery transport.
+   */
+  it('never accepts the Android package scheme as a recovery transport', () => {
+    for (const build of [withProductionBuild, withDevelopmentBuild]) {
+      build((navigation) => {
+        expect(navigation.parsePasswordRecoveryUrl(
+          'de.lernzeit.app://auth/update-password?code=c&type=recovery',
+        )).toBeNull();
+        expect(navigation.parsePasswordRecoveryUrl(
+          'de.lernzeit.app://update-password?code=c&type=recovery',
+        )).toBeNull();
+      });
+    }
+  });
+
+  /** A production build with no manifest attestation must not send anything. */
+  it('disables recovery in a production build whose manifest is not attested', () => {
+    const previousProfile = process.env.EXPO_PUBLIC_BUILD_PROFILE;
+    const previousUrl = process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+    const previousAttestation = embeddedAuthBuildAttestation.value;
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_LEGAL_SITE_URL = 'https://lernzeit.de';
+    embeddedAuthBuildAttestation.value = undefined;
+
+    try {
+      jest.isolateModules(() => {
+        const navigation = require('@/auth/navigation') as NavigationModule;
+        expect(navigation.PASSWORD_RECOVERY_AVAILABLE).toBe(false);
+        expect(navigation.PASSWORD_RECOVERY_REDIRECT_URL).toBe('');
+        expect(navigation.parsePasswordRecoveryUrl(
+          'https://lernzeit.de/update-password?code=c&type=recovery',
+        )).toBeNull();
+      });
+    } finally {
+      if (previousProfile === undefined) delete process.env.EXPO_PUBLIC_BUILD_PROFILE;
+      else process.env.EXPO_PUBLIC_BUILD_PROFILE = previousProfile;
+      if (previousUrl === undefined) delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+      else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = previousUrl;
+      embeddedAuthBuildAttestation.value = previousAttestation;
+      jest.resetModules();
+    }
   });
 });
 

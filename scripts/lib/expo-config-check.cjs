@@ -46,6 +46,29 @@ function findPrivateRecoveryFilter(intentFilters) {
 }
 
 /**
+ * Any intent filter that mentions the private scheme at all, recovery route or
+ * not. A production manifest must contain none: the whole point of dropping
+ * `expo.scheme` is that `lernzeit://` can no longer reach the app.
+ * @param {readonly Record<string, unknown>[]} intentFilters
+ */
+function findCustomSchemeFilters(intentFilters) {
+  return intentFilters.filter((filter) => filterData(filter).some(
+    (entry) => entry?.scheme === releaseConfig.APP_SCHEME,
+  ));
+}
+
+/**
+ * Every spelling of the general Expo scheme, which may be a string or an array.
+ * @param {unknown} scheme
+ * @returns {string[]}
+ */
+function declaredSchemes(scheme) {
+  if (typeof scheme === 'string') return [scheme];
+  if (Array.isArray(scheme)) return scheme.filter((entry) => typeof entry === 'string');
+  return [];
+}
+
+/**
  * Every reason a resolved Expo configuration must not be released.
  *
  * @param {Record<string, unknown>} rawConfig `expo config --json` output, wrapped or not
@@ -78,15 +101,6 @@ function collectExpoConfigIssues(rawConfig, environment) {
     android.allowBackup === false,
     'android.allowBackup muss false sein, damit Kontodaten nicht in Cloud-Backups landen.',
   );
-  // The app's *general* URL scheme. Expo Router and the development client need
-  // it to open the app at all; it is deliberately separate from the password
-  // recovery transport checked below.
-  check(
-    config.scheme === releaseConfig.APP_SCHEME
-      || (Array.isArray(config.scheme) && config.scheme.includes(releaseConfig.APP_SCHEME)),
-    `Das allgemeine App-Scheme "${releaseConfig.APP_SCHEME}" fehlt.`,
-  );
-
   const buildProperties = (config.plugins ?? []).find(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties',
   );
@@ -106,16 +120,45 @@ function collectExpoConfigIssues(rawConfig, environment) {
   );
   check(androidBuildProperties.usesCleartextTraffic === false, 'usesCleartextTraffic muss false sein.');
 
-  // --- Recovery transport, strictly per build profile ------------------------
+  // --- Recovery transport and app scheme, strictly per build profile ---------
   //
   // Manifest, runtime parser and resetPasswordForEmail must name the same
   // transport. This asserts the manifest half against the same central
   // derivation app.config.js and the app itself use.
+  const profile = releaseConfig.resolveBuildProfile(environment);
+  if (profile.issue) failures.push(profile.issue);
   const auth = releaseConfig.resolveAuthBuildConfiguration(environment);
   const intentFilters = Array.isArray(android.intentFilters) ? android.intentFilters : [];
   const appLink = intentFilters.find((filter) => filter?.autoVerify === true) ?? null;
   const appLinkHost = appLink ? (filterData(appLink)[0]?.host ?? null) : null;
   const privateRecoveryFilter = findPrivateRecoveryFilter(intentFilters);
+  const schemes = declaredSchemes(config.scheme);
+  const declaresAppScheme = schemes.includes(releaseConfig.APP_SCHEME);
+
+  // The general Expo scheme. Expo registers it as an ordinary incoming deep
+  // link, so leaving it in a production manifest would keep
+  // `lernzeit://auth/update-password` able to open the app even after the
+  // specific recovery intent filter was removed. Development and preview need
+  // it for `npx expo start` and the development client.
+  if (releaseConfig.registersAppScheme(auth.profile)) {
+    check(
+      declaresAppScheme,
+      `Im Profil "${auth.profile}" fehlt das allgemeine App-Scheme "${releaseConfig.APP_SCHEME}".`,
+    );
+  } else {
+    check(
+      !declaresAppScheme,
+      `Ein Production-Build darf das Scheme "${releaseConfig.APP_SCHEME}" nicht registrieren; `
+      + `gefunden: ${JSON.stringify(config.scheme)}. Expo macht daraus einen allgemeinen `
+      + 'eingehenden Deep Link, ueber den der Recovery-Link die App weiterhin oeffnen koennte.',
+    );
+    const customSchemeFilters = findCustomSchemeFilters(intentFilters);
+    check(
+      customSchemeFilters.length === 0,
+      'Ein Production-Build darf keinen Intent-Filter auf dem privaten Scheme registrieren, gefunden: '
+      + `${JSON.stringify(customSchemeFilters.map((filter) => filterData(filter)))}.`,
+    );
+  }
 
   if (auth.recoveryTransport === 'https-app-link') {
     check(Boolean(appLink), 'Es ist kein verifizierter Android App Link (autoVerify) konfiguriert.');
@@ -143,20 +186,29 @@ function collectExpoConfigIssues(rawConfig, environment) {
     } else {
       notes.push(`App-Links-Host: ${appLinkHost}`);
     }
-  } else {
-    // Development and preview: no verified domain exists, so the private scheme
-    // is the only transport - and nothing may claim to be a verified App Link.
+  } else if (auth.recoveryTransport === 'custom-scheme') {
+    // Development, preview and local: the signing certificate is not in the
+    // operator's assetlinks.json, so the private scheme is the only transport
+    // that can work - and nothing may claim to be a verified App Link.
     check(
       Boolean(privateRecoveryFilter),
-      'Im Development-/Preview-Profil fehlt der private Recovery-Deep-Link '
+      `Im Profil "${auth.profile}" fehlt der private Recovery-Deep-Link `
       + `${releaseConfig.APP_SCHEME}://auth${releaseConfig.RECOVERY_PATH}.`,
     );
     check(
       !appLink,
-      'Ohne echte Betreiberdomain darf kein autoVerify-App-Link konfiguriert sein; '
+      'Ohne verifizierbare Betreiberdomain darf kein autoVerify-App-Link konfiguriert sein; '
       + 'er koennte nie verifiziert werden.',
     );
+    // The shared definition of a correct non-production build, so this verifier
+    // cannot drift away from the export scanner or the runtime.
+    for (const issue of releaseConfig.collectDevelopmentAuthBuildIssues(auth)) failures.push(issue);
     notes.push(`Recovery-Transport: ${auth.recoveryTransport} (${auth.recoveryRedirectUrl})`);
+  } else {
+    failures.push(
+      `Der Recovery-Transport ist "${auth.recoveryTransport}". Diese Konfiguration hat keinen `
+      + 'gueltigen Transport und darf nicht gebaut werden.',
+    );
   }
 
   // The manifest must carry the attestation the app reads back at runtime.
@@ -167,7 +219,8 @@ function collectExpoConfigIssues(rawConfig, environment) {
   check(Boolean(attested), 'In extra.authBuildAttestation steht keine lesbare Auth-Build-Attestierung.');
   if (attested) {
     check(
-      attested.recoveryTransport === auth.recoveryTransport
+      attested.profile === auth.profile
+      && attested.recoveryTransport === auth.recoveryTransport
       && attested.recoveryRedirectUrl === auth.recoveryRedirectUrl
       && attested.recoveryHost === auth.recoveryHost
       && attested.androidAppLinkHost === auth.androidAppLinkHost
@@ -178,6 +231,12 @@ function collectExpoConfigIssues(rawConfig, environment) {
     check(
       attested.androidAppLinkHost === appLinkHost,
       `Die Attestierung nennt den App-Link-Host "${attested.androidAppLinkHost}", das Manifest "${appLinkHost}".`,
+    );
+    // Manifest, bundle and runtime must attest the same profile.
+    check(
+      attested.profile === auth.profile && config.extra?.buildProfile === auth.profile,
+      `Das Manifest nennt das Buildprofil "${config.extra?.buildProfile}", die Attestierung `
+      + `"${attested.profile}" und die aufgeloeste Konfiguration "${auth.profile}".`,
     );
   }
 
@@ -201,6 +260,8 @@ function collectExpoConfigIssues(rawConfig, environment) {
     failures,
     notes,
     summary: {
+      buildProfile: auth.profile,
+      appScheme: config.scheme ?? null,
       androidPackage: android.package,
       version: config.version,
       versionCode: android.versionCode,
@@ -219,5 +280,7 @@ module.exports = {
   FORBIDDEN_TOKENS,
   filterData,
   findPrivateRecoveryFilter,
+  findCustomSchemeFilters,
+  declaredSchemes,
   collectExpoConfigIssues,
 };

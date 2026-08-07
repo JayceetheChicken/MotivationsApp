@@ -4,6 +4,8 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { PASSWORD_RECOVERY_REDIRECT_URL } from '@/auth/navigation';
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 
+import { attestationFor, embeddedAuthBuildAttestation } from './support/auth-build-manifest';
+
 const mockGetInitialURL = jest.fn<Promise<string | null>, []>();
 const mockGetSession = jest.fn();
 const mockExchangeCodeForSession = jest.fn();
@@ -39,6 +41,24 @@ jest.mock('expo-linking', () => ({
   }),
   createURL: jest.fn((path: string) => `lernzeit://${path}`),
   getInitialURL: () => mockGetInitialURL(),
+}));
+
+// The manifest attestation a real build embeds. Left undefined for the local
+// development shape most of this file exercises, and set for the one test that
+// loads the production shape.
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: {
+    get expoConfig() {
+      return {
+        extra: {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          authBuildAttestation: require('./support/auth-build-manifest')
+            .embeddedAuthBuildAttestation.value,
+        },
+      };
+    },
+  },
 }));
 
 jest.mock('@/auth/storage', () => ({
@@ -350,9 +370,13 @@ describe('AuthStoreProvider startup', () => {
   // The end-to-end proof that the derived HTTPS App Link really reaches
   // Supabase lives in __tests__/auth-store-recovery.test.tsx, which loads the
   // store with a configured operator domain.
-  it('never sends the private scheme once a domain is configured', async () => {
-    const previous = process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+  it('never sends the private scheme in a production build', async () => {
+    const previousUrl = process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+    const previousProfile = process.env.EXPO_PUBLIC_BUILD_PROFILE;
     process.env.EXPO_PUBLIC_LEGAL_SITE_URL = 'https://lernzeit.de';
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    const previousAttestation = embeddedAuthBuildAttestation.value;
+    embeddedAuthBuildAttestation.value = attestationFor(process.env);
 
     try {
       let navigation!: typeof import('@/auth/navigation');
@@ -361,9 +385,13 @@ describe('AuthStoreProvider startup', () => {
       });
       expect(navigation.PASSWORD_RECOVERY_REDIRECT_URL).not.toContain('lernzeit://');
       expect(navigation.PASSWORD_RECOVERY_REDIRECT_KIND).toBe('https-app-link');
+      expect(navigation.PASSWORD_RECOVERY_AVAILABLE).toBe(true);
     } finally {
-      if (previous === undefined) delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
-      else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = previous;
+      embeddedAuthBuildAttestation.value = previousAttestation;
+      if (previousUrl === undefined) delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
+      else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = previousUrl;
+      if (previousProfile === undefined) delete process.env.EXPO_PUBLIC_BUILD_PROFILE;
+      else process.env.EXPO_PUBLIC_BUILD_PROFILE = previousProfile;
       jest.resetModules();
     }
   });

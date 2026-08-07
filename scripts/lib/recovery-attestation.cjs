@@ -65,8 +65,8 @@ function findRecoveryUrls(documents) {
  * Checks a production export.
  *
  * @param {readonly {file: string, content: string}[]} documents
- * @param {Readonly<{ recoveryRedirectUrl: string, androidAppLinkHost: string | null }>} expected
- *   the configuration the release gate resolved for this build
+ * @param {Readonly<{ recoveryRedirectUrl: string, androidAppLinkHost: string | null,
+ *   profile?: string }>} expected the configuration the release gate resolved
  * @returns {string[]} human readable failures, empty when the export is sound
  */
 function collectProductionRecoveryIssues(documents, expected) {
@@ -110,6 +110,11 @@ function collectProductionRecoveryIssues(documents, expected) {
       failures.push(
         `Der gebuendelte App-Link-Host ist "${configuration.androidAppLinkHost}", `
         + `erwartet "${expected.androidAppLinkHost}".`,
+      );
+    }
+    if (expected.profile !== undefined && configuration.profile !== expected.profile) {
+      failures.push(
+        `Das gebuendelte Buildprofil ist "${configuration.profile}", erwartet "${expected.profile}".`,
       );
     }
   }
@@ -158,59 +163,39 @@ function collectAttestationConsistencyIssues(documents) {
 
   for (const attestation of distinct) {
     const configuration = releaseConfig.parseAuthBuildAttestation(attestation);
-    if (configuration.recoveryTransport === 'https-app-link') {
-      for (const issue of releaseConfig.collectProductionAuthBuildIssues(configuration)) {
-        failures.push(`Gebuendelte Konfiguration: ${issue}`);
-      }
-    } else {
-      failures.push(...developmentIssues(configuration));
+    // The attestation names its own profile, so the rules that apply are the
+    // ones for that profile - the same functions the release gate, the Expo
+    // config verifier and the runtime use.
+    for (const issue of releaseConfig.collectAuthBuildIssues(configuration)) {
+      failures.push(`Gebuendelte Konfiguration: ${issue}`);
     }
-  }
-  return failures;
-}
-
-/**
- * @param {Readonly<{recoveryTransport: string, recoveryRedirectUrl: string, androidAppLinkHost: string | null}>} configuration
- * @returns {string[]}
- */
-function developmentIssues(configuration) {
-  const failures = [];
-  if (configuration.recoveryRedirectUrl !== releaseConfig.CUSTOM_RECOVERY_URL) {
-    failures.push(
-      `Die gebuendelte Recovery-URL ist "${configuration.recoveryRedirectUrl}", `
-      + `erwartet "${releaseConfig.CUSTOM_RECOVERY_URL}".`,
-    );
-  }
-  if (configuration.androidAppLinkHost !== null) {
-    failures.push(
-      'Ohne Betreiberdomain darf kein App-Link-Host attestiert sein, gefunden: '
-      + `"${configuration.androidAppLinkHost}".`,
-    );
   }
   return failures;
 }
 
 /**
  * Checks a development or preview export: the private scheme must be the active
- * transport and no App Link may claim to be verified.
+ * transport, the profile must be a non-production one and no App Link may claim
+ * to be verified.
  *
  * @param {readonly {file: string, content: string}[]} documents
  * @returns {string[]}
  */
 function collectDevelopmentRecoveryIssues(documents) {
   const failures = [];
-  const { found } = findAttestations(documents);
-  if (found.length === 0) return ['Im Export steht keine Auth-Build-Attestierung.'];
+  const { found, unparsable } = findAttestations(documents);
+  for (const entry of unparsable) {
+    failures.push(`${entry.file}: unlesbare Auth-Build-Attestierung "${entry.attestation}".`);
+  }
+  if (found.length === 0) return [...failures, 'Im Export steht keine Auth-Build-Attestierung.'];
 
-  for (const attestation of [...new Set(found.map((entry) => entry.attestation))]) {
+  const distinct = [...new Set(found.map((entry) => entry.attestation))];
+  if (distinct.length > 1) {
+    failures.push(`Der Export enthaelt ${distinct.length} verschiedene Attestierungen: ${distinct.join(' | ')}.`);
+  }
+  for (const attestation of distinct) {
     const configuration = releaseConfig.parseAuthBuildAttestation(attestation);
-    if (configuration.recoveryTransport !== 'custom-scheme') {
-      failures.push(
-        `Der gebuendelte Recovery-Transport ist "${configuration.recoveryTransport}", `
-        + 'erwartet "custom-scheme" fuer einen Development-/Preview-Export.',
-      );
-    }
-    failures.push(...developmentIssues(configuration));
+    failures.push(...releaseConfig.collectDevelopmentAuthBuildIssues(configuration));
   }
   return failures;
 }

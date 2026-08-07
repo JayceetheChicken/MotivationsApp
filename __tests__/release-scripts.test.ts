@@ -18,14 +18,24 @@ import releaseConfig from '../config/release-config.cjs';
 import atomicWrite from '../scripts/lib/atomic-write.cjs';
 import bundleScan from '../scripts/lib/bundle-scan.cjs';
 import expoConfigCheck from '../scripts/lib/expo-config-check.cjs';
+import nativeLinking from '../scripts/lib/native-linking-check.cjs';
 import publicPages from '../scripts/lib/public-pages.cjs';
 import recoveryAttestation from '../scripts/lib/recovery-attestation.cjs';
 import sensitiveFiles from '../scripts/lib/sensitive-files.cjs';
+
+/**
+ * The very same `node:fs` object scripts/lib/atomic-write.cjs holds. A
+ * namespace import would be a Babel interop *copy*, and spying on the copy
+ * would leave the module under test calling the real function.
+ */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nodeFs = require('node:fs') as typeof import('node:fs');
 
 type Environment = Record<string, string | undefined>;
 type Issue = { key?: string; envVar: string; reason: string; detail: string };
 
 type AuthBuildConfiguration = Readonly<{
+  profile: 'production' | 'development' | 'preview' | 'local' | 'invalid';
   recoveryTransport: 'https-app-link' | 'custom-scheme';
   recoveryRedirectUrl: string;
   recoveryHost: string;
@@ -51,7 +61,7 @@ type TestManifest = {
     intentFilters: IntentFilter[];
   };
   plugins: unknown[];
-  extra: { authBuildAttestation?: string; legalSiteHost?: string };
+  extra: { authBuildAttestation?: string; legalSiteHost?: string; buildProfile?: string };
 };
 
 // --- helpers ----------------------------------------------------------------
@@ -86,6 +96,9 @@ const FINGERPRINT_A = fingerprint('AA');
 const FINGERPRINT_B = fingerprint('1F');
 
 const completeEnvironment: Record<string, string> = {
+  // The build profile is part of a complete production environment: it decides
+  // the recovery transport and the registered URL scheme.
+  EXPO_PUBLIC_BUILD_PROFILE: 'production',
   EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit.de',
   EXPO_PUBLIC_OPERATOR_NAME: 'Muster Lern GmbH',
   EXPO_PUBLIC_OPERATOR_LEGAL_FORM: 'GmbH, vertreten durch die Geschäftsführung',
@@ -638,6 +651,7 @@ describe('password recovery callback', () => {
 
   it('keeps the fixed recovery path even when the base URL has a path', () => {
     expect(releaseConfig.recoveryRedirectUrl({
+      EXPO_PUBLIC_BUILD_PROFILE: 'production',
       EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit.de/rechtliches/lernzeit',
     })).toEqual({
       url: 'https://lernzeit.de/update-password?type=recovery',
@@ -645,11 +659,58 @@ describe('password recovery callback', () => {
     });
   });
 
-  it('falls back to the private scheme only without a real domain', () => {
+  it('uses the private scheme for a local run', () => {
     expect(releaseConfig.recoveryRedirectUrl({})).toEqual({
       url: 'lernzeit://auth/update-password?type=recovery',
       kind: 'custom-scheme',
     });
+  });
+
+  /**
+   * The whole reason the profile and not the domain decides: a development or
+   * preview build handed the real operator values would otherwise claim an App
+   * Link whose signing certificate is not in the operator's assetlinks.json.
+   */
+  it.each(['development', 'preview', 'local'])(
+    'keeps the private scheme in a %s build that has the real domain',
+    (profile) => {
+      expect(releaseConfig.recoveryRedirectUrl({
+        EXPO_PUBLIC_BUILD_PROFILE: profile,
+        EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit.de',
+      })).toEqual({
+        url: 'lernzeit://auth/update-password?type=recovery',
+        kind: 'custom-scheme',
+      });
+    },
+  );
+
+  it.each([
+    ['fehlende Domain', { EXPO_PUBLIC_BUILD_PROFILE: 'production' }],
+    [
+      'private Domain',
+      { EXPO_PUBLIC_BUILD_PROFILE: 'production', EXPO_PUBLIC_LEGAL_SITE_URL: 'https://192.168.1.10' },
+    ],
+    [
+      'reservierte Domain',
+      { EXPO_PUBLIC_BUILD_PROFILE: 'production', EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit.invalid' },
+    ],
+  ])('disables recovery entirely for a production build with a %s', (_label, environment) => {
+    expect(releaseConfig.recoveryRedirectUrl(environment)).toEqual({ url: '', kind: 'disabled' });
+    expect(releaseConfig.collectRecoveryReleaseIssues(environment).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['unbekanntes Profil', { EAS_BUILD_PROFILE: 'staging' }],
+    [
+      'widersprechende Profile',
+      { EXPO_PUBLIC_BUILD_PROFILE: 'preview', EAS_BUILD_PROFILE: 'production' },
+    ],
+  ])('blocks the release for a %s', (_label, environment) => {
+    expect(releaseConfig.recoveryRedirectUrl(environment).kind).toBe('disabled');
+    const blockers = releaseConfig.collectReleaseBlockers(environment) as Issue[];
+    expect(blockers.some((issue) => issue.envVar === 'EXPO_PUBLIC_BUILD_PROFILE')).toBe(true);
+    // An unresolvable profile must never let the gate be skipped.
+    expect(releaseConfig.isProductionRelease(environment)).toBe(true);
   });
 
   it.each([
@@ -825,6 +886,14 @@ describe('expo config release checks', () => {
   const PRODUCTION_ENVIRONMENT = { ...completeEnvironment, LERNZEIT_RELEASE_GATE: '1' };
   const DEVELOPMENT_ENVIRONMENT = { EAS_BUILD_PROFILE: 'development' };
 
+  /**
+   * The manifest app.config.js resolves for this environment, rebuilt here so a
+   * deliberately broken variant can be handed to the verifier.
+   *
+   * Production carries no `scheme` at all: Expo would register it as a general
+   * incoming deep link, and `lernzeit://auth/update-password` would keep opening
+   * the app even without the specific recovery intent filter.
+   */
   function manifest(environment: Record<string, string | undefined>): TestManifest {
     const auth = releaseConfig.resolveAuthBuildConfiguration(environment) as AuthBuildConfiguration;
     const intentFilters: IntentFilter[] = auth.recoveryTransport === 'https-app-link'
@@ -839,9 +908,8 @@ describe('expo config release checks', () => {
         category: ['BROWSABLE', 'DEFAULT'],
         data: [{ scheme: 'lernzeit', host: 'auth', path: '/update-password' }],
       }];
-    return {
+    const config: TestManifest = {
       version: '1.0.0',
-      scheme: 'lernzeit',
       android: {
         package: 'de.lernzeit.app',
         versionCode: 1,
@@ -856,8 +924,13 @@ describe('expo config release checks', () => {
           usesCleartextTraffic: false,
         },
       }]],
-      extra: { authBuildAttestation: authBuild.serializeAuthBuildConfiguration(auth) },
+      extra: {
+        buildProfile: auth.profile,
+        authBuildAttestation: authBuild.serializeAuthBuildConfiguration(auth),
+      },
     };
+    if (releaseConfig.registersAppScheme(auth.profile)) config.scheme = 'lernzeit';
+    return config;
   }
 
   const PRIVATE_RECOVERY_FILTER: IntentFilter = {
@@ -950,12 +1023,71 @@ describe('expo config release checks', () => {
     ],
     ['falscher Paketname', (config) => { config.android.package = 'com.other.app'; }, /Paketname/],
     ['Backup erlaubt', (config) => { config.android.allowBackup = true; }, /allowBackup/],
-    ['fehlendes App-Scheme', (config) => { config.scheme = undefined; }, /App-Scheme/],
+    // Expo registers `expo.scheme` as an ordinary incoming deep link, so a
+    // production manifest that still declares it keeps lernzeit:// able to open
+    // the app - with or without the specific recovery intent filter.
+    [
+      'registriertem lernzeit-Scheme',
+      (config) => { config.scheme = 'lernzeit'; },
+      /darf das Scheme "lernzeit" nicht registrieren/,
+    ],
+    [
+      'lernzeit-Scheme in einer Scheme-Liste',
+      (config) => { config.scheme = ['de.lernzeit.app', 'lernzeit']; },
+      /darf das Scheme "lernzeit" nicht registrieren/,
+    ],
+    [
+      'einem beliebigen lernzeit-Intent-Filter',
+      (config) => {
+        config.android.intentFilters.push({
+          action: 'VIEW',
+          category: ['BROWSABLE', 'DEFAULT'],
+          data: [{ scheme: 'lernzeit', host: 'auth', path: '/profile' }],
+        });
+      },
+      /keinen Intent-Filter auf dem privaten Scheme/,
+    ],
+    [
+      'abweichendem Buildprofil im Manifest',
+      (config) => { config.extra.buildProfile = 'development'; },
+      /Buildprofil/,
+    ],
   ])('rejects a production manifest with %s', (_label, mutate, expected) => {
     const config = manifest(PRODUCTION_ENVIRONMENT);
     mutate(config);
     expect(expoConfigCheck.collectExpoConfigIssues(config, PRODUCTION_ENVIRONMENT).failures.join(' '))
       .toMatch(expected);
+  });
+
+  it('resolves a production manifest without any lernzeit scheme', () => {
+    const config = manifest(PRODUCTION_ENVIRONMENT);
+    expect(config.scheme).toBeUndefined();
+    expect(JSON.stringify(config)).not.toContain('"lernzeit"');
+  });
+
+  it.each(['development', 'preview'])('keeps the lernzeit scheme in a %s manifest', (profile) => {
+    const environment = { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
+    expect(manifest(environment).scheme).toBe('lernzeit');
+  });
+
+  it.each(['development', 'preview'])('rejects a %s manifest without the app scheme', (profile) => {
+    const environment = { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
+    const config = manifest(environment);
+    config.scheme = undefined;
+    expect(expoConfigCheck.collectExpoConfigIssues(config, environment).failures.join(' '))
+      .toMatch(/fehlt das allgemeine App-Scheme/);
+  });
+
+  it.each([
+    ['unbekanntes Profil', { EAS_BUILD_PROFILE: 'staging' }],
+    [
+      'widersprechende Profile',
+      { EXPO_PUBLIC_BUILD_PROFILE: 'development', EAS_BUILD_PROFILE: 'production' },
+    ],
+  ])('refuses to verify a manifest built with a %s', (_label, environment) => {
+    const config = manifest(environment);
+    expect(expoConfigCheck.collectExpoConfigIssues(config, environment).failures.length)
+      .toBeGreaterThan(0);
   });
 
   it('rejects a production manifest that carries the development marker domain', () => {
@@ -1008,8 +1140,10 @@ describe('bundled recovery attestation', () => {
   // A marker whose url field never made it into the build must not be treated
   // as "no attestation at all" and must never pass.
   it.each<[string, string]>([
-    ['fehlende URL', 'lernzeit.auth-build/v1;transport=https-app-link;host=lernzeit.de;appLinkHost=lernzeit.de;customScheme=off;schemeFilter=off;end'],
-    ['leere URL', 'lernzeit.auth-build/v1;transport=https-app-link;host=lernzeit.de;appLinkHost=lernzeit.de;customScheme=off;schemeFilter=off;url=;end'],
+    ['fehlende URL', 'lernzeit.auth-build/v1;profile=production;transport=https-app-link;host=lernzeit.de;appLinkHost=lernzeit.de;customScheme=off;schemeFilter=off;end'],
+    ['leere URL', 'lernzeit.auth-build/v1;profile=production;transport=https-app-link;host=lernzeit.de;appLinkHost=lernzeit.de;customScheme=off;schemeFilter=off;url=;end'],
+    ['fehlendes Profil', 'lernzeit.auth-build/v1;transport=https-app-link;host=lernzeit.de;appLinkHost=lernzeit.de;customScheme=off;schemeFilter=off;url=https://lernzeit.de/update-password?type=recovery;end'],
+    ['abweichenden App-Link-Host', 'lernzeit.auth-build/v1;profile=production;transport=https-app-link;host=lernzeit.de;appLinkHost=andere.de;customScheme=off;schemeFilter=off;url=https://lernzeit.de/update-password?type=recovery;end'],
   ])('rejects an export whose attestation has a %s', (_label, attestation) => {
     const failures = recoveryAttestation.collectProductionRecoveryIssues(
       [{ file: 'entry.js', content: `var m=${JSON.stringify(attestation)};` }],
@@ -1026,13 +1160,24 @@ describe('bundled recovery attestation', () => {
     expect(failures.join(' ')).toMatch(/custom-scheme/);
   });
 
-  it('rejects a host mismatch between manifest App Link and runtime', () => {
-    const drifted = { ...PRODUCTION, androidAppLinkHost: 'andere.de' };
+  it('rejects an export whose attested App Link host is a whole other domain', () => {
+    const drifted = releaseConfig.resolveAuthBuildConfiguration({
+      EXPO_PUBLIC_BUILD_PROFILE: 'production',
+      EXPO_PUBLIC_LEGAL_SITE_URL: 'https://andere.de',
+    }) as AuthBuildConfiguration;
     const failures = recoveryAttestation.collectProductionRecoveryIssues(
       exportWith(drifted),
       PRODUCTION,
     );
     expect(failures.join(' ')).toMatch(/App-Link-Host/);
+  });
+
+  it('rejects an export whose attested profile is not production', () => {
+    const preview = releaseConfig.resolveAuthBuildConfiguration({
+      EXPO_PUBLIC_BUILD_PROFILE: 'preview',
+    }) as AuthBuildConfiguration;
+    expect(recoveryAttestation.collectProductionRecoveryIssues(exportWith(preview), PRODUCTION).join(' '))
+      .toMatch(/Buildprofil/);
   });
 
   it('rejects an export that carries two different attestations', () => {
@@ -1159,9 +1304,419 @@ describe('atomic public page generation', () => {
     } catch {
       // expected
     }
-    const leftovers = bundleScan.scanExportDirectory(directory).documents
+    expect(temporaryFiles()).toEqual([]);
+  });
+
+  it('leaves no temporary files behind on a successful run either', () => {
+    atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'neu-1' },
+      { path: linksPath(), content: 'neu-2' },
+    ]);
+    expect(temporaryFiles()).toEqual([]);
+  });
+
+  function temporaryFiles(): string[] {
+    return bundleScan.scanExportDirectory(directory).documents
       .map((document: { file: string }) => document.file)
       .filter((file: string) => file.includes('.tmp-'));
-    expect(leftovers).toEqual([]);
+  }
+
+  // --- input validation, before a single byte is written ---------------------
+
+  it.each<[string, unknown]>([
+    ['leere Liste', []],
+    ['leerer Pfad', [{ path: '', content: 'x' }]],
+    ['nur Leerzeichen als Pfad', [{ path: '   ', content: 'x' }]],
+    ['kein Textinhalt', [{ path: 'a.txt', content: 42 }]],
+    ['kein Objekt', [null]],
+  ])('rejects %s', (_label, entries) => {
+    expect(() => atomicWrite.writeFilesAtomically(
+      entries as readonly { path: string; content: string }[],
+    )).toThrow();
+  });
+
+  /**
+   * Two entries on the same target cannot be atomic: the second backup would be
+   * the first entry's *new* content, so a rollback would restore the wrong bytes.
+   */
+  it('rejects duplicate target paths without touching anything', () => {
+    atomicWrite.writeFilesAtomically([{ path: pagePath(), content: 'alt' }]);
+    expect(() => atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'a' },
+      { path: path.join(directory, 'account-deletion', '.', 'index.html'), content: 'b' },
+    ])).toThrow(/kommt mehrfach vor/);
+    expect(readFileSync(pagePath(), 'utf8')).toBe('alt');
+    expect(temporaryFiles()).toEqual([]);
+  });
+
+  // --- reading the previous state -------------------------------------------
+
+  it('treats only ENOENT as "the file does not exist"', () => {
+    expect(atomicWrite.readExisting(path.join(directory, 'gibt-es-nicht'))).toBeNull();
+  });
+
+  /**
+   * A read that fails for any other reason used to become `null`, i.e. "there is
+   * nothing to restore" - and a rollback would then have deleted a file it had
+   * simply been unable to read. A directory is the portable way to provoke a
+   * non-ENOENT read error (EISDIR on Linux, EACCES/EPERM on Windows).
+   */
+  it('throws instead of reporting a directory as a missing file', () => {
+    const asDirectory = path.join(directory, 'ein-verzeichnis');
+    mkdirSync(asDirectory, { recursive: true });
+    expect(() => atomicWrite.readExisting(asDirectory)).toThrow();
+  });
+
+  it('aborts before the first rename when a previous file cannot be read', () => {
+    const unreadable = path.join(directory, 'unlesbar');
+    mkdirSync(unreadable, { recursive: true });
+    atomicWrite.writeFilesAtomically([{ path: pagePath(), content: 'alt-1' }]);
+
+    // The second entry's target is a directory, so reading its "previous
+    // content" fails - which must stop the run while the first target is still
+    // untouched.
+    expect(() => atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'neu-1' },
+      { path: unreadable, content: 'neu-2' },
+    ])).toThrow();
+    expect(readFileSync(pagePath(), 'utf8')).toBe('alt-1');
+    expect(temporaryFiles()).toEqual([]);
+  });
+
+  // --- a rollback that fails must be visible ---------------------------------
+
+  /**
+   * The honesty requirement. When the write fails *and* restoring an
+   * already-replaced file fails too, the caller must not print "the previous
+   * state is unchanged" - it demonstrably may not be.
+   */
+  /**
+   * Both failures have to be provoked rather than staged through the
+   * filesystem: a real second rename that fails while the same target is still
+   * readable, *and* a restore of the first target that fails too, is a
+   * combination no portable filesystem trick produces. The branch it exercises
+   * is the one that must never claim the previous state survived.
+   */
+  function withFailingSecondRenameAndRollback(run: () => void): unknown {
+    const realRenameSync = nodeFs.renameSync;
+    const realWriteFileSync = nodeFs.writeFileSync;
+    const renameSpy = jest.spyOn(nodeFs, 'renameSync');
+    const writeSpy = jest.spyOn(nodeFs, 'writeFileSync');
+    let thrown: unknown;
+    try {
+      renameSpy.mockImplementation((from, to) => {
+        if (to === linksPath()) throw Object.assign(new Error('EPERM: rename blocked'), { code: 'EPERM' });
+        return realRenameSync(from, to);
+      });
+      writeSpy.mockImplementation(((file: string, data: unknown, options: unknown) => {
+        if (file === pagePath()) throw Object.assign(new Error('EACCES: restore blocked'), { code: 'EACCES' });
+        return realWriteFileSync(
+          file,
+          data as string,
+          options as Parameters<typeof nodeFs.writeFileSync>[2],
+        );
+      }) as typeof nodeFs.writeFileSync);
+      try {
+        run();
+      } catch (error) {
+        thrown = error;
+      }
+    } finally {
+      renameSpy.mockRestore();
+      writeSpy.mockRestore();
+    }
+    return thrown;
+  }
+
+  it('reports a failed rollback instead of claiming nothing changed', () => {
+    atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'alt-1' },
+      { path: linksPath(), content: 'alt-2' },
+    ]);
+
+    const thrown = withFailingSecondRenameAndRollback(() => {
+      atomicWrite.writeFilesAtomically([
+        { path: pagePath(), content: 'neu-1' },
+        { path: linksPath(), content: 'neu-2' },
+      ]);
+    });
+
+    const error = thrown as {
+      name?: string;
+      originalFailure?: { message?: string };
+      rollbackFailures?: { message?: string }[];
+      possiblyChangedPaths?: string[];
+      temporaryPaths?: string[];
+      message?: string;
+    };
+    expect(error?.name).toBe('AtomicWriteRollbackError');
+    expect(error.originalFailure?.message).toMatch(/rename blocked/);
+    expect(error.rollbackFailures?.[0]?.message).toMatch(/restore blocked/);
+    expect(error.possiblyChangedPaths).toEqual([pagePath()]);
+    expect(error.temporaryPaths).toEqual([]);
+    expect(error.message).toMatch(/koennen bereits veraendert sein/);
+    expect(error.message).not.toMatch(/unveraendert/);
+    // The claim is accurate: the first target really does carry the new content.
+    expect(readFileSync(pagePath(), 'utf8')).toBe('neu-1');
+    expect(temporaryFiles()).toEqual([]);
+  });
+
+  it('throws the plain error and restores everything when the rollback succeeds', () => {
+    atomicWrite.writeFilesAtomically([
+      { path: pagePath(), content: 'alt-1' },
+      { path: linksPath(), content: 'alt-2' },
+    ]);
+    const realRenameSync = nodeFs.renameSync;
+    const renameSpy = jest.spyOn(nodeFs, 'renameSync');
+    let thrown: unknown;
+    try {
+      renameSpy.mockImplementation((from, to) => {
+        if (to === linksPath()) throw Object.assign(new Error('EPERM: rename blocked'), { code: 'EPERM' });
+        return realRenameSync(from, to);
+      });
+      try {
+        atomicWrite.writeFilesAtomically([
+          { path: pagePath(), content: 'neu-1' },
+          { path: linksPath(), content: 'neu-2' },
+        ]);
+      } catch (error) {
+        thrown = error;
+      }
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    expect((thrown as { name?: string })?.name).toBe('Error');
+    expect(readFileSync(pagePath(), 'utf8')).toBe('alt-1');
+    expect(readFileSync(linksPath(), 'utf8')).toBe('alt-2');
+    expect(temporaryFiles()).toEqual([]);
+  });
+});
+
+// --- 11. the generated native AndroidManifest.xml ---------------------------
+//
+// The fixtures below are verbatim `npx expo prebuild --platform android` output
+// of this repository, one per profile. They are the artefact Google Play
+// actually installs, and the step between them and the resolved Expo config is
+// @expo/config-plugins - which is what decides whether `lernzeit://` survives
+// into the shipped manifest. A synthetic manifest could not catch a change
+// there; this one can.
+
+describe('generated AndroidManifest.xml', () => {
+  const PRODUCTION_ENVIRONMENT = {
+    ...completeEnvironment,
+    EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit-ci.de',
+  };
+  const DEVELOPMENT_ENVIRONMENT = {
+    EAS_BUILD: 'true',
+    EAS_BUILD_PROFILE: 'development',
+    EXPO_PUBLIC_BUILD_PROFILE: 'development',
+  };
+  const PREVIEW_ENVIRONMENT = {
+    EAS_BUILD: 'true',
+    EAS_BUILD_PROFILE: 'preview',
+    EXPO_PUBLIC_BUILD_PROFILE: 'preview',
+  };
+
+  /** Wraps intent filters in the surrounding manifest Expo generates. */
+  function manifestXml(intentFilters: string): string {
+    return [
+      '<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">',
+      '  <uses-permission android:name="android.permission.INTERNET"/>',
+      '  <queries>',
+      '    <intent>',
+      '      <action android:name="android.intent.action.VIEW"/>',
+      '      <category android:name="android.intent.category.BROWSABLE"/>',
+      '      <data android:scheme="https"/>',
+      '    </intent>',
+      '  </queries>',
+      '  <application android:name=".MainApplication" android:allowBackup="false" android:usesCleartextTraffic="false">',
+      '    <activity android:name=".MainActivity" android:launchMode="singleTask" android:exported="true">',
+      '      <intent-filter>',
+      '        <action android:name="android.intent.action.MAIN"/>',
+      '        <category android:name="android.intent.category.LAUNCHER"/>',
+      '      </intent-filter>',
+      intentFilters,
+      '    </activity>',
+      '  </application>',
+      '</manifest>',
+    ].join('\n');
+  }
+
+  /** Verbatim from a production prebuild: one verified App Link, nothing else. */
+  const PRODUCTION_MANIFEST = manifestXml([
+    '      <intent-filter android:autoVerify="true" data-generated="true">',
+    '        <action android:name="android.intent.action.VIEW"/>',
+    '        <data android:scheme="https" android:host="lernzeit-ci.de" android:path="/update-password"/>',
+    '        <category android:name="android.intent.category.BROWSABLE"/>',
+    '        <category android:name="android.intent.category.DEFAULT"/>',
+    '      </intent-filter>',
+  ].join('\n'));
+
+  /** Verbatim from a development prebuild: the app scheme plus the private route. */
+  const DEVELOPMENT_MANIFEST = manifestXml([
+    '      <intent-filter>',
+    '        <action android:name="android.intent.action.VIEW"/>',
+    '        <category android:name="android.intent.category.DEFAULT"/>',
+    '        <category android:name="android.intent.category.BROWSABLE"/>',
+    '        <data android:scheme="lernzeit"/>',
+    '      </intent-filter>',
+    '      <intent-filter data-generated="true">',
+    '        <action android:name="android.intent.action.VIEW"/>',
+    '        <data android:scheme="lernzeit" android:host="auth" android:path="/update-password"/>',
+    '        <category android:name="android.intent.category.BROWSABLE"/>',
+    '        <category android:name="android.intent.category.DEFAULT"/>',
+    '      </intent-filter>',
+  ].join('\n'));
+
+  /** An extra intent filter appended just before the activity closes. */
+  function withExtraFilter(xml: string, lines: readonly string[]): string {
+    return xml.replace('    </activity>', `${lines.join('\n')}\n    </activity>`);
+  }
+
+  it('accepts the real production manifest', () => {
+    const { failures, summary } = nativeLinking.collectNativeLinkingIssues(
+      PRODUCTION_MANIFEST,
+      PRODUCTION_ENVIRONMENT,
+    );
+    expect(failures).toEqual([]);
+    expect(summary.customSchemeEntries).toBe(0);
+    expect(summary.verifiedRecoveryAppLinks).toBe(1);
+    expect(summary.appLinkHost).toBe('lernzeit-ci.de');
+  });
+
+  /**
+   * The decisive production property, read out of the generated XML: Expo turns
+   * `expo.scheme` into a general incoming deep link, so its absence here is what
+   * proves lernzeit://auth/update-password can no longer open the app.
+   */
+  it('proves the production manifest declares no lernzeit scheme at all', () => {
+    expect(PRODUCTION_MANIFEST).not.toContain('android:scheme="lernzeit"');
+    expect(PRODUCTION_MANIFEST).toContain('android:autoVerify="true"');
+    expect(PRODUCTION_MANIFEST).toContain('android:host="lernzeit-ci.de"');
+    expect(PRODUCTION_MANIFEST).toContain('android:path="/update-password"');
+    expect(PRODUCTION_MANIFEST).not.toContain('android:host="auth"');
+  });
+
+  it.each([
+    ['development', DEVELOPMENT_ENVIRONMENT],
+    ['preview', PREVIEW_ENVIRONMENT],
+  ])('accepts the real %s manifest', (_label, environment) => {
+    const { failures, summary } = nativeLinking.collectNativeLinkingIssues(
+      DEVELOPMENT_MANIFEST,
+      environment,
+    );
+    expect(failures).toEqual([]);
+    expect(summary.privateRecoveryFilters).toBe(1);
+    expect(summary.verifiedRecoveryAppLinks).toBe(0);
+  });
+
+  it('proves the development manifest declares the private route and no verified App Link', () => {
+    expect(DEVELOPMENT_MANIFEST).toContain('android:scheme="lernzeit"');
+    expect(DEVELOPMENT_MANIFEST).toContain('android:host="auth"');
+    expect(DEVELOPMENT_MANIFEST).toContain('android:path="/update-password"');
+    expect(DEVELOPMENT_MANIFEST).not.toContain('android:autoVerify="true"');
+  });
+
+  // Each profile's manifest must fail the *other* profile's rules. A checker
+  // that passed both would be asserting nothing.
+  it('rejects the development manifest under production rules', () => {
+    const { failures } = nativeLinking.collectNativeLinkingIssues(
+      DEVELOPMENT_MANIFEST,
+      PRODUCTION_ENVIRONMENT,
+    );
+    expect(failures.join(' ')).toMatch(/registriert das Scheme "lernzeit"/);
+    expect(failures.join(' ')).toMatch(/privaten Recovery-Intent-Filter/);
+    expect(failures.join(' ')).toMatch(/keinen Intent-Filter mit android:autoVerify/);
+  });
+
+  it('rejects the production manifest under development rules', () => {
+    const { failures } = nativeLinking.collectNativeLinkingIssues(
+      PRODUCTION_MANIFEST,
+      DEVELOPMENT_ENVIRONMENT,
+    );
+    expect(failures.join(' ')).toMatch(/fehlt der Intent-Filter/);
+    expect(failures.join(' ')).toMatch(/verifizierte Recovery-App-Link/);
+  });
+
+  it.each<[string, string, RegExp]>([
+    [
+      'ein zusaetzlicher lernzeit-Filter',
+      withExtraFilter(PRODUCTION_MANIFEST, [
+        '      <intent-filter>',
+        '        <action android:name="android.intent.action.VIEW"/>',
+        '        <data android:scheme="lernzeit"/>',
+        '      </intent-filter>',
+      ]),
+      /registriert das Scheme "lernzeit"/,
+    ],
+    [
+      'ein fremder App-Link-Host',
+      PRODUCTION_MANIFEST.replace('lernzeit-ci.de', 'angreifer.de'),
+      /App-Link-Host im Manifest ist "angreifer\.de"/,
+    ],
+    [
+      'ein nicht verifizierter App Link',
+      PRODUCTION_MANIFEST.replace(' android:autoVerify="true"', ''),
+      /keinen Intent-Filter mit android:autoVerify/,
+    ],
+    [
+      'ein zweiter verifizierter Recovery-App-Link',
+      withExtraFilter(PRODUCTION_MANIFEST, [
+        '      <intent-filter android:autoVerify="true">',
+        '        <action android:name="android.intent.action.VIEW"/>',
+        '        <data android:scheme="https" android:host="zweite.de" android:path="/update-password"/>',
+        '      </intent-filter>',
+      ]),
+      /verifizierte Recovery-App-Links; erwartet genau einen/,
+    ],
+  ])('rejects a production manifest with %s', (_label, xml, expected) => {
+    expect(nativeLinking.collectNativeLinkingIssues(xml, PRODUCTION_ENVIRONMENT).failures.join(' '))
+      .toMatch(expected);
+  });
+
+  it('rejects a development manifest that claims a verified App Link', () => {
+    const xml = withExtraFilter(DEVELOPMENT_MANIFEST, [
+      '      <intent-filter android:autoVerify="true">',
+      '        <action android:name="android.intent.action.VIEW"/>',
+      '        <data android:scheme="https" android:host="lernzeit.de" android:path="/update-password"/>',
+      '      </intent-filter>',
+    ]);
+    expect(nativeLinking.collectNativeLinkingIssues(xml, DEVELOPMENT_ENVIRONMENT).failures.join(' '))
+      .toMatch(/kann keinen App Link verifizieren/);
+  });
+
+  it('refuses a file that is not a manifest', () => {
+    expect(nativeLinking.collectNativeLinkingIssues('<html></html>', PRODUCTION_ENVIRONMENT).failures)
+      .toEqual([expect.stringMatching(/kein AndroidManifest/)]);
+  });
+
+  it.each([
+    ['unbekanntes Profil', { EAS_BUILD_PROFILE: 'staging' }],
+    [
+      'widersprechende Profile',
+      { EXPO_PUBLIC_BUILD_PROFILE: 'preview', EAS_BUILD_PROFILE: 'production' },
+    ],
+  ])('refuses to verify a manifest for a %s', (_label, environment) => {
+    expect(nativeLinking.collectNativeLinkingIssues(PRODUCTION_MANIFEST, environment).failures.length)
+      .toBeGreaterThan(0);
+  });
+
+  // The parser itself, since everything above depends on it reading real XML.
+  it('parses attributes, entities and self-closing data elements', () => {
+    const filters = nativeLinking.parseIntentFilters(PRODUCTION_MANIFEST);
+    expect(filters).toHaveLength(2);
+    const appLink = filters.find((filter: { autoVerify: boolean }) => filter.autoVerify);
+    expect(appLink?.data).toEqual([
+      { scheme: 'https', host: 'lernzeit-ci.de', path: '/update-password' },
+    ]);
+    expect(nativeLinking.attributesOf('android:host="a&amp;b" android:path="/x"'))
+      .toEqual({ host: 'a&b', path: '/x' });
+  });
+
+  it('reads a pathPrefix or pathPattern as the declared path', () => {
+    expect(nativeLinking.pathOf({ pathPrefix: '/update-password' })).toBe('/update-password');
+    expect(nativeLinking.pathOf({ pathPattern: '/update-password' })).toBe('/update-password');
+    expect(nativeLinking.pathOf({ host: 'a.de' })).toBeNull();
   });
 });

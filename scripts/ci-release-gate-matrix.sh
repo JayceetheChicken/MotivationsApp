@@ -181,12 +181,17 @@ expect_success 'Gueltige HTTPS-Recovery-URL' 'https://lernzeit-ci.de/update-pass
 expect_success 'Gueltiges assetlinks.json' 'assetlinks.json ist gueltig' \
   with_production_env node scripts/check-release-config.mjs --production
 
-printf '\n=== Recovery-Transport pro Buildprofil ===\n'
+printf '\n=== Recovery-Transport und App-Scheme pro Buildprofil ===\n'
 
-# The production manifest must declare the verified App Link and must *not*
-# declare a private lernzeit:// recovery filter; development and preview must
-# declare exactly the opposite. Both directions are asserted against the really
-# resolved Expo config, not against the source.
+# Everything below runs against the *really resolved* Expo config, never against
+# the source. The contract per profile:
+#
+#   production          → verified HTTPS App Link, no `lernzeit` scheme at all
+#   development/preview → `lernzeit` scheme plus the private recovery filter,
+#                         and no autoVerify App Link - even when the build was
+#                         handed a real operator domain, because its signing
+#                         certificate is not in that domain's assetlinks.json
+#   unknown/conflicting → the config must refuse to resolve
 config_dir="$(mktemp -d)"
 trap 'restore_public; rm -rf "$config_dir"' EXIT
 
@@ -196,12 +201,57 @@ resolve_config() {
   "$@" npx --yes expo config --type public --json > "$target"
 }
 
+# Asserts a jq-free property of a resolved config via node.
+# assert_config <name> <file> <node expression over `manifest`> <description>
+assert_config() {
+  local name="$1" file="$2" expression="$3" description="$4"
+  checks=$((checks + 1))
+  local output status
+  output="$(node -e '
+    const fs = require("node:fs");
+    const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const manifest = config.expo ?? config;
+    const ok = Boolean(eval(process.argv[2]));
+    if (!ok) {
+      console.error("Erwartet: " + process.argv[3]);
+      console.error(JSON.stringify({ scheme: manifest.scheme, intentFilters: manifest.android?.intentFilters, buildProfile: manifest.extra?.buildProfile }, null, 2));
+      process.exit(1);
+    }
+  ' "$file" "$expression" "$description" 2>&1)"
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    printf '\n[FAIL] %s: %s\n' "$name" "$description"
+    printf '%s\n' "$output" | tail -20
+    failures=$((failures + 1))
+    return
+  fi
+  printf '[ok]   %s: %s\n' "$name" "$description"
+}
+
 if with_production_env resolve_config "$config_dir/production.json"; then
   expect_success 'Production-Manifest ohne privaten Recovery-Filter' 'privater Intent-Filter: nein' \
     with_production_env node scripts/verify-expo-config.mjs "$config_dir/production.json"
 
-  # Proof that the verifier really rejects the dangerous shape: inject the
-  # private recovery filter into the resolved production manifest.
+  # The decisive production property: Expo registers `expo.scheme` as a general
+  # incoming deep link, so its presence would keep lernzeit://auth/update-password
+  # able to open the app even without the specific recovery intent filter.
+  assert_config 'Production' "$config_dir/production.json" \
+    'manifest.scheme === undefined' \
+    'die aufgeloeste Config enthaelt kein scheme'
+  # Deliberately compares the scheme field rather than searching the JSON text:
+  # the operator domain in this matrix is lernzeit-ci.de, so a substring search
+  # would match the host and pass for the wrong reason.
+  assert_config 'Production' "$config_dir/production.json" \
+    '(manifest.android?.intentFilters ?? []).flatMap((f) => Array.isArray(f.data) ? f.data : [f.data ?? {}]).every((d) => d?.scheme !== "lernzeit")' \
+    'kein Intent-Filter nennt das lernzeit-Scheme'
+  assert_config 'Production' "$config_dir/production.json" \
+    '(manifest.android?.intentFilters ?? []).filter((f) => f.autoVerify === true).length === 1' \
+    'genau ein verifizierter App Link'
+  assert_config 'Production' "$config_dir/production.json" \
+    'manifest.extra?.buildProfile === "production"' \
+    'das Manifest attestiert das Profil production'
+
+  # Proof that the verifier really rejects the dangerous shapes.
   node -e '
     const fs = require("node:fs");
     const file = process.argv[1];
@@ -219,24 +269,86 @@ if with_production_env resolve_config "$config_dir/production.json"; then
     'privaten Recovery-Intent-Filter' \
     with_production_env node scripts/verify-expo-config.mjs \
     "$config_dir/production-with-private-filter.json"
+
+  node -e '
+    const fs = require("node:fs");
+    const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const manifest = config.expo ?? config;
+    manifest.scheme = "lernzeit";
+    fs.writeFileSync(process.argv[2], JSON.stringify(config));
+  ' "$config_dir/production.json" "$config_dir/production-with-scheme.json"
+
+  expect_failure 'Production-Verifier mit registriertem lernzeit-Scheme' \
+    'darf das Scheme "lernzeit" nicht registrieren' \
+    with_production_env node scripts/verify-expo-config.mjs \
+    "$config_dir/production-with-scheme.json"
 else
   printf '\n[FAIL] Production-Config liess sich nicht aufloesen.\n'
   failures=$((failures + 1))
   checks=$((checks + 1))
 fi
 
+# Development and preview, each without and *with* a real operator domain. The
+# second half is the case the old "is a domain configured?" rule got wrong.
 for profile in development preview; do
-  if env EAS_BUILD=true EAS_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
-      npx --yes expo config --type public --json > "$config_dir/$profile.json" 2>/dev/null; then
-    expect_success "$profile-Manifest mit privatem Recovery-Filter" 'privater Intent-Filter: ja' \
-      env EAS_BUILD=true EAS_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
-      node scripts/verify-expo-config.mjs "$config_dir/$profile.json"
-  else
-    printf '\n[FAIL] %s-Config liess sich nicht aufloesen.\n' "$profile"
-    failures=$((failures + 1))
-    checks=$((checks + 1))
-  fi
+  for domain in ohne mit; do
+    target="$config_dir/$profile-$domain-domain.json"
+    if [ "$domain" = 'ohne' ]; then
+      resolved=$(env EAS_BUILD=true EAS_BUILD_PROFILE="$profile" \
+        EXPO_PUBLIC_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
+        npx --yes expo config --type public --json > "$target" 2>&1) && status=0 || status=$?
+    else
+      # The full synthetic operator environment, but without the release-gate
+      # flag: the profile, not the domain, decides the transport.
+      resolved=$(with_production_env 'LERNZEIT_RELEASE_GATE=' \
+        "EXPO_PUBLIC_BUILD_PROFILE=$profile" "EAS_BUILD_PROFILE=$profile" \
+        'EAS_BUILD=true' 'LERNZEIT_SKIP_RELEASE_GATE=1' \
+        npx --yes expo config --type public --json > "$target" 2>&1) && status=0 || status=$?
+    fi
+
+    if [ "$status" -ne 0 ]; then
+      printf '\n[FAIL] %s-Config (%s Domain) liess sich nicht aufloesen.\n' "$profile" "$domain"
+      printf '%s\n' "$resolved" | tail -20
+      failures=$((failures + 1))
+      checks=$((checks + 1))
+      continue
+    fi
+
+    expect_success "$profile-Manifest ($domain Domain) mit privatem Recovery-Filter" \
+      'privater Intent-Filter: ja' \
+      env EAS_BUILD=true EAS_BUILD_PROFILE="$profile" EXPO_PUBLIC_BUILD_PROFILE="$profile" \
+      LERNZEIT_SKIP_RELEASE_GATE=1 node scripts/verify-expo-config.mjs "$target"
+
+    assert_config "$profile ($domain Domain)" "$target" \
+      'manifest.scheme === "lernzeit"' \
+      'das allgemeine lernzeit-Scheme ist registriert'
+    assert_config "$profile ($domain Domain)" "$target" \
+      '(manifest.android?.intentFilters ?? []).every((f) => f.autoVerify !== true)' \
+      'kein verifizierter App Link'
+    assert_config "$profile ($domain Domain)" "$target" \
+      "manifest.extra?.authBuildAttestation?.includes(';profile=$profile;')" \
+      "das Manifest attestiert das Profil $profile"
+    assert_config "$profile ($domain Domain)" "$target" \
+      'manifest.extra?.passwordRecoveryRedirect === "lernzeit://auth/update-password?type=recovery"' \
+      'der Recovery-Callback ist das private Schema'
+  done
 done
+
+# A profile the app does not know, and two profiles that contradict each other,
+# must both stop the config from resolving at all.
+expect_failure 'Unbekanntes Buildprofil' 'kein bekanntes Buildprofil' \
+  env EAS_BUILD=true EAS_BUILD_PROFILE=staging \
+  npx --yes expo config --type public --json
+
+expect_failure 'Widersprechende Buildprofile' 'widersprechen sich' \
+  env EAS_BUILD=true EAS_BUILD_PROFILE=production EXPO_PUBLIC_BUILD_PROFILE=development \
+  npx --yes expo config --type public --json
+
+# A production profile without an operator domain has no verifiable transport
+# and must not produce a manifest at all.
+expect_failure 'Production-Profil ohne Betreiberdomain' 'EXPO_PUBLIC_LEGAL_SITE_URL' \
+  env EXPO_PUBLIC_BUILD_PROFILE=production \
+  npx --yes expo config --type public --json
 
 restore_public
 

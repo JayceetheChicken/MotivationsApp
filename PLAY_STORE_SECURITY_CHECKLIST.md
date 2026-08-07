@@ -54,8 +54,12 @@ Stand: 3. August 2026
 - [x] Berechtigungen: nur `INTERNET`, `VIBRATE` und Legacy-Storage bis API 32.
   `CAMERA`, `RECORD_AUDIO`, `READ_MEDIA_VIDEO` und `SYSTEM_ALERT_WINDOW` werden
   per `tools:node="remove"` entfernt.
-- [x] Deep Links: privater `lernzeit://auth/update-password` und verifizierter
-  App Link auf der Betreiberdomain mit `autoVerify="true"`.
+- [x] Deep Links strikt nach Buildprofil: das Production-Manifest registriert
+  **kein** `lernzeit`-Scheme und ausschließlich den verifizierten App Link auf
+  der Betreiberdomain mit `autoVerify="true"`. Development und Preview
+  registrieren `lernzeit` samt privatem `lernzeit://auth/update-password` und
+  keinen App Link. `scripts/verify-native-linking.mjs` prüft das am wirklich
+  erzeugten `AndroidManifest.xml`, nicht nur an der Expo-Config.
 
 ## Vor Produktionsfreigabe manuell
 

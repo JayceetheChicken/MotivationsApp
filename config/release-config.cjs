@@ -403,10 +403,12 @@ function classifyEmbeddedJwt(token) {
 }
 
 /**
- * EAS build profiles that are known to be non-production. Only these may skip
- * the release gate; anything unknown is treated as production.
+ * Build profiles that are known to be non-production. Only these may skip the
+ * release gate; anything unknown is treated as production. Taken from
+ * config/auth-build.cjs so the gate and the recovery transport cannot disagree
+ * about which profiles exist.
  */
-const NON_PRODUCTION_PROFILES = new Set(['development', 'preview']);
+const NON_PRODUCTION_PROFILES = new Set(authBuild.NON_PRODUCTION_BUILD_PROFILES);
 
 // --- Password recovery callback --------------------------------------------
 //
@@ -453,6 +455,25 @@ function legalSiteHostFromEnvironment(environment) {
 function recoveryRedirectUrl(environment) {
   const configuration = resolveAuthBuildConfiguration(environment);
   return { url: configuration.recoveryRedirectUrl, kind: configuration.recoveryTransport };
+}
+
+/**
+ * An unknown or self-contradictory build profile is a release blocker of its
+ * own. It is checked before everything else because every other rule below is
+ * expressed *per profile*: a build that cannot say which profile it is cannot be
+ * validated at all, and guessing would mean guessing the recovery transport.
+ * @param {Record<string, string | undefined>} environment
+ */
+function collectBuildProfileIssues(environment) {
+  const { issue } = authBuild.resolveBuildProfile(environment);
+  if (!issue) return [];
+  return [{
+    key: 'buildProfile',
+    envVar: 'EXPO_PUBLIC_BUILD_PROFILE',
+    label: 'Buildprofil',
+    reason: 'invalid-format',
+    detail: issue,
+  }];
 }
 
 /**
@@ -684,6 +705,7 @@ function collectSupabaseReleaseIssues(environment) {
  */
 function collectReleaseBlockers(environment) {
   return [
+    ...collectBuildProfileIssues(environment),
     ...collectOperatorReleaseIssues(environment),
     ...collectSupabaseReleaseIssues(environment),
     ...collectRecoveryReleaseIssues(environment),
@@ -735,10 +757,21 @@ function formatReleaseBlockerReport(issues) {
  *     simulate production; only an unknown profile does, because an unknown
  *     profile must block rather than silently release.
  *
+ * EXPO_PUBLIC_BUILD_PROFILE joins the table as a second spelling of the profile:
+ * it is the variable Metro can inline, so it is the one the built artefact
+ * carries. EAS_BUILD_PROFILE still wins when both are set, and
+ * config/auth-build.cjs refuses to resolve a build in which the two disagree -
+ * which this function reports as "gated" so a contradictory build blocks.
+ *
  * @param {Record<string, string | undefined>} environment
  */
 function isProductionRelease(environment) {
-  const profile = environment.EAS_BUILD_PROFILE?.trim() ?? '';
+  // An unknown or self-contradictory profile must never resolve to "skip".
+  if (authBuild.resolveBuildProfile(environment).issue) return true;
+
+  const profile = environment.EAS_BUILD_PROFILE?.trim()
+    || environment.EXPO_PUBLIC_BUILD_PROFILE?.trim()
+    || '';
   const isEasBuild = environment.EAS_BUILD === 'true';
 
   // 1. Any positive production signal wins unconditionally. LERNZEIT_SKIP_RELEASE_GATE
@@ -788,6 +821,7 @@ module.exports = {
   collectOperatorReleaseIssues,
   collectSupabaseReleaseIssues,
   collectRecoveryReleaseIssues,
+  collectBuildProfileIssues,
   collectReleaseBlockers,
   formatReleaseBlockerReport,
   isProductionRelease,
@@ -799,14 +833,22 @@ module.exports = {
   // Auth build configuration and public-host classification, re-exported so the
   // scripts have a single module to require.
   resolveAuthBuildConfiguration,
+  resolveBuildProfile: authBuild.resolveBuildProfile,
+  buildProfile: authBuild.buildProfile,
+  registersAppScheme: authBuild.registersAppScheme,
   collectProductionAuthBuildIssues: authBuild.collectProductionAuthBuildIssues,
+  collectDevelopmentAuthBuildIssues: authBuild.collectDevelopmentAuthBuildIssues,
+  collectAuthBuildIssues: authBuild.collectAuthBuildIssues,
   serializeAuthBuildConfiguration: authBuild.serializeAuthBuildConfiguration,
   parseAuthBuildAttestation: authBuild.parseAuthBuildAttestation,
   findAuthBuildAttestations: authBuild.findAuthBuildAttestations,
   findRecoveryCallbackUrls: authBuild.findRecoveryCallbackUrls,
   AUTH_BUILD_ATTESTATION_PREFIX: authBuild.AUTH_BUILD_ATTESTATION_PREFIX,
+  BUILD_PROFILES: authBuild.BUILD_PROFILES,
+  NON_PRODUCTION_BUILD_PROFILES: authBuild.NON_PRODUCTION_BUILD_PROFILES,
   APP_SCHEME: authBuild.APP_SCHEME,
   RECOVERY_PATH: authBuild.RECOVERY_PATH,
+  CUSTOM_RECOVERY_HOST: authBuild.CUSTOM_RECOVERY_HOST,
   CUSTOM_RECOVERY_URL: authBuild.CUSTOM_RECOVERY_URL,
   classifyPublicHost: publicHost.classifyPublicHost,
   isPublicOperatorHost: publicHost.isPublicOperatorHost,

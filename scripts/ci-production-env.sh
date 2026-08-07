@@ -10,6 +10,11 @@
 # Usage: source scripts/ci-production-env.sh
 
 export LERNZEIT_RELEASE_GATE=1
+# The build profile decides the recovery transport and the registered URL
+# scheme. It is declared explicitly rather than inferred, and it is the value
+# Metro inlines into the bundle so the artefact can attest which profile built
+# it. Not a secret: it names the build, not the operator.
+export EXPO_PUBLIC_BUILD_PROFILE=production
 export EXPO_PUBLIC_LEGAL_SITE_URL=https://lernzeit-ci.de
 export EXPO_PUBLIC_OPERATOR_NAME="CI Pruefbetreiber"
 export EXPO_PUBLIC_OPERATOR_LEGAL_FORM="Einzelunternehmen, vertreten durch die Inhaberin"

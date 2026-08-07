@@ -15,34 +15,109 @@ Konfiguration setzen. Vor Release mit einem externen Header-Check verifizieren.
 
 ## Recovery-Transport pro Buildprofil
 
-Der Passwort-Recovery-Transport ist **strikt nach Buildprofil getrennt**. Alles
-leitet sich aus `config/auth-build.cjs` ab; `app.config.js`, der Parser in
+Der Passwort-Recovery-Transport wird **allein vom Buildprofil** entschieden, nicht
+davon, ob eine Betreiberdomain gesetzt ist. Alles leitet sich aus
+`config/auth-build.cjs` ab; `app.config.js`, der Parser in
 `src/auth/navigation.ts` und `resetPasswordForEmail` lesen dasselbe Objekt.
 
-| | Production | Development / Preview |
+Warum nicht „Domain vorhanden → HTTPS“: ein Development- oder Preview-Build kann
+legitim die echten Betreiberwerte bekommen. Er würde dann einen App Link
+beanspruchen, dessen Entwicklungssignatur nicht in der `assetlinks.json` der
+Betreiberdomain steht — ein App Link, der nie verifiziert werden kann, auf einem
+Build, dessen Recovery damit gar nicht funktioniert.
+
+| | Production | Development / Preview / lokal |
 | --- | --- | --- |
 | `recoveryTransport` | `https-app-link` | `custom-scheme` |
 | `redirectTo` | `https://<DOMAIN>/update-password?type=recovery` | `lernzeit://auth/update-password?type=recovery` |
-| Android-Intent-Filter | nur `autoVerify` App Link auf `<DOMAIN>` | nur `lernzeit://auth/update-password` |
+| Expo-`scheme` | **keins** | `lernzeit` |
+| Android-Intent-Filter | nur `autoVerify` App Link auf `<DOMAIN>` | `lernzeit`-Scheme plus `lernzeit://auth/update-password` |
 | Parser akzeptiert | ausschließlich HTTPS auf `<DOMAIN>` | ausschließlich `lernzeit://auth` |
 
-Ein Production-Build registriert **keinen** privaten Recovery-Intent-Filter und
-der Parser lehnt jeden `lernzeit://`-Recovery-Link ab. Grund: das private Schema
-kann jede andere installierte App beanspruchen; ein verifizierter App Link nicht.
-`node scripts/verify-expo-config.mjs` prüft beide Richtungen und scheitert, wenn
-ein Production-Manifest einen privaten Recovery-Filter enthält.
+### Wahrheitstabelle
 
-Das allgemeine App-Scheme `lernzeit` in `app.json` bleibt bestehen. Expo Router
-und der Development-Client brauchen es, um die App überhaupt zu öffnen. Es ist
-technisch vom Recovery-Transport getrennt: entfernt wird in Production nur die
-Recovery-Route auf diesem Schema, nicht das Schema selbst.
+| Profil | Domain | Ergebnis |
+| --- | --- | --- |
+| `production` | öffentlich | HTTPS App Link |
+| `production` | fehlt | Buildabbruch |
+| `production` | privat/ungültig | Buildabbruch |
+| `development` | keine | Custom Scheme |
+| `development` | öffentlich | **trotzdem** Custom Scheme |
+| `preview` | keine | Custom Scheme |
+| `preview` | öffentlich | **trotzdem** Custom Scheme |
+| unbekanntes Profil | egal | Buildabbruch |
+| `EAS_BUILD_PROFILE` ≠ `EXPO_PUBLIC_BUILD_PROFILE` | egal | Buildabbruch |
+| lokaler Start ohne Profil | egal | Development-Verhalten (`local`) |
+
+### Das Buildprofil
+
+`EXPO_PUBLIC_BUILD_PROFILE` ist die maßgebliche Eingabe. Nur diese Variable kann
+Metro in das JavaScript-Bundle inlinen — `EAS_BUILD_PROFILE` existiert auf der
+Buildmaschine, aber nirgends im Artefakt, die laufende App könnte ihr Profil sonst
+also gar nicht kennen. Sie ist kein Geheimnis: sie beschreibt den Build, nicht den
+Betreiber. `eas.json` setzt sie je Profil ausdrücklich.
+
+Beide Variablen werden gelesen, damit ein Widerspruch auffällt statt still zu
+einer Seite aufgelöst zu werden: ein EAS-`production`-Build, dessen öffentliches
+Profil noch `development` sagt, würde sonst unter einem Production-Signaturschlüssel
+den privaten Recovery-Transport ausliefern.
+
+### Kein `lernzeit`-Scheme in Production
+
+`app.json` enthält **kein** `scheme` mehr. Expo registriert ein in `expo.scheme`
+angegebenes Scheme als allgemeinen eingehenden Deep Link, also könnte
+`lernzeit://auth/update-password` die App auch dann noch öffnen, wenn der
+spezifische Recovery-Intent-Filter entfernt ist. `app.config.js` setzt das Scheme
+deshalb dynamisch: `lernzeit` für Development, Preview und lokale Starts, gar
+keins für Production.
+
+Ohne eigenes Scheme fällt Expo auf den Android-Paketnamen als Standard-Scheme
+zurück. Das ist zulässig, weil der Recovery-Parser es nicht als Transport
+akzeptiert: der eine Zweig verlangt `lernzeit:`, der andere `https:`.
+
+Geprüft wird das an zwei Stellen — an der aufgelösten Expo-Config und, weil
+dazwischen noch `@expo/config-plugins` steht, am wirklich erzeugten Manifest:
+
+```bash
+npx expo config --type public --json > expo-config.json
+node scripts/verify-expo-config.mjs expo-config.json
+
+npx expo prebuild --platform android --clean --no-install
+node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+```
+
+Beide laufen in CI für alle drei Profile, und jedes Manifest muss die Regeln des
+jeweils anderen Profils **verletzen** — sonst prüft der Check nichts.
 
 ### Attestierung des gebauten Artefakts
 
 `app.config.js` schreibt die aufgelöste Konfiguration flach serialisiert nach
-`extra.authBuildAttestation`. `src/auth/build-configuration.ts` liest sie zur
-Laufzeit zurück und vergleicht sie mit dem im Bundle inlinierten Wert; bei
-Abweichung wird Passwort-Recovery in beide Richtungen deaktiviert.
+`extra.authBuildAttestation`, inklusive `profile=`. `src/auth/build-configuration.ts`
+liest sie zur Laufzeit zurück und vergleicht sie mit dem im Bundle inlinierten
+Wert. Manifest, Bundle und Laufzeit müssen dasselbe Profil attestieren.
+
+**Fehlende Attestierung ist fail-closed.** In einem Production-Build gilt:
+
+| Zustand der Attestierung | Ergebnis |
+| --- | --- |
+| passt zum Bundle | Recovery aktiv |
+| fehlt | Recovery deaktiviert |
+| unlesbar oder manipuliert | Recovery deaktiviert |
+| falsches Profil | Recovery deaktiviert |
+| abweichender Host oder Transport | Recovery deaktiviert |
+
+„Deaktiviert“ heißt: `recoveryTransport === 'disabled'`, `recoveryRedirectUrl`
+ist leer, `sendPasswordReset()` bricht mit einer Meldung ab und
+`parsePasswordRecoveryUrl()` akzeptiert nichts mehr. Es wird kein einzelnes Flag
+umgelegt, sondern eine ausdrücklich leere Konfiguration gesetzt, damit auch ein
+Aufrufer, der `PASSWORD_RECOVERY_AVAILABLE` vergisst, keine plausibel aussehende
+URL in die Hand bekommt.
+
+Einzige Ausnahme: ein lokaler Start (`npx expo start`, Unit-Test) ohne
+eingebettetes Manifest, dessen Profil eindeutig nicht Production ist. Dort gibt
+es kein Manifest zum Prüfen, der Transport ist ohnehin das private Schema, und
+eine Verweigerung würde nur die Entwicklung blockieren.
+
 `node scripts/check-exported-bundle.mjs dist` liest denselben String aus dem
 gebauten Export — also den Wert, den die App tatsächlich verwendet — statt ihn
 erneut aus den Umgebungsvariablen zu berechnen.
