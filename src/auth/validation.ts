@@ -11,8 +11,8 @@ export function emailError(value: string): string | undefined {
 
 export function passwordError(value: string, requireStrength = false): string | undefined {
   if (!value) return 'Bitte gib dein Passwort ein.';
-  if (requireStrength && value.length < 8) {
-    return 'Das Passwort muss mindestens 8 Zeichen lang sein.';
+  if (requireStrength && value.length < 10) {
+    return 'Das Passwort muss mindestens 10 Zeichen lang sein.';
   }
 
   return undefined;

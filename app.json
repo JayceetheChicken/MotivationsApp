@@ -3,14 +3,18 @@
     "name": "Lernzeit",
     "slug": "lernzeit",
     "version": "1.0.0",
+    "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "lernzeit",
     "userInterfaceStyle": "light",
+    "primaryColor": "#B44D2B",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png",
+      "supportsTablet": true
     },
     "android": {
       "package": "de.lernzeit.app",
+      "versionCode": 1,
+      "allowBackup": false,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#B44D2B",
@@ -18,7 +22,13 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": true
+      "predictiveBackGestureEnabled": true,
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "web": {
       "output": "static",
@@ -27,12 +37,34 @@
     "plugins": [
       "expo-router",
       [
-        "expo-splash-screen",
+        "expo-build-properties",
         {
-          "backgroundColor": "#B44D2B"
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 24,
+            "buildToolsVersion": "36.0.0",
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "usesCleartextTraffic": false
+          }
         }
       ],
-      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#B44D2B",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ],
       "expo-image",
       [
         "expo-image-picker",
@@ -44,7 +76,8 @@
       ],
       "expo-sqlite",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

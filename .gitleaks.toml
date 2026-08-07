@@ -1,0 +1,47 @@
+# Gitleaks configuration for Lernzeit.
+#
+# Extends the upstream default ruleset and adds two rules it lacks. The
+# allowlist contains only exact literals of synthetic fixtures that must look
+# like real credentials for their check to be meaningful. No pattern here is
+# broad enough to hide a real secret.
+#
+# A finding outside these literals is a real leak: rotate the value first, then
+# clean the history (docs/repository-history-cleanup.md).
+
+title = "Lernzeit"
+
+[extend]
+useDefault = true
+
+[[rules]]
+# The default ruleset has no rule for the Supabase secret key prefix.
+id = "supabase-secret-key"
+description = "Supabase secret / service_role key"
+regex = '''\bsb_secret_[A-Za-z0-9_-]{16,}'''
+keywords = ["sb_secret_"]
+
+[[rules]]
+id = "supabase-service-role-jwt"
+description = "Supabase service_role JWT payload"
+regex = '''"role"\s*:\s*"service_role"'''
+keywords = ["service_role"]
+
+[allowlist]
+description = """
+Synthetic fixtures. Each entry is an exact literal, not a pattern:
+1. sb_publishable_CiPruefwert1234567890 - CI-only Supabase publishable key used
+   to prove the release gate accepts a complete environment. Publishable keys
+   are public by design and this one belongs to no project.
+2. sb_publishable_AbCdEf1234567890 - the same fixture inside the unit test.
+3. The unsigned three-part token whose payload decodes to {"role":"anon"} and
+   whose signature is the literal string 'signature'.
+"""
+# Deliberately regexes only, no `paths`. A global allowlist combines its
+# conditions with OR, so adding paths would exempt those whole files. Exact
+# literals cannot hide anything else.
+regexTarget = "match"
+regexes = [
+  '''sb_publishable_CiPruefwert1234567890''',
+  '''sb_publishable_AbCdEf1234567890''',
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJyb2xlIjoiYW5vbiJ9\.c2lnbmF0dXJl''',
+]

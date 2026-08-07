@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 
 import type {
   SharedStudySessionParticipantAction,
+  SocialUpdatesListener,
   StudyRepository,
 } from '@/data/repositories/study-repository';
 import { StudyRepositoryError } from '@/data/repositories/repository-error';
@@ -223,7 +224,10 @@ const storageMock = {
 
 function wrapper({ children }: PropsWithChildren) {
   return (
-    <StudyStoreProvider accountUserId="account-id" storageScope="social-store-test">
+    <StudyStoreProvider
+      accountAccessToken="access-token"
+      accountUserId="account-id"
+      storageScope="social-store-test">
       {children}
     </StudyStoreProvider>
   );
@@ -251,6 +255,37 @@ beforeEach(() => {
 });
 
 describe('StudyStoreProvider social learning infrastructure', () => {
+  it('keeps raw realtime failures out of social errors and cleans up on unmount', async () => {
+    let realtimeListener: SocialUpdatesListener | null = null;
+    const cleanup = jest.fn(async () => undefined);
+    (mockRepository.subscribeSocialUpdates as jest.Mock).mockImplementationOnce(
+      async (listener: SocialUpdatesListener) => {
+        realtimeListener = listener;
+        return cleanup;
+      },
+    );
+    const hook = await renderHook(() => useStudyStore(), { wrapper });
+    await waitFor(() => expect(realtimeListener).not.toBeNull());
+
+    await act(async () => {
+      (realtimeListener as SocialUpdatesListener | null)?.onError?.(
+        new Error('MissingPartition: raw backend message'),
+      );
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(hook.result.current.socialRealtimeUnavailable).toBe(true));
+    expect(hook.result.current.socialError).toBeNull();
+
+    await act(async () => {
+      (realtimeListener as SocialUpdatesListener | null)?.onSubscribed?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(hook.result.current.socialRealtimeUnavailable).toBe(false));
+
+    await hook.unmount();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
   it('loads all volatile social projections in one refresh', async () => {
     const { result } = await renderHook(() => useStudyStore(), { wrapper });
 
@@ -454,7 +489,9 @@ describe('StudyStoreProvider social learning infrastructure', () => {
       && Object.keys(entry).sort().join(',') === 'action,sessionId'
     ))).toBe(true);
 
-    const socialRefreshesBeforeReconnect = mockRepository.social.listFriendOverviews.mock.calls.length;
+    const socialRefreshesBeforeReconnect = (
+      mockRepository.social.listFriendOverviews as jest.Mock
+    ).mock.calls.length;
     mockOnline = true;
     await hook.rerender(undefined);
     await waitFor(() => {
@@ -463,7 +500,7 @@ describe('StudyStoreProvider social learning infrastructure', () => {
       ]);
       expect(storedValues.has(ACTION_OUTBOX_KEY)).toBe(false);
       expect(mockGetSharedStudySessionDetails).toHaveBeenCalledWith('shared-session-id');
-      expect(mockRepository.social.listFriendOverviews.mock.calls.length).toBeGreaterThan(
+      expect((mockRepository.social.listFriendOverviews as jest.Mock).mock.calls.length).toBeGreaterThan(
         socialRefreshesBeforeReconnect,
       );
       expect(hook.result.current.socialLoading).toBe(false);
@@ -574,8 +611,13 @@ describe('StudyStoreProvider social learning infrastructure', () => {
           rejection = error;
         }
       });
-      expect(rejection).toEqual(expect.objectContaining({ message }));
-      expect(result.current.socialError).toBe(message);
+      expect(rejection).toEqual(expect.objectContaining({
+        message: 'Die Anfrage konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
+      }));
+      expect(result.current.socialError).toBe(
+        'Die Anfrage konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
+      );
+      expect(result.current.socialError).not.toContain(message);
     }
   });
 });

@@ -1,0 +1,66 @@
+{
+  "cli": {
+    "version": ">= 16.0.1",
+    "appVersionSource": "remote",
+    "requireCommit": true
+  },
+  "build": {
+    "base": {
+      "android": {
+        "image": "latest",
+        "resourceClass": "medium"
+      }
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "development",
+      "channel": "development",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      },
+      "env": {
+        "EXPO_PUBLIC_BUILD_PROFILE": "development",
+        "LERNZEIT_SKIP_RELEASE_GATE": "1"
+      }
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "environment": "preview",
+      "channel": "preview",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_BUILD_PROFILE": "preview",
+        "LERNZEIT_SKIP_RELEASE_GATE": "1"
+      }
+    },
+    "production": {
+      "extends": "base",
+      "environment": "production",
+      "channel": "production",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_BUILD_PROFILE": "production",
+        "LERNZEIT_RELEASE_GATE": "1"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft",
+        "changesNotSentForReview": false
+      }
+    }
+  }
+}

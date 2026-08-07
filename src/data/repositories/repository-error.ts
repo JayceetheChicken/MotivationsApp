@@ -111,6 +111,20 @@ export function asRepositoryError(error: unknown): StudyRepositoryError {
       { cause: error },
     );
   }
+  if (/community_rules_acceptance_required/i.test(databaseMessage)) {
+    return new StudyRepositoryError(
+      'forbidden',
+      'Bitte akzeptiere zuerst die aktuellen Community-Regeln in Konto & Einstellungen.',
+      { cause: error, retryable: false },
+    );
+  }
+  if (/report_already_open/i.test(databaseMessage)) {
+    return new StudyRepositoryError(
+      'conflict',
+      'Für diesen Inhalt besteht bereits eine offene Meldung.',
+      { cause: error, retryable: false },
+    );
+  }
 
   if (status === 401) return new StudyRepositoryError('unauthorized', 'Die Anmeldung ist abgelaufen.', { cause: error });
   if (status === 403 || postgresCode === '42501') return new StudyRepositoryError('forbidden', 'Für diese Aktion fehlt die Berechtigung.', { cause: error });
@@ -124,19 +138,22 @@ export function asRepositoryError(error: unknown): StudyRepositoryError {
     || postgresCode === '23505'
     || /revision_conflict|already_finalized|chunk_conflict|_deleted$|username_taken/i.test(databaseMessage)
   ) {
-    return new StudyRepositoryError('conflict', candidate?.message ?? 'Der Datensatz wurde zwischenzeitlich geändert.', {
+    const message = /username_taken/i.test(databaseMessage)
+      ? 'Dieser Benutzername ist bereits vergeben.'
+      : 'Der Datensatz wurde zwischenzeitlich geändert. Lade die aktuellen Daten und versuche es erneut.';
+    return new StudyRepositoryError('conflict', message, {
       cause: error,
       retryable: false,
     });
   }
   if (status === 429 || postgresCode === 'P0003' || /cooldown|rate_limit/i.test(databaseMessage)) {
-    return new StudyRepositoryError('rate_limited', candidate?.message ?? 'Bitte warte kurz und versuche es erneut.', { cause: error });
+    return new StudyRepositoryError('rate_limited', 'Bitte warte kurz und versuche es erneut.', { cause: error });
   }
   if (typeof status === 'number' && status >= 500) {
-    return new StudyRepositoryError('server_error', candidate?.message ?? 'Der Server konnte die Anfrage nicht verarbeiten.', { cause: error });
+    return new StudyRepositoryError('server_error', 'Der Server konnte die Anfrage nicht verarbeiten.', { cause: error });
   }
   if (postgresCode === '23503' || postgresCode === '23514' || postgresCode === '22023' || postgresCode === '22P02' || postgresCode === 'P0001') {
-    return new StudyRepositoryError('invalid_data', candidate?.message ?? 'Die übermittelten Daten sind ungültig.', {
+    return new StudyRepositoryError('invalid_data', 'Die übermittelten Daten sind ungültig.', {
       cause: error,
       retryable: false,
     });
@@ -147,5 +164,9 @@ export function asRepositoryError(error: unknown): StudyRepositoryError {
     return new StudyRepositoryError('network_error', 'Die Verbindung zum Server ist fehlgeschlagen.', { cause: error });
   }
 
-  return new StudyRepositoryError('unknown', message, { cause: error, retryable: false });
+  return new StudyRepositoryError(
+    'unknown',
+    'Die Anfrage konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
+    { cause: error, retryable: false },
+  );
 }

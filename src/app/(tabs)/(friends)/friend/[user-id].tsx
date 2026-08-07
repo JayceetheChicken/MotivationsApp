@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -69,7 +69,8 @@ function teamProgress(progress: SharedGoalProgress | undefined): SharedGoalProgr
   };
 }
 
-function remainingLabel(endsAt: string): string {
+function remainingLabel(endsAt: string | undefined): string | undefined {
+  if (!endsAt) return undefined;
   const hours = Math.ceil((Date.parse(endsAt) - Date.now()) / 3_600_000);
   if (!Number.isFinite(hours) || hours <= 0) return 'Zeitraum beendet';
   return hours < 48 ? `Noch ${hours} Std.` : `Noch ${Math.ceil(hours / 24)} Tage`;
@@ -92,11 +93,13 @@ export default function FriendProfileScreen() {
     refreshSocial,
     getFriendOverview,
     removeFriendship,
+    blockUser,
   } = useStudyStore();
   const [overview, setOverview] = useState<FriendOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [blocking, setBlocking] = useState(false);
 
   const connection = useMemo(
     () => friendConnections.find(
@@ -166,6 +169,30 @@ export default function FriendProfileScreen() {
       ],
     );
   }, [connection, removeFriendship, removing]);
+
+  const confirmBlock = useCallback(() => {
+    if (!friendId || !currentOverview || blocking) return;
+    Alert.alert(
+      'Nutzer blockieren?',
+      'Die Person kann dich danach nicht suchen, anfragen oder direkt einladen. Presence- und Aktivitätsdaten werden nicht mehr geteilt. Gemeinsame Gruppen bleiben bestehen.',
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Blockieren',
+          style: 'destructive',
+          onPress: () => {
+            setBlocking(true);
+            void blockUser(friendId)
+              .then(() => router.replace('/friends'))
+              .catch((blockError: unknown) => setError(
+                blockError instanceof Error ? blockError.message : 'Die Person konnte nicht blockiert werden.',
+              ))
+              .finally(() => setBlocking(false));
+          },
+        },
+      ],
+    );
+  }, [blockUser, blocking, currentOverview, friendId]);
 
   if (auth.activeMode !== 'supabase') {
     return (
@@ -295,6 +322,18 @@ export default function FriendProfileScreen() {
 
       {connection ? (
         <AppButton label="Freundschaft entfernen" loading={removing} onPress={confirmRemoval} variant="ghost" />
+      ) : null}
+      {currentOverview ? (
+        <AppButton label="Nutzer blockieren" loading={blocking} onPress={confirmBlock} variant="danger" />
+      ) : null}
+      {currentOverview ? (
+        <AppButton
+          label="Profil oder Profilbild melden"
+          onPress={() => router.push(
+            `/report-content?kind=profile&entityId=${encodeURIComponent(currentOverview.friend.id)}&label=${encodeURIComponent(currentOverview.friend.displayName)}` as Href,
+          )}
+          variant="outline"
+        />
       ) : null}
     </Screen>
   );

@@ -1,9 +1,14 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 
 import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import type { Database, Json } from '@/types/database.generated';
+import { safeWarning } from '@/lib/safe-logger';
 import {
+  mapAccountDataExport,
   mapAccountProfile,
+  mapBlockedProfile,
+  mapCommunityRulesAcceptance,
+  mapContentReportReceipt,
   mapFriendOverview,
   mapFriendSearchResult,
   mapFriendshipConnection,
@@ -99,12 +104,77 @@ const SOCIAL_INVALIDATION_KINDS = new Set<SocialInvalidationKind>([
   'social',
 ]);
 
+const AVATAR_SERVER_PERSISTENCE_ERROR_MESSAGE = 'Das Profilbild konnte serverseitig nicht gespeichert werden.';
+
 function socialInvalidationKind(message: unknown): SocialInvalidationKind {
   const payload = asRecord(asRecord(message).payload);
   const kind = readString(payload, 'kind');
   return kind && SOCIAL_INVALIDATION_KINDS.has(kind as SocialInvalidationKind)
     ? kind as SocialInvalidationKind
     : 'social';
+}
+
+const SOCIAL_REALTIME_RETRY_DELAY_MS = 600;
+const SOCIAL_REALTIME_UNAVAILABLE_MESSAGE = 'Der Live-Status ist momentan nicht verfügbar. Die Freundesfunktionen können weiterhin verwendet werden.';
+type SocialRealtimeCleanup = () => Promise<void>;
+
+const activePrivateRealtimeSubscriptions = new WeakMap<
+  object,
+  Map<string, SocialRealtimeCleanup>
+>();
+
+function activePrivateSubscriptionsFor(client: object): Map<string, SocialRealtimeCleanup> {
+  const existing = activePrivateRealtimeSubscriptions.get(client);
+  if (existing) return existing;
+  const created = new Map<string, SocialRealtimeCleanup>();
+  activePrivateRealtimeSubscriptions.set(client, created);
+  return created;
+}
+
+interface PrivateBroadcastSubscriptionOptions {
+  topic: string;
+  event: string;
+  signal?: AbortSignal;
+  onMessage: (message: unknown) => void;
+  onError?: (error: Error) => void;
+  onReconnected?: () => void;
+  onSubscribed?: () => void;
+}
+
+function realtimeErrorText(error: unknown): string {
+  if (error instanceof Error) return `${error.name} ${error.message}`;
+  if (typeof error === 'string') return error;
+  if (!error || typeof error !== 'object') return String(error ?? '');
+  const record = error as Record<string, unknown>;
+  return [record.code, record.message, record.reason, record.error]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+}
+
+function isMissingRealtimePartition(error: unknown): boolean {
+  return /MissingPartition|expected messages partition/i.test(realtimeErrorText(error));
+}
+
+function logSocialRealtimeFailure(topic: string, status: string, error: unknown): void {
+  void topic;
+  void status;
+  void error;
+  safeWarning('[social-realtime] Private Channel-Verbindung fehlgeschlagen.');
+}
+
+function socialRealtimeUnavailableError(
+  topic: string,
+  status: string,
+  error: unknown,
+): StudyRepositoryError {
+  return new StudyRepositoryError('unavailable', SOCIAL_REALTIME_UNAVAILABLE_MESSAGE, {
+    cause: error,
+    details: {
+      topic,
+      status,
+      missingPartition: isMissingRealtimePartition(error),
+    },
+  });
 }
 
 /**
@@ -198,6 +268,19 @@ function describeAvatarUploadError(error: unknown): StudyRepositoryError {
     'server_error',
     'Der Upload wurde von Supabase abgelehnt.',
     { cause: error },
+  );
+}
+
+function describeAvatarPersistenceError(error: unknown): StudyRepositoryError {
+  const normalized = asRepositoryError(error);
+  if (normalized.code === 'cancelled') return normalized;
+
+  safeWarning('[avatar] Serverseitige Profilbild-Bestätigung fehlgeschlagen.');
+
+  return new StudyRepositoryError(
+    'server_error',
+    AVATAR_SERVER_PERSISTENCE_ERROR_MESSAGE,
+    { cause: error, retryable: normalized.retryable },
   );
 }
 
@@ -433,23 +516,16 @@ export class SupabaseStudyRepository implements StudyRepository {
       signal,
       listener,
       fetchProgress: (fetchSignal) => this.social.getSharedGoalProgress(cleanGoalId, fetchSignal),
-      startInvalidationListener: async (onInvalidated, onTransportError) => {
-        let subscribedOnce = false;
-        const channel = this.client
-          .channel(`shared-goal:${cleanGoalId}`, { config: { private: true } })
-          .on('broadcast', { event: 'progress_invalidated' }, () => onInvalidated());
-        channel.subscribe((status, error) => {
-          if (status === 'SUBSCRIBED') {
-            // A second SUBSCRIBED status follows a transport reconnect. The
-            // invalidation payload is intentionally not replayed, so refetch.
-            if (subscribedOnce) onInvalidated();
-            subscribedOnce = true;
-          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            onTransportError(error ?? new Error(`Realtime-Status: ${status}`));
-          }
-        });
-        return async () => { await this.client.removeChannel(channel); };
-      },
+      startInvalidationListener: (onInvalidated, onTransportError) => (
+        this.subscribePrivateBroadcast({
+          topic: `shared-goal:${cleanGoalId}`,
+          event: 'progress_invalidated',
+          signal,
+          onMessage: onInvalidated,
+          onReconnected: onInvalidated,
+          onError: onTransportError,
+        })
+      ),
     });
     const trackedCleanup = async () => {
       if (!cleanup) return;
@@ -466,41 +542,15 @@ export class SupabaseStudyRepository implements StudyRepository {
     listener: SocialUpdatesListener,
     signal?: AbortSignal,
   ): Promise<() => Promise<void>> {
-    this.ensureAvailable();
-    throwIfAborted(signal);
-    await this.client.realtime.setAuth();
-    throwIfAborted(signal);
-
-    let subscribedOnce = false;
-    let disposed = false;
-    const channel = this.client
-      .channel(`social:user:${this.accountId}`, { config: { private: true } })
-      .on('broadcast', { event: 'social_invalidated' }, (message) => {
-        if (!disposed) listener.onInvalidated(socialInvalidationKind(message));
-      });
-    channel.subscribe((status, error) => {
-      if (disposed) return;
-      if (status === 'SUBSCRIBED') {
-        if (subscribedOnce) listener.onInvalidated('social');
-        subscribedOnce = true;
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        listener.onError?.(asRepositoryError(error ?? new Error(`Realtime-Status: ${status}`)));
-      }
+    return this.subscribePrivateBroadcast({
+      topic: `social:user:${this.accountId}`,
+      event: 'social_invalidated',
+      signal,
+      onMessage: (message) => listener.onInvalidated(socialInvalidationKind(message)),
+      onReconnected: () => listener.onInvalidated('social'),
+      onError: listener.onError,
+      onSubscribed: listener.onSubscribed,
     });
-
-    let cleaned = false;
-    const cleanup = async () => {
-      if (cleaned) return;
-      cleaned = true;
-      disposed = true;
-      signal?.removeEventListener('abort', abort);
-      this.realtimeCleanups.delete(cleanup);
-      await this.client.removeChannel(channel);
-    };
-    const abort = () => { void cleanup(); };
-    signal?.addEventListener('abort', abort, { once: true });
-    this.realtimeCleanups.add(cleanup);
-    return cleanup;
   }
 
   async dispose(): Promise<void> {
@@ -510,6 +560,156 @@ export class SupabaseStudyRepository implements StudyRepository {
     await Promise.all([...this.realtimeCleanups].map((cleanup) => cleanup()));
     this.realtimeCleanups.clear();
     this.listeners.clear();
+  }
+
+  private async subscribePrivateBroadcast(
+    options: PrivateBroadcastSubscriptionOptions,
+  ): Promise<SocialRealtimeCleanup> {
+    this.ensureAvailable();
+    throwIfAborted(options.signal);
+    const { topic } = options;
+    const registry = activePrivateSubscriptionsFor(this.client);
+    const previousCleanup = registry.get(topic);
+    let subscribedOnce = false;
+    let disposed = false;
+    let activeChannel: RealtimeChannel | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolveRetryDelay: (() => void) | null = null;
+    let cleanupTask: Promise<void> | null = null;
+
+    const removeActiveChannel = async (expected?: RealtimeChannel): Promise<void> => {
+      const channel = activeChannel;
+      if (!channel || (expected && channel !== expected)) return;
+      activeChannel = null;
+      try {
+        await this.client.removeChannel(channel);
+      } catch (error) {
+        logSocialRealtimeFailure(topic, 'REMOVE_FAILED', error);
+      }
+    };
+
+    const cleanup = async (): Promise<void> => {
+      if (cleanupTask) return cleanupTask;
+      cleanupTask = (async () => {
+        disposed = true;
+        options.signal?.removeEventListener('abort', abort);
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+          retryTimer = null;
+          resolveRetryDelay?.();
+          resolveRetryDelay = null;
+        }
+        if (registry.get(topic) === cleanup) registry.delete(topic);
+        this.realtimeCleanups.delete(cleanup);
+        await removeActiveChannel();
+      })();
+      return cleanupTask;
+    };
+    const abort = () => { void cleanup(); };
+    options.signal?.addEventListener('abort', abort, { once: true });
+
+    // Register before the first await. Concurrent effect setup disposes the
+    // previous owner before either call can create a duplicate topic.
+    registry.set(topic, cleanup);
+    this.realtimeCleanups.add(cleanup);
+
+    if (previousCleanup && previousCleanup !== cleanup) await previousCleanup();
+    if (disposed || options.signal?.aborted || registry.get(topic) !== cleanup) return cleanup;
+
+    const waitBeforeRetry = (): Promise<void> => new Promise((resolve) => {
+      resolveRetryDelay = resolve;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        resolveRetryDelay = null;
+        resolve();
+      }, SOCIAL_REALTIME_RETRY_DELAY_MS);
+    });
+
+    const startChannel = async (attempt: 0 | 1): Promise<void> => {
+      await this.authenticateRealtime();
+      if (disposed || options.signal?.aborted || registry.get(topic) !== cleanup) return;
+
+      let failureHandled = false;
+      const channel = this.client
+        .channel(topic, { config: { private: true } })
+        .on('broadcast', { event: options.event }, (message) => {
+          if (!disposed && activeChannel === channel) options.onMessage(message);
+        });
+      activeChannel = channel;
+      channel.subscribe((status, error) => {
+        if (disposed || activeChannel !== channel) return;
+        if (status === 'SUBSCRIBED') {
+          options.onSubscribed?.();
+          if (subscribedOnce) options.onReconnected?.();
+          subscribedOnce = true;
+          return;
+        }
+        if (
+          status !== 'CHANNEL_ERROR'
+          && status !== 'TIMED_OUT'
+          && status !== 'CLOSED'
+        ) return;
+        if (failureHandled) return;
+        failureHandled = true;
+        const originalError = error ?? new Error(`Realtime-Status: ${status}`);
+        logSocialRealtimeFailure(topic, status, originalError);
+
+        void (async () => {
+          await removeActiveChannel(channel);
+          if (disposed) return;
+          if (attempt === 1) {
+            options.onError?.(socialRealtimeUnavailableError(topic, status, originalError));
+            return;
+          }
+
+          await waitBeforeRetry();
+          if (disposed) return;
+          try {
+            // Reload the session exactly once, forward its current JWT, and
+            // only then create the single replacement private channel.
+            await startChannel(1);
+          } catch (retryError) {
+            logSocialRealtimeFailure(topic, 'RETRY_FAILED', retryError);
+            if (!disposed) {
+              options.onError?.(socialRealtimeUnavailableError(topic, 'RETRY_FAILED', retryError));
+            }
+          }
+        })();
+      });
+    };
+
+    try {
+      await startChannel(0);
+    } catch (initialError) {
+      logSocialRealtimeFailure(topic, 'AUTH_ERROR', initialError);
+      await waitBeforeRetry();
+      if (disposed) return cleanup;
+      try {
+        await startChannel(1);
+      } catch (retryError) {
+        logSocialRealtimeFailure(topic, 'RETRY_FAILED', retryError);
+        await cleanup();
+        throw socialRealtimeUnavailableError(topic, 'RETRY_FAILED', retryError);
+      }
+    }
+
+    return cleanup;
+  }
+
+  private async authenticateRealtime(): Promise<void> {
+    const { data, error } = await this.client.auth.getSession();
+    if (error) {
+      throw new StudyRepositoryError('unauthorized', 'Die Anmeldung ist abgelaufen.', {
+        cause: error,
+      });
+    }
+    const session = data.session;
+    if (!session?.access_token || session.user.id !== this.accountId) {
+      throw new StudyRepositoryError('unauthorized', 'Für den Live-Status fehlt eine gültige Anmeldung.', {
+        retryable: false,
+      });
+    }
+    await this.client.realtime.setAuth(session.access_token);
   }
 
   private createSocialRepository(): SocialRepository {
@@ -546,15 +746,19 @@ export class SupabaseStudyRepository implements StudyRepository {
         return { objectPath: path };
       },
       setMyAvatar: async (objectPath, signal) => {
-        const result = asRecord(await this.rpc(
-          'set_my_avatar',
-          { p_object_path: objectPath },
-          signal,
-        ));
-        return {
-          profile: mapAccountProfile(result),
-          previousAvatarUrl: readString(result, 'previous_avatar_url', 'previousAvatarUrl'),
-        };
+        try {
+          const result = asRecord(await this.rpc(
+            'set_my_avatar',
+            { p_object_path: objectPath },
+            signal,
+          ));
+          return {
+            profile: mapAccountProfile(result),
+            previousAvatarUrl: readString(result, 'previous_avatar_url', 'previousAvatarUrl'),
+          };
+        } catch (error) {
+          throw describeAvatarPersistenceError(error);
+        }
       },
       deleteAvatarObject: async (userId, objectPath, signal) => {
         throwIfAborted(signal);
@@ -633,6 +837,13 @@ export class SupabaseStudyRepository implements StudyRepository {
         p_share_manual_stats: input.shareManualStats,
         p_share_goal_progress: input.shareGoalProgress,
         p_share_streak: input.shareStreak,
+        p_share_currently_learning: input.shareCurrentlyLearning,
+        p_share_pause_status: input.sharePauseStatus,
+        p_share_last_active_at: input.shareLastActiveAt,
+        p_share_today_activity: input.shareTodayActivity,
+        p_share_weekly_minutes: input.shareWeeklyMinutes,
+        p_share_avatar: input.shareAvatar,
+        p_discoverable_by_username: input.discoverableByUsername,
         p_expected_revision: input.expectedRevision,
       }, signal)),
       findProfileByExactUsername: async (username, signal) => {
@@ -657,6 +868,33 @@ export class SupabaseStudyRepository implements StudyRepository {
       removeFriendship: async (friendshipId, signal) => {
         await this.rpc('remove_friendship', { p_friendship_id: friendshipId }, signal);
       },
+      listBlockedProfiles: async (signal) => rpcRows(
+        await this.rpc('list_my_blocked_profiles', {}, signal),
+        'blocked_profiles',
+      ).map(mapBlockedProfile),
+      blockUser: async (userId, signal) => {
+        await this.rpc('block_user', { p_user_id: userId }, signal);
+      },
+      unblockUser: async (userId, signal) => {
+        await this.rpc('unblock_user', { p_user_id: userId }, signal);
+      },
+      submitContentReport: async (input, signal) => mapContentReportReceipt(
+        await this.rpc('submit_content_report', {
+          p_entity_type: input.entityType,
+          p_entity_id: input.entityId,
+          p_reason: input.reason,
+          p_description: input.description?.trim() || null,
+        }, signal),
+      ),
+      getCommunityRulesAcceptance: async (signal) => mapCommunityRulesAcceptance(
+        await this.rpc('get_community_rules_acceptance', {}, signal),
+      ),
+      acceptCommunityRules: async (version, signal) => mapCommunityRulesAcceptance(
+        await this.rpc('accept_community_rules', { p_version: version }, signal),
+      ),
+      exportMyData: async (signal) => mapAccountDataExport(
+        await this.rpc('export_my_data', {}, signal),
+      ),
       getFriendOverview: async (friendId, signal) => mapFriendOverview(await this.rpc('get_friend_overview', {
         p_friend_id: friendId,
       }, signal)),
@@ -673,8 +911,8 @@ export class SupabaseStudyRepository implements StudyRepository {
           group_id: input.goal.groupId ?? null,
           period: input.goal.period,
           source_policy: input.goal.sourcePolicy,
-          starts_at: input.goal.startsAt,
-          ends_at: input.goal.endsAt,
+          starts_at: input.goal.startsAt ?? null,
+          ends_at: input.goal.endsAt ?? null,
           target_minutes: input.goal.targetMinutes,
           target_sessions: input.goal.targetSessions,
           minimum_session_minutes: input.goal.minimumSessionMinutes,

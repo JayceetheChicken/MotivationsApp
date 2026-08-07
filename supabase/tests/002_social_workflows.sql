@@ -15,6 +15,10 @@ insert into auth.users(
   ('33333333-3333-4333-8333-333333333333', 'authenticated', 'authenticated',
     'cara@example.test', '{"username":"cara","display_name":"Cara"}', now(), now());
 
+insert into public.community_rule_acceptances(user_id, version)
+select p.id, '2026-08-02'
+from public.profiles p;
+
 select is((select count(*)::integer from public.profiles), 3, 'auth trigger provisions profiles');
 select is(
   (select count(*)::integer from public.privacy_settings
@@ -28,6 +32,14 @@ select is(
    where id = '22222222-2222-4222-8222-222222222222'),
   null,
   'untrusted signup avatar metadata is not copied into the profile'
+);
+
+update public.privacy_settings
+set share_avatar = true,
+    discoverable_by_username = true
+where user_id in (
+  '11111111-1111-4111-8111-111111111111',
+  '22222222-2222-4222-8222-222222222222'
 );
 
 insert into storage.objects(bucket_id, name, metadata)
@@ -132,7 +144,11 @@ select is(
 );
 
 select is(
-  (public.update_privacy_settings(true, false, false, false, 1)
+  (public.update_privacy_settings(
+    true, false, false, false,
+    false, false, false, false, false, true, true,
+    2
+  )
     ->> 'share_timer_stats')::boolean,
   true,
   'timer statistics can be shared independently'
@@ -257,7 +273,13 @@ select ok(
 );
 select ok(
   not (public.get_friend_overview('22222222-2222-4222-8222-222222222222')
-    ?| array['timer_minutes', 'manual_minutes', 'streak_days', 'goal_reached']),
+    ?| array['timer_minutes', 'manual_minutes', 'goal_reached'])
+  and public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    -> 'today_minutes' = 'null'::jsonb
+  and public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    -> 'week_minutes' = 'null'::jsonb
+  and public.get_friend_overview('22222222-2222-4222-8222-222222222222')
+    -> 'streak_days' = 'null'::jsonb,
   'friend overview contains no private study metrics'
 );
 select is(

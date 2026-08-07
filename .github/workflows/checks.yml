@@ -1,0 +1,452 @@
+name: App quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app-quality:
+    name: Typecheck, tests, lint and Expo Doctor
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reject sensitive tracked filenames
+        run: node scripts/check-sensitive-files.mjs
+
+      - name: Report release configuration state
+        run: node scripts/check-release-config.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run unit and component tests
+        run: npm test -- --runInBand
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Verify brand assets are reproducible
+        run: node scripts/build-brand-assets.mjs --check
+
+      - name: Verify third-party licence inventory
+        run: node scripts/build-third-party-notices.mjs --check
+
+      - name: Verify generated public pages are current
+        run: |
+          set -euo pipefail
+          node scripts/build-public-pages.mjs
+          git diff --exit-code -- public/
+
+      # .gitattributes exempts THIRD_PARTY_NOTICES.md, which reproduces
+      # third-party licence texts verbatim including their trailing whitespace.
+      - name: Reject whitespace errors
+        run: |
+          set -euo pipefail
+          base=$(git merge-base HEAD origin/main 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          git diff --check "$base" HEAD
+
+      - name: Run Expo Doctor
+        run: npx --yes expo-doctor@1.20.1
+
+      # The baseline is "no findings at all", which is the only baseline that
+      # cannot silently hide one. The previous `--audit-level=high` kept the job
+      # green while twelve moderate advisories stood open; the last of them
+      # (GHSA-w5hq-g745-h8pq, uuid < 11.1.1 via xcode) is resolved by the
+      # `overrides` entry in package.json - see docs/dependency-audit.md. A new
+      # moderate advisory therefore fails this job instead of accumulating.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+
+      # Only one package in the whole tree carries an install hook. Asserting the
+      # exact set turns "a dependency update quietly added a postinstall script"
+      # into a failed build rather than something nobody looks at.
+      - name: Enforce the install-script allowlist
+        run: node scripts/check-install-scripts.mjs
+
+  release-gate:
+    name: Production release gate rejects placeholders
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A production build without operator values must fail. If this step ever
+      # succeeds, the gate has stopped protecting the release.
+      - name: Gate must reject an empty production environment
+        run: |
+          set +e
+          node scripts/check-release-config.mjs --production
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Das Release-Gate hat eine leere Produktionsumgebung akzeptiert."
+            exit 1
+          fi
+          echo "Release-Gate blockiert unvollstaendige Produktionsumgebungen wie erwartet."
+
+      - name: Expo config must refuse to resolve for a production build
+        env:
+          LERNZEIT_RELEASE_GATE: '1'
+        run: |
+          set +e
+          npx --yes expo config --type public --json > /dev/null 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::app.config.js hat einen Production-Build ohne Betreiberangaben zugelassen."
+            exit 1
+          fi
+          echo "app.config.js bricht Production-Builds ohne Betreiberangaben ab."
+
+      # Explicit negative and positive cases. Each asserts the exit code *and*
+      # the reason in the output, so a check that stops working cannot pass by
+      # accident. See scripts/ci-release-gate-matrix.sh for the full list.
+      - name: Release gate matrix (service_role, skipped gate, fingerprints, recovery)
+        run: bash scripts/ci-release-gate-matrix.sh
+
+      - name: Gate must accept a complete production environment
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          node scripts/build-public-pages.mjs
+          node scripts/check-release-config.mjs --production
+          npx --yes expo config --type public --json > "${RUNNER_TEMP}/expo-config.json"
+          node scripts/verify-expo-config.mjs "${RUNNER_TEMP}/expo-config.json"
+          git checkout -- public/
+          echo "Expo-Config wurde mit vollstaendiger Produktionsumgebung aufgeloest."
+
+      # app.config.js resolves the App Links host and the recovery callback from
+      # the same central function, so both must name the operator domain.
+      - name: Expo config must declare the verified App Link
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          npx --yes expo config --type public --json > "${RUNNER_TEMP}/expo-config-links.json"
+          node -e '
+            const config = require(process.env.RUNNER_TEMP + "/expo-config-links.json");
+            const manifest = config.expo ?? config;
+            const host = manifest.extra?.legalSiteHost;
+            const redirect = manifest.extra?.passwordRecoveryRedirect;
+            const kind = manifest.extra?.passwordRecoveryRedirectKind;
+            const appLink = (manifest.android?.intentFilters ?? []).find((f) => f.autoVerify === true);
+            const appLinkHost = appLink?.data?.[0]?.host ?? appLink?.data?.host;
+            const expected = "https://" + host + "/update-password?type=recovery";
+            const problems = [];
+            if (kind !== "https-app-link") problems.push("Recovery-Kind ist " + kind);
+            if (redirect !== expected) problems.push("Recovery-URL ist " + redirect + ", erwartet " + expected);
+            if (appLinkHost !== host) problems.push("App-Links-Host " + appLinkHost + " != " + host);
+            if (problems.length > 0) { console.error(problems.join("\n")); process.exit(1); }
+            console.log("Verifizierter App Link und Recovery-Callback stimmen ueberein: " + redirect);
+          '
+
+  edge-functions:
+    name: Deno format, lint and typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      # Run inside supabase/functions so Deno uses that workspace's deno.json
+      # and deno.lock instead of discovering the Expo app's package.json.
+      - name: Check formatting
+        working-directory: supabase/functions
+        run: deno fmt --check .
+
+      - name: Lint
+        working-directory: supabase/functions
+        run: deno lint .
+
+      - name: Typecheck against the locked dependency graph
+        working-directory: supabase/functions
+        run: deno check --frozen delete-account/index.ts
+
+  expo-export:
+    name: Static export per build profile
+    runs-on: ubuntu-latest
+    # Four web exports (production, tampering check, development, preview).
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # End-to-end proof that a production build carries the configured operator
+      # values and no development placeholders.
+      #
+      # `--clear` on every export in this job is load-bearing: Metro caches the
+      # virtual expo-constants module, and its cache key does not include the
+      # resolved `extra`. Without it a second export in the same job embeds the
+      # first one's manifest, and the attestation would describe a build that was
+      # never produced.
+      - name: Export with a complete production environment
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          export NODE_ENV=production
+          node scripts/build-public-pages.mjs
+          npx --yes expo export --platform web --clear --output-dir dist
+          node scripts/check-exported-bundle.mjs dist
+
+      # A Supabase key is a JWT: the role is Base64URL encoded and a plaintext
+      # grep for "service_role" finds nothing. Injecting a real service-role
+      # token into the finished export proves the scanner decodes candidates.
+      - name: Bundle scan must reject an embedded service_role JWT
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const b = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+            const header = b({ alg: "HS256", typ: "JWT" });
+            const token = header + "." + b({ iss: "supabase", role: "service_role", exp: 2000000000 })
+              + "." + Buffer.from("signature").toString("base64url");
+            if (/"role"\s*:\s*"service_role"/.test(token)) throw new Error("Token unerwartet im Klartext.");
+            fs.writeFileSync("dist/injected-service-role.js", "var k=\"" + token + "\";\n");
+            console.log("service_role-JWT in den Export injiziert.");
+          '
+          source scripts/ci-production-env.sh
+          set +e
+          node scripts/check-exported-bundle.mjs dist
+          status=$?
+          set -e
+          rm -f dist/injected-service-role.js
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Der Bundle-Scanner hat einen eingebetteten service_role-JWT nicht erkannt."
+            exit 1
+          fi
+          echo "Bundle-Scanner erkennt kodierte service_role-JWTs."
+
+      # The scan must prove which recovery transport the *built* app uses. A
+      # tampered attestation in the finished export has to fail, otherwise the
+      # check would only be re-deriving the expected value from the environment.
+      - name: Bundle scan must reject a tampered recovery attestation
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          entry=$(find dist/_expo/static/js/web -name 'entry-*.js' | head -1)
+          cp "$entry" "${RUNNER_TEMP}/entry-original.js"
+          node -e '
+            const fs = require("node:fs");
+            const file = process.argv[1];
+            const text = fs.readFileSync(file, "utf8");
+            const replaced = text.replace(/host=lernzeit-ci\.de/g, "host=angreifer.de")
+              .replace(/https:\/\/lernzeit-ci\.de\/update-password/g, "https://angreifer.de/update-password");
+            if (replaced === text) throw new Error("Attestierung nicht im Export gefunden.");
+            fs.writeFileSync(file, replaced);
+          ' "$entry"
+          set +e
+          node scripts/check-exported-bundle.mjs dist
+          status=$?
+          set -e
+          cp "${RUNNER_TEMP}/entry-original.js" "$entry"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Der Bundle-Scanner hat eine manipulierte Recovery-Attestierung akzeptiert."
+            exit 1
+          fi
+          echo "Bundle-Scanner erkennt eine manipulierte Recovery-Attestierung."
+
+      - name: Bundle scan must accept a legitimate anon JWT
+        run: |
+          set -euo pipefail
+          source scripts/ci-production-env.sh
+          node -e '
+            const fs = require("node:fs");
+            const b = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+            const token = b({ alg: "HS256", typ: "JWT" }) + "." + b({ iss: "supabase", role: "anon", exp: 2000000000 })
+              + "." + Buffer.from("signature").toString("base64url");
+            fs.writeFileSync("dist/injected-anon.js", "var k=\"" + token + "\";\n");
+          '
+          node scripts/check-exported-bundle.mjs dist
+          rm -f dist/injected-anon.js
+          echo "Ein gueltiger Anon-JWT loest keinen Fehlalarm aus."
+
+      - name: Export must fail with an incomplete production environment
+        run: |
+          set -euo pipefail
+          git checkout -- public/
+          set +e
+          LERNZEIT_RELEASE_GATE=1 NODE_ENV=production npx --yes expo export --platform web --output-dir dist-invalid > /dev/null 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Der Production-Export lief trotz fehlender Betreiberangaben durch."
+            exit 1
+          fi
+          echo "Production-Export bricht ohne vollstaendige Betreiberangaben ab."
+
+      # Development and preview must ship the private scheme and nothing else.
+      # Without this the per-profile split would only be asserted for production.
+      - name: Development and preview export must attest the private scheme
+        run: |
+          set -euo pipefail
+          for profile in development preview; do
+            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" EXPO_PUBLIC_BUILD_PROFILE="$profile" \
+              LERNZEIT_SKIP_RELEASE_GATE=1 \
+              npx --yes expo export --platform web --clear --output-dir "dist-$profile" > /dev/null
+            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" EXPO_PUBLIC_BUILD_PROFILE="$profile" \
+              LERNZEIT_SKIP_RELEASE_GATE=1 \
+              node scripts/check-exported-bundle.mjs "dist-$profile" | tee "$profile.log"
+            grep -q 'transport=custom-scheme' "$profile.log"
+            grep -q "profile=$profile" "$profile.log"
+            rm -rf "dist-$profile" "$profile.log"
+          done
+          echo "Development- und Preview-Export verwenden ausschliesslich das private Schema."
+
+  native-linking:
+    name: Generated AndroidManifest.xml per build profile
+    runs-on: ubuntu-latest
+    # Three full prebuilds; each writes a fresh android/ directory.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [production, development, preview]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `expo config` is Expo's *input* to the prebuild; @expo/config-plugins is
+      # what turns it into XML. Only the generated manifest proves what Google
+      # Play will actually install, which is why this job runs the real prebuild
+      # instead of asserting against the resolved config alone.
+      #
+      # android/ is gitignored and produced from scratch here (Continuous Native
+      # Generation), so the checkout is disposable by construction.
+      - name: Prebuild and verify the native manifest
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          if [ "$PROFILE" = 'production' ]; then
+            source scripts/ci-production-env.sh
+          else
+            export EXPO_PUBLIC_BUILD_PROFILE="$PROFILE"
+            export EAS_BUILD=true
+            export EAS_BUILD_PROFILE="$PROFILE"
+            export LERNZEIT_SKIP_RELEASE_GATE=1
+          fi
+          npx --yes expo prebuild --platform android --clean --no-install
+          node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+
+      # The check must fail for the other profiles, otherwise it is asserting
+      # nothing. Production and development are each other's negative case.
+      - name: The manifest must fail the other profile's rules
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          if [ "$PROFILE" = 'production' ]; then
+            set +e
+            EXPO_PUBLIC_BUILD_PROFILE=development EAS_BUILD_PROFILE=development \
+              LERNZEIT_SKIP_RELEASE_GATE=1 \
+              node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+            status=$?
+            set -e
+          else
+            set +e
+            (
+              source scripts/ci-production-env.sh
+              node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+            )
+            status=$?
+            set -e
+          fi
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Das Manifest von $PROFILE hat auch die Regeln des anderen Profils erfuellt."
+            exit 1
+          fi
+          echo "Das $PROFILE-Manifest wird von den Regeln des anderen Profils abgelehnt."
+
+      # Read straight out of the XML, independent of the checker above, so a bug
+      # in the checker cannot make this job pass.
+      - name: Assert the scheme directly in the XML
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          manifest=android/app/src/main/AndroidManifest.xml
+          if [ "$PROFILE" = 'production' ]; then
+            if grep -q 'android:scheme="lernzeit"' "$manifest"; then
+              echo "::error::Das Production-Manifest registriert weiterhin das lernzeit-Scheme."
+              exit 1
+            fi
+            if grep -q 'android:host="auth"' "$manifest"; then
+              echo "::error::Das Production-Manifest enthaelt einen Recovery-Filter auf host=auth."
+              exit 1
+            fi
+            grep -q 'android:autoVerify="true"' "$manifest"
+            grep -q 'android:host="lernzeit-ci.de"' "$manifest"
+            grep -q 'android:path="/update-password"' "$manifest"
+            echo "Production: nur der verifizierte App Link, kein lernzeit-Scheme."
+          else
+            grep -q 'android:scheme="lernzeit"' "$manifest"
+            grep -q 'android:host="auth"' "$manifest"
+            grep -q 'android:path="/update-password"' "$manifest"
+            if grep -q 'android:autoVerify="true"' "$manifest"; then
+              echo "::error::Ein $PROFILE-Manifest darf keinen verifizierten App Link deklarieren."
+              exit 1
+            fi
+            echo "$PROFILE: nur der private Recovery-Link, kein verifizierter App Link."
+          fi

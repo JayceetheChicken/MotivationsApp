@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -454,6 +454,11 @@ export default function SharedStudySessionDetailsScreen() {
       {session.creatorId === data.currentUser?.id && ['planned', 'active'].includes(session.status) ? (
         <AppButton disabled={hasLinkedPrivateTimer} label="Gemeinsame Session absagen" loading={pendingAction === 'cancel'} onPress={confirmCancel} variant="ghost" />
       ) : null}
+      <AppButton
+        label="Gemeinsame Session melden"
+        onPress={() => router.push(`/report-content?kind=shared_session&entityId=${encodeURIComponent(session.id)}&label=${encodeURIComponent(session.title)}` as Href)}
+        variant="outline"
+      />
     </Screen>
   );
 }

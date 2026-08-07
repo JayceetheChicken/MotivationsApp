@@ -1,32 +1,93 @@
 import {
   avatarObjectPathFromUrl,
   avatarUrlReferencesObjectPath,
+  cleanupTemporaryAvatarUri,
+  containsSensitiveImageMetadata,
   MAX_AVATAR_BYTES,
+  MAX_AVATAR_DIMENSION,
   prepareAvatarUpload,
+  reencodeAvatarForUpload,
   readAvatarArrayBuffer,
 } from '@/lib/avatar-upload';
 
 const mockNativeArrayBuffer = jest.fn();
+const mockNativeDelete = jest.fn();
 
 jest.mock('expo-file-system', () => ({
   File: jest.fn().mockImplementation((uri: string) => ({
     arrayBuffer: () => mockNativeArrayBuffer(uri),
+    delete: () => mockNativeDelete(uri),
+    exists: true,
   })),
 }));
 
 const readerReturning = (buffer: ArrayBuffer) => jest.fn(async () => buffer);
-const jpeg = () => new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer;
-const png = () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer;
+const jpeg = (width = 32, height = 32) => new Uint8Array([
+  0xff, 0xd8, 0xff, 0xc0, 0x00, 0x07, 0x08,
+  (height >> 8) & 0xff, height & 0xff,
+  (width >> 8) & 0xff, width & 0xff,
+]).buffer;
+const png = (width = 32, height = 32) => {
+  const bytes = new Uint8Array(24);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes.buffer;
+};
 
 describe('prepareAvatarUpload', () => {
+  it('re-encodes every accepted source and scales it into a 1024px JPEG', async () => {
+    const reencode = jest.fn(async () => ({
+      uri: 'file:///cache/reencoded-avatar.jpg',
+      width: 1024,
+      height: 512,
+    }));
+
+    await expect(reencodeAvatarForUpload({
+      uri: 'content://media/source.png',
+      mimeType: 'image/png',
+      fileName: 'source.png',
+      fileSize: 2048,
+      width: 4096,
+      height: 2048,
+    }, reencode)).resolves.toEqual(expect.objectContaining({
+      uri: 'file:///cache/reencoded-avatar.jpg',
+      mimeType: 'image/jpeg',
+      fileName: 'avatar.jpg',
+      width: 1024,
+      height: 512,
+    }));
+    expect(reencode).toHaveBeenCalledWith('content://media/source.png', { width: 1024 });
+  });
+
+  it('rejects sensitive EXIF, XMP and GPS markers after re-encoding', async () => {
+    const exifJpeg = new Uint8Array(jpeg());
+    const withExif = new Uint8Array(exifJpeg.length + 6);
+    withExif.set(exifJpeg);
+    withExif.set([0x45, 0x78, 0x69, 0x66, 0x00, 0x00], exifJpeg.length);
+
+    expect(containsSensitiveImageMetadata(withExif.buffer)).toBe(true);
+    await expect(prepareAvatarUpload(
+      { uri: 'file:///cache/avatar.jpg', mimeType: 'image/jpeg', fileName: 'avatar.jpg' },
+      readerReturning(withExif.buffer),
+    )).rejects.toThrow('unerwartete Metadaten');
+  });
+
   it('extracts only the requested users public Storage object path', () => {
-    const path = 'user-123/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg';
+    const userId = '11111111-1111-4111-8111-111111111111';
+    const path = `${userId}/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg`;
     const url = `https://project.test/storage/v1/object/public/avatars/${path}?v=cache`;
 
-    expect(avatarObjectPathFromUrl(url, 'user-123')).toBe(path);
+    expect(avatarObjectPathFromUrl(url, userId)).toBe(path);
     expect(avatarObjectPathFromUrl(url, 'other-user')).toBeNull();
-    expect(avatarObjectPathFromUrl('https://images.example/avatar.jpg', 'user-123')).toBeNull();
-    expect(avatarUrlReferencesObjectPath(url, 'user-123', path)).toBe(true);
+    expect(avatarObjectPathFromUrl('https://images.example/avatar.jpg', userId)).toBeNull();
+    expect(avatarObjectPathFromUrl(
+      `https://project.test/storage/v1/object/public/avatars/${userId}/profile/../foreign.jpg`,
+      userId,
+    )).toBeNull();
+    expect(avatarUrlReferencesObjectPath(url, userId, path)).toBe(true);
   });
 
   it('reads the picked image into an ArrayBuffer and keeps the mime type', async () => {
@@ -115,5 +176,40 @@ describe('prepareAvatarUpload', () => {
       { uri: 'file:///tmp/vector.svg', mimeType: 'image/svg+xml' },
       readerReturning(new TextEncoder().encode('<svg/>').buffer),
     )).rejects.toThrow('JPEG-, PNG- oder WebP-Dateien');
+  });
+
+  it('rejects decompression-bomb dimensions from metadata and file headers', async () => {
+    await expect(prepareAvatarUpload(
+      {
+        uri: 'file:///tmp/huge.jpg',
+        mimeType: 'image/jpeg',
+        width: MAX_AVATAR_DIMENSION + 1,
+        height: 1,
+      },
+      readerReturning(jpeg()),
+    )).rejects.toThrow('zu große Abmessungen');
+
+    await expect(prepareAvatarUpload(
+      { uri: 'file:///tmp/forged.png', mimeType: 'image/png', width: 32, height: 32 },
+      readerReturning(png(MAX_AVATAR_DIMENSION + 1, 1)),
+    )).rejects.toThrow('beschädigt oder hat zu große Abmessungen');
+  });
+
+  it('requires the declared MIME type and file extension to agree', async () => {
+    await expect(prepareAvatarUpload(
+      { uri: 'file:///tmp/picture.jpg', fileName: 'picture.jpg', mimeType: 'image/png' },
+      readerReturning(png()),
+    )).rejects.toThrow('JPEG-, PNG- oder WebP-Dateien');
+    await expect(prepareAvatarUpload(
+      { uri: 'file:///tmp/picture.heic', fileName: 'picture.heic', mimeType: 'image/jpeg' },
+      readerReturning(jpeg()),
+    )).rejects.toThrow('JPEG-, PNG- oder WebP-Dateien');
+  });
+
+  it('deletes only app-cache file copies after an online upload', () => {
+    cleanupTemporaryAvatarUri('file:///data/user/0/de.lernzeit.app/cache/picker/avatar.jpg');
+    cleanupTemporaryAvatarUri('file:///data/user/0/de.lernzeit.app/files/avatar.jpg');
+    cleanupTemporaryAvatarUri('content://media/images/42');
+    expect(mockNativeDelete).toHaveBeenCalledTimes(1);
   });
 });

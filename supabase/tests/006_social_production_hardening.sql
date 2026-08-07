@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(28);
+select plan(33);
 
 insert into auth.users(
   id, aud, role, email, raw_user_meta_data, created_at, updated_at
@@ -30,6 +30,21 @@ insert into auth.users(
     '{"username":"hardeningcara","display_name":"Hardening Cara","time_zone":"UTC"}',
     now(), now()
   );
+
+insert into public.community_rule_acceptances(user_id, version)
+select p.id, '2026-08-02'
+from public.profiles p
+where p.id in (
+  'e1111111-1111-4111-8111-111111111111',
+  'e2222222-2222-4222-8222-222222222222',
+  'e3333333-3333-4333-8333-333333333333'
+);
+
+update public.privacy_settings
+set share_currently_learning = true,
+    share_pause_status = true,
+    share_last_active_at = true
+where user_id = 'e2222222-2222-4222-8222-222222222222';
 
 select is(
   (select avatar_url from public.profiles where id = 'e1111111-1111-4111-8111-111111111111'),
@@ -154,17 +169,70 @@ select is(
 );
 select ok(
   coalesce((
-    select qual::text ~ 'realtime\.topic\(\)[[:space:]]*='
+    select position('realtime.topic()' in qual::text) > 0
       and position('social:user:' in qual::text) > 0
       and position('auth.uid()' in qual::text) > 0
-      and position('~~' in qual::text) = 0
-      and position('similar' in lower(qual::text)) = 0
+      and position('friendships' in qual::text) = 0
+      and position('requester_id' in qual::text) = 0
+      and position('addressee_id' in qual::text) = 0
     from pg_catalog.pg_policies
     where schemaname = 'realtime'
       and tablename = 'messages'
       and policyname = 'social_user_can_receive'
   ), false),
-  'private realtime authorization requires equality with the exact own user topic'
+  'private realtime authorization is limited to the users own social inbox'
+);
+select is(
+  (
+    select count(*)::integer
+    from pg_catalog.pg_policies
+    where schemaname = 'realtime'
+      and tablename = 'messages'
+      and cmd = 'INSERT'
+      and roles @> array['authenticated']::name[]
+  ),
+  0,
+  'authenticated clients cannot insert realtime messages'
+);
+select ok(
+  coalesce((
+    select position('true' in lower(qual::text)) = 0
+    from pg_catalog.pg_policies
+    where schemaname = 'realtime'
+      and tablename = 'messages'
+      and policyname = 'social_user_can_receive'
+  ), false),
+  'social realtime authorization has no global allow expression'
+);
+
+create function pg_temp.social_topic_allowed(p_actor uuid, p_topic text)
+returns boolean
+language sql
+stable
+as $$
+  select p_topic = 'social:user:' || p_actor::text;
+$$;
+
+select ok(
+  pg_temp.social_topic_allowed(
+    'e1111111-1111-4111-8111-111111111111',
+    'social:user:e1111111-1111-4111-8111-111111111111'
+  ),
+  'an authenticated user can receive the own social topic'
+);
+select ok(
+  not pg_temp.social_topic_allowed(
+    'e1111111-1111-4111-8111-111111111111',
+    'social:user:e2222222-2222-4222-8222-222222222222'
+  ),
+  'an accepted friend cannot receive the friends social topic'
+);
+select ok(
+  not pg_temp.social_topic_allowed(
+    'e1111111-1111-4111-8111-111111111111',
+    'social:user:e3333333-3333-4333-8333-333333333333'
+  ),
+  'a stranger without an accepted friendship cannot receive the social topic'
 );
 select is(
   (
@@ -331,8 +399,10 @@ select is(
 select ok(
   public.get_friend_overview('e2222222-2222-4222-8222-222222222222')
     ->> 'last_active_at' is not null
-  and public.get_friend_overview('e2222222-2222-4222-8222-222222222222')
-    -> 'presence_expires_at' = 'null'::jsonb,
+  and not (
+    public.get_friend_overview('e2222222-2222-4222-8222-222222222222')
+      ? 'presence_expires_at'
+  ),
   'offline tombstones retain last active without exposing a fresh expiry'
 );
 

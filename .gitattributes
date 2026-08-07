@@ -1,0 +1,33 @@
+# Shell scripts and other files consumed by Linux CI must keep LF endings.
+# A stray CR breaks `source scripts/ci-production-env.sh` and any shebang.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Files the Supabase CLI and Deno read verbatim.
+*.sql text eol=lf
+*.toml text eol=lf
+
+# Workflow and config files parsed on Linux runners.
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Generated artefacts must be byte-identical across platforms, otherwise the
+# --check modes of the asset and licence builders report false differences.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.aab binary
+*.apk binary
+*.keystore binary
+*.jks binary
+
+# Keep lockfile diffs reviewable.
+package-lock.json -diff merge=binary
+
+# Generated file that reproduces third-party licence texts verbatim. Some of
+# those texts contain trailing whitespace; normalizing it would alter a licence
+# we are required to reproduce unchanged, so exempt it from whitespace checks.
+THIRD_PARTY_NOTICES.md -whitespace

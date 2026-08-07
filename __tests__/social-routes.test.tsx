@@ -329,6 +329,7 @@ function setStudyStore(overrides: Record<string, unknown> = {}) {
     },
     socialLoading: false,
     socialError: null,
+    socialRealtimeUnavailable: false,
     friendConnections: [],
     friendOverviews: [],
     studyGroups: [],
@@ -428,6 +429,31 @@ describe('Social routes', () => {
       expect(mockSendFriendRequest).toHaveBeenCalledWith(friendUser.username);
       expect(mockFindFriendByUsername).toHaveBeenLastCalledWith(friendUser.username);
       expect(rendered.getByText(/Anfrage gesendet/)).toBeTruthy();
+    });
+    await rendered.unmount();
+  });
+
+  it('keeps friend search usable while realtime is degraded and never renders raw backend errors', async () => {
+    setStudyStore({
+      socialRealtimeUnavailable: true,
+      socialError: 'MissingPartition: Realtime was unable to find the expected messages partition',
+    });
+    mockFindFriendByUsername.mockResolvedValueOnce({ user: friendUser, connection: null });
+    const rendered = await render(<FriendsScreen />);
+
+    expect(rendered.getByTestId('social-realtime-unavailable')).toHaveTextContent(
+      'Der Live-Status ist momentan nicht verfügbar. Die Freundesfunktionen können weiterhin verwendet werden.',
+    );
+    expect(rendered.queryByText(/MissingPartition|expected messages partition/i)).toBeNull();
+
+    await fireEvent.changeText(
+      rendered.getByLabelText('Eindeutigen Benutzernamen suchen'),
+      'berta',
+    );
+    await fireEvent.press(rendered.getByRole('button', { name: 'Suchen' }));
+    await waitFor(() => {
+      expect(mockFindFriendByUsername).toHaveBeenCalledWith('berta');
+      expect(rendered.getByText('Berta Beispiel')).toBeTruthy();
     });
     await rendered.unmount();
   });
@@ -754,6 +780,39 @@ describe('Social routes', () => {
       await rendered.unmount();
     },
   );
+
+  it('creates a shared goal without start and end dates', async () => {
+    mockCreateSharedGoal.mockResolvedValue({ ...teamGoal, endsAt: undefined });
+    setStudyStore({
+      data: emptyData,
+      friendConnections: [acceptedConnection],
+    });
+    const rendered = await render(<CreateSharedGoalScreen />);
+
+    expect(rendered.getByText('Startdatum (optional)')).toBeTruthy();
+    expect(rendered.getByText('Enddatum (optional)')).toBeTruthy();
+    expect(rendered.getByText('Ab Erstellung, ohne Enddatum')).toBeTruthy();
+    expect(rendered.getByLabelText('Startdatum des gemeinsamen Lernziels').props.value).toBe('');
+    expect(rendered.getByLabelText('Enddatum des gemeinsamen Lernziels').props.value).toBe('');
+
+    await fireEvent.changeText(
+      rendered.getByLabelText('Titel des gemeinsamen Lernziels'),
+      teamGoal.title,
+    );
+    await fireEvent.changeText(rendered.getByLabelText('Zielwert in Stunden'), '2');
+    await fireEvent.press(rendered.getByRole('checkbox', { name: 'Berta Beispiel einladen' }));
+    await fireEvent.press(rendered.getByRole('button', { name: 'Ziel erstellen und einladen' }));
+
+    await waitFor(() => expect(mockCreateSharedGoal).toHaveBeenCalledTimes(1));
+    const submittedGoal = mockCreateSharedGoal.mock.calls[0][0].goal;
+    expect(submittedGoal).not.toHaveProperty('startsAt');
+    expect(submittedGoal).not.toHaveProperty('endsAt');
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/(tabs)/(friends)/shared-goal/[goal-id]',
+      params: { 'goal-id': teamGoal.id },
+    });
+    await rendered.unmount();
+  });
 
   it('creates a study group with selected accepted friends', async () => {
     mockCreateStudyGroup.mockResolvedValue(studyGroup);

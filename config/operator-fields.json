@@ -1,0 +1,197 @@
+{
+  "$comment": "Single source of truth describing every operator-supplied release value. Consumed by src/legal/operator.ts (app), app.config.js (Expo build gate) and scripts/check-release-config.mjs (CI gate). This file intentionally contains no real operator data and no placeholder literals - development values are derived in src/legal/operator.ts.",
+  "fields": [
+    {
+      "key": "legalSiteUrl",
+      "envVar": "EXPO_PUBLIC_LEGAL_SITE_URL",
+      "label": "Öffentliche HTTPS-Domain für Rechtstexte und Kontolöschseite",
+      "requirement": "required",
+      "kind": "https-url",
+      "description": "Muss dem Betreiber gehören, per HTTPS erreichbar sein und /.well-known/assetlinks.json sowie /account-deletion/ ausliefern. Bestimmt zugleich den verifizierten Android-App-Links-Host."
+    },
+    {
+      "key": "operatorName",
+      "envVar": "EXPO_PUBLIC_OPERATOR_NAME",
+      "label": "Vollständiger Name beziehungsweise Firma des Betreibers",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Impressum und Datenschutzerklärung: verantwortliche natürliche oder juristische Person."
+    },
+    {
+      "key": "operatorLegalForm",
+      "envVar": "EXPO_PUBLIC_OPERATOR_LEGAL_FORM",
+      "label": "Rechtsform und vertretungsberechtigte Person",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Zum Beispiel „Einzelunternehmen, vertreten durch …“ oder „GmbH, vertreten durch die Geschäftsführung …“."
+    },
+    {
+      "key": "operatorAddress",
+      "envVar": "EXPO_PUBLIC_OPERATOR_ADDRESS",
+      "label": "Ladungsfähige Anschrift",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Vollständige Postanschrift ohne Postfach. Pflichtangabe für Impressum und Verantwortlichen-Angabe."
+    },
+    {
+      "key": "operatorContactEmail",
+      "envVar": "EXPO_PUBLIC_OPERATOR_CONTACT_EMAIL",
+      "label": "Allgemeine Kontakt-E-Mail (Impressum)",
+      "requirement": "required",
+      "kind": "email",
+      "description": "Direkter, unmittelbarer elektronischer Kontakt nach § 5 DDG."
+    },
+    {
+      "key": "operatorPhone",
+      "envVar": "EXPO_PUBLIC_OPERATOR_PHONE",
+      "label": "Telefonnummer oder gleichwertiger zweiter Kontaktweg",
+      "requirement": "optional",
+      "kind": "text",
+      "description": "Nur ausfüllen, wenn rechtlich gefordert oder gewünscht. Leer lassen ist zulässig."
+    },
+    {
+      "key": "operatorRegister",
+      "envVar": "EXPO_PUBLIC_OPERATOR_REGISTER",
+      "label": "Register und Registernummer",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Handels-, Vereins- oder Partnerschaftsregister mit Nummer, oder nach Prüfung ausdrücklich „Nicht eingetragen“."
+    },
+    {
+      "key": "operatorSupervisoryAuthority",
+      "envVar": "EXPO_PUBLIC_OPERATOR_SUPERVISORY_AUTHORITY",
+      "label": "Zuständige Gewerbe- oder Fachaufsichtsbehörde",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Nur bei zulassungspflichtiger Tätigkeit einschlägig; sonst nach Prüfung „Nicht einschlägig“ eintragen."
+    },
+    {
+      "key": "operatorVatId",
+      "envVar": "EXPO_PUBLIC_OPERATOR_VAT_ID",
+      "label": "Umsatzsteuer-Identifikationsnummer",
+      "requirement": "required",
+      "kind": "text",
+      "description": "USt-IdNr. nach § 27a UStG oder die rechtlich zulässige Angabe, dass keine vergeben ist."
+    },
+    {
+      "key": "operatorDisputeResolution",
+      "envVar": "EXPO_PUBLIC_OPERATOR_DISPUTE_RESOLUTION",
+      "label": "Hinweis zur Verbraucherstreitbeilegung",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Aussage zur Teilnahme oder Nichtteilnahme an einem Verfahren vor einer Verbraucherschlichtungsstelle."
+    },
+    {
+      "key": "privacyContactEmail",
+      "envVar": "EXPO_PUBLIC_PRIVACY_CONTACT_EMAIL",
+      "label": "Datenschutzkontakt für Betroffenenrechte und Löschanfragen",
+      "requirement": "required",
+      "kind": "email",
+      "description": "Adresse für Auskunft, Löschung, Widerspruch und die externe Kontolöschseite."
+    },
+    {
+      "key": "privacyOfficer",
+      "envVar": "EXPO_PUBLIC_PRIVACY_OFFICER",
+      "label": "Datenschutzbeauftragte Person",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Name und Kontakt der bestellten datenschutzbeauftragten Person, oder nach Prüfung „Nicht bestellt“."
+    },
+    {
+      "key": "supportEmail",
+      "envVar": "EXPO_PUBLIC_SUPPORT_EMAIL",
+      "label": "Support-Kontakt",
+      "requirement": "required",
+      "kind": "email",
+      "description": "Wird in den Nutzungsbedingungen und im Play-Store-Datensatz als Support-Adresse verwendet."
+    },
+    {
+      "key": "abuseContactEmail",
+      "envVar": "EXPO_PUBLIC_ABUSE_CONTACT_EMAIL",
+      "label": "Beschwerde- und Moderationskontakt",
+      "requirement": "required",
+      "kind": "email",
+      "description": "Adresse für Beschwerden gegen Moderationsentscheidungen und für Meldungen außerhalb der App."
+    },
+    {
+      "key": "dataProtectionAuthority",
+      "envVar": "EXPO_PUBLIC_DATA_PROTECTION_AUTHORITY",
+      "label": "Zuständige Datenschutzaufsichtsbehörde",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Für den Verantwortlichen zuständige Aufsichtsbehörde inklusive Bundesland beziehungsweise Staat."
+    },
+    {
+      "key": "accountLegalBasis",
+      "envVar": "EXPO_PUBLIC_LEGAL_BASIS_ACCOUNT",
+      "label": "Rechtsgrundlage für Konto und Social-Funktionen",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Konkrete Rechtsgrundlage inklusive kurzer Begründung, zum Beispiel Art. 6 Abs. 1 lit. b DSGVO für die Kontoführung."
+    },
+    {
+      "key": "supabaseContractParty",
+      "envVar": "EXPO_PUBLIC_SUPABASE_CONTRACT_PARTY",
+      "label": "Supabase-Vertragspartner",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Juristische Person, mit der der Supabase-Vertrag tatsächlich geschlossen wurde."
+    },
+    {
+      "key": "supabaseRegion",
+      "envVar": "EXPO_PUBLIC_SUPABASE_REGION",
+      "label": "Supabase-Projektregion",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Region des produktiv genutzten Supabase-Projekts, zum Beispiel eu-central-1 (Frankfurt)."
+    },
+    {
+      "key": "supabaseDataProcessingAgreement",
+      "envVar": "EXPO_PUBLIC_SUPABASE_DPA_REFERENCE",
+      "label": "AVV, Unterauftragsverarbeiter und Transfermechanismus",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Nachweis des Auftragsverarbeitungsvertrags sowie Grundlage eventueller Drittlandtransfers, zum Beispiel Standardvertragsklauseln."
+    },
+    {
+      "key": "productionSubprocessors",
+      "envVar": "EXPO_PUBLIC_PRODUCTION_SUBPROCESSORS",
+      "label": "Im Produktivbetrieb tatsächlich eingesetzte Dienstleister",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Abschließende Liste der aktiven Dienstleister, zum Beispiel Supabase, Google Play, EAS Build und SMTP-Anbieter."
+    },
+    {
+      "key": "logRetentionPolicy",
+      "envVar": "EXPO_PUBLIC_LOG_RETENTION_POLICY",
+      "label": "Log- und Aufbewahrungskonzept",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Logquellen, Inhalte, Zugriffsberechtigte und konkrete Löschfristen der Server- und Auth-Logs."
+    },
+    {
+      "key": "statutoryRetention",
+      "envVar": "EXPO_PUBLIC_STATUTORY_RETENTION",
+      "label": "Gesetzliche Aufbewahrungspflichten",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Datenarten, Rechtsgrund, Sperrung und Frist, oder nach rechtlicher Prüfung ausdrücklich „Keine“."
+    },
+    {
+      "key": "termsLiability",
+      "envVar": "EXPO_PUBLIC_TERMS_LIABILITY",
+      "label": "Haftung, anwendbares Recht und Änderungsverfahren",
+      "requirement": "required",
+      "kind": "text",
+      "description": "Rechtlich geprüfter Absatz zu Haftungsumfang, anwendbarem Recht, Verbraucherhinweisen und Änderungen der Bedingungen."
+    },
+    {
+      "key": "legalEffectiveDate",
+      "envVar": "EXPO_PUBLIC_LEGAL_EFFECTIVE_DATE",
+      "label": "Freigabedatum der Rechtstexte",
+      "requirement": "required",
+      "kind": "iso-date",
+      "description": "Datum im Format YYYY-MM-DD, an dem die finale Fassung freigegeben wurde."
+    }
+  ]
+}
