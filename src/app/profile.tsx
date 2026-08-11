@@ -3,7 +3,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
-import { displayNameError, usernameError } from '@/auth/validation';
+import {
+  displayNameError,
+  MAX_PASSWORD_BYTES,
+  usernameError,
+} from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
 import { AppCard } from '@/components/ui/app-card';
 import { Avatar } from '@/components/ui/avatar';
@@ -754,6 +758,7 @@ export default function ProfileScreen() {
                   autoCapitalize="none"
                   autoComplete="current-password"
                   editable={auth.pendingAction !== 'delete-account'}
+                  maxLength={MAX_PASSWORD_BYTES}
                   onChangeText={(value) => {
                     setDeletePassword(value);
                     if (deleteError) setDeleteError(null);

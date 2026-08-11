@@ -39,6 +39,7 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const releaseConfig = require('../config/release-config.cjs');
 const { scanExportDirectory } = require('./lib/bundle-scan.cjs');
+const { collectExportCspIssues } = require('./lib/export-csp-check.cjs');
 const recoveryAttestation = require('./lib/recovery-attestation.cjs');
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -66,6 +67,14 @@ if (findings.length > 0) {
   process.exit(1);
 }
 process.stdout.write('Keine Secret-Muster und keine unerlaubten JWTs im Export gefunden.\n');
+
+const cspIssues = collectExportCspIssues(documents);
+if (cspIssues.length > 0) {
+  process.stderr.write('\nDie exportierte Web-CSP ist nicht lauffaehig oder nicht vollstaendig:\n');
+  for (const issue of cspIssues) process.stderr.write(`- ${issue}\n`);
+  process.exit(1);
+}
+process.stdout.write('Response- und Meta-CSP erlauben exakt die exportierten Inline-Skripte.\n');
 
 const isProduction = releaseConfig.isProductionRelease(process.env);
 

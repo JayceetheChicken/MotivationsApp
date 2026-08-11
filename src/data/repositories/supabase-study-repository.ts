@@ -141,6 +141,20 @@ interface PrivateBroadcastSubscriptionOptions {
   onSubscribed?: () => void;
 }
 
+function socialInvalidationEntityId(message: unknown): string | null {
+  return readString(asRecord(asRecord(message).payload), 'entity_id', 'entityId');
+}
+
+interface SocialInboxSubscriber {
+  token: symbol;
+  cleanup: SocialRealtimeCleanup;
+  detachAbort: () => void;
+  onMessage: (message: unknown) => void;
+  onError?: (error: Error) => void;
+  onReconnected?: () => void;
+  onSubscribed?: () => void;
+}
+
 function realtimeErrorText(error: unknown): string {
   if (error instanceof Error) return `${error.name} ${error.message}`;
   if (typeof error === 'string') return error;
@@ -388,7 +402,12 @@ export class SupabaseStudyRepository implements StudyRepository {
   private readonly cursorKey: string;
   private readonly listeners = new Set<(status: SyncStatus) => void>();
   private readonly realtimeCleanups = new Set<() => Promise<void>>();
+  private readonly socialInboxSubscribers = new Map<string, SocialInboxSubscriber>();
   private readonly disposeController = new AbortController();
+  private socialInboxTransport: SocialRealtimeCleanup | null = null;
+  private socialInboxTransportTask: Promise<SocialRealtimeCleanup> | null = null;
+  private socialInboxTransportSubscribed = false;
+  private socialInboxTransportToken: symbol | null = null;
   private lastSnapshot: StudyStateSnapshot | null = null;
   private disposed = false;
   private status: SyncStatus = {
@@ -517,11 +536,21 @@ export class SupabaseStudyRepository implements StudyRepository {
       listener,
       fetchProgress: (fetchSignal) => this.social.getSharedGoalProgress(cleanGoalId, fetchSignal),
       startInvalidationListener: (onInvalidated, onTransportError) => (
-        this.subscribePrivateBroadcast({
-          topic: `shared-goal:${cleanGoalId}`,
-          event: 'progress_invalidated',
+        this.subscribeSocialInbox(`shared-goal-progress:${cleanGoalId}`, {
           signal,
-          onMessage: onInvalidated,
+          onMessage: (message) => {
+            const kind = socialInvalidationKind(message);
+            const entityId = socialInvalidationEntityId(message);
+            if (
+              (kind === 'shared_goal' || kind === 'shared_goal_progress')
+              && entityId === cleanGoalId
+            ) {
+              onInvalidated();
+            } else if (
+              entityId === null
+              && (kind === 'profile' || kind === 'social')
+            ) onInvalidated();
+          },
           onReconnected: onInvalidated,
           onError: onTransportError,
         })
@@ -542,9 +571,7 @@ export class SupabaseStudyRepository implements StudyRepository {
     listener: SocialUpdatesListener,
     signal?: AbortSignal,
   ): Promise<() => Promise<void>> {
-    return this.subscribePrivateBroadcast({
-      topic: `social:user:${this.accountId}`,
-      event: 'social_invalidated',
+    return this.subscribeSocialInbox('social-updates', {
       signal,
       onMessage: (message) => listener.onInvalidated(socialInvalidationKind(message)),
       onReconnected: () => listener.onInvalidated('social'),
@@ -560,6 +587,135 @@ export class SupabaseStudyRepository implements StudyRepository {
     await Promise.all([...this.realtimeCleanups].map((cleanup) => cleanup()));
     this.realtimeCleanups.clear();
     this.listeners.clear();
+  }
+
+  private async ensureSocialInboxTransport(): Promise<SocialRealtimeCleanup> {
+    if (this.socialInboxTransport) return this.socialInboxTransport;
+    if (!this.socialInboxTransportTask) {
+      const transportToken = Symbol('social-inbox-transport');
+      this.socialInboxTransportToken = transportToken;
+      this.socialInboxTransportTask = this.subscribePrivateBroadcast({
+        topic: `social:user:${this.accountId}`,
+        event: 'social_invalidated',
+        signal: this.disposeController.signal,
+        onMessage: (message) => {
+          for (const subscriber of [...this.socialInboxSubscribers.values()]) {
+            subscriber.onMessage(message);
+          }
+        },
+        onReconnected: () => {
+          for (const subscriber of [...this.socialInboxSubscribers.values()]) {
+            subscriber.onReconnected?.();
+          }
+        },
+        onError: (error) => {
+          if (this.socialInboxTransportToken === transportToken) {
+            const failedTransport = this.socialInboxTransport;
+            this.socialInboxTransport = null;
+            this.socialInboxTransportSubscribed = false;
+            this.socialInboxTransportToken = null;
+            // The private-channel implementation has exhausted its bounded
+            // retry and removed the channel. Retire its registry cleanup too,
+            // so a later listener attachment can create one fresh transport.
+            if (failedTransport) void failedTransport();
+          }
+          for (const subscriber of [...this.socialInboxSubscribers.values()]) {
+            subscriber.onError?.(error);
+          }
+        },
+        onSubscribed: () => {
+          if (this.socialInboxTransportToken !== transportToken) return;
+          this.socialInboxTransportSubscribed = true;
+          for (const subscriber of [...this.socialInboxSubscribers.values()]) {
+            subscriber.onSubscribed?.();
+          }
+        },
+      }).then((cleanup) => {
+        if (this.socialInboxTransportToken === transportToken) {
+          this.socialInboxTransport = cleanup;
+        }
+        return cleanup;
+      }).finally(() => {
+        this.socialInboxTransportTask = null;
+        if (
+          this.socialInboxTransportToken === transportToken
+          && !this.socialInboxTransport
+        ) {
+          this.socialInboxTransportSubscribed = false;
+          this.socialInboxTransportToken = null;
+        }
+      });
+    }
+    return this.socialInboxTransportTask;
+  }
+
+  private async subscribeSocialInbox(
+    key: string,
+    options: Omit<PrivateBroadcastSubscriptionOptions, 'topic' | 'event'>,
+  ): Promise<SocialRealtimeCleanup> {
+    this.ensureAvailable();
+    throwIfAborted(options.signal);
+
+    const previous = this.socialInboxSubscribers.get(key);
+    if (previous) {
+      previous.detachAbort();
+      this.realtimeCleanups.delete(previous.cleanup);
+    }
+
+    const token = Symbol(key);
+    let detachAbort: () => void = () => undefined;
+    let hasSeenSubscribed = false;
+    const cleanup = async (): Promise<void> => {
+      const current = this.socialInboxSubscribers.get(key);
+      if (current?.token !== token) return;
+      this.socialInboxSubscribers.delete(key);
+      current.detachAbort();
+      this.realtimeCleanups.delete(cleanup);
+      if (this.socialInboxSubscribers.size > 0) return;
+
+      const transport = this.socialInboxTransport ??
+        (this.socialInboxTransportTask
+          ? await this.socialInboxTransportTask.catch(() => null)
+          : null);
+      if (this.socialInboxSubscribers.size > 0 || !transport) return;
+      if (this.socialInboxTransport === transport) {
+        this.socialInboxTransport = null;
+        this.socialInboxTransportSubscribed = false;
+        this.socialInboxTransportToken = null;
+      }
+      await transport();
+    };
+    if (options.signal) {
+      const abort = () => { void cleanup(); };
+      options.signal.addEventListener('abort', abort, { once: true });
+      detachAbort = () => options.signal?.removeEventListener('abort', abort);
+    }
+    this.socialInboxSubscribers.set(key, {
+      token,
+      cleanup,
+      detachAbort,
+      onMessage: options.onMessage,
+      onError: options.onError,
+      onReconnected: options.onReconnected,
+      onSubscribed: () => {
+        hasSeenSubscribed = true;
+        options.onSubscribed?.();
+      },
+    });
+    this.realtimeCleanups.add(cleanup);
+
+    try {
+      await this.ensureSocialInboxTransport();
+    } catch (error) {
+      await cleanup();
+      throw error;
+    }
+    if (options.signal?.aborted) await cleanup();
+    else if (this.socialInboxTransportSubscribed && !hasSeenSubscribed) {
+      hasSeenSubscribed = true;
+      options.onSubscribed?.();
+    }
+    return cleanup;
   }
 
   private async subscribePrivateBroadcast(

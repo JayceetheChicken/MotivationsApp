@@ -30,7 +30,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          node scripts/check-install-scripts.mjs --check-lock
+          npm ci --ignore-scripts
+          node scripts/check-install-scripts.mjs --rebuild
 
       - name: Reject sensitive tracked filenames
         run: node scripts/check-sensitive-files.mjs
@@ -68,7 +71,7 @@ jobs:
           git diff --check "$base" HEAD
 
       - name: Run Expo Doctor
-        run: npx --yes expo-doctor@1.20.1
+        run: npm run doctor
 
       # The baseline is "no findings at all", which is the only baseline that
       # cannot silently hide one. The previous `--audit-level=high` kept the job
@@ -78,12 +81,6 @@ jobs:
       # moderate advisory therefore fails this job instead of accumulating.
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=moderate
-
-      # Only one package in the whole tree carries an install hook. Asserting the
-      # exact set turns "a dependency update quietly added a postinstall script"
-      # into a failed build rather than something nobody looks at.
-      - name: Enforce the install-script allowlist
-        run: node scripts/check-install-scripts.mjs
 
   release-gate:
     name: Production release gate rejects placeholders
@@ -102,7 +99,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          node scripts/check-install-scripts.mjs --check-lock
+          npm ci --ignore-scripts
+          node scripts/check-install-scripts.mjs --rebuild
 
       # A production build without operator values must fail. If this step ever
       # succeeds, the gate has stopped protecting the release.
@@ -186,7 +186,7 @@ jobs:
       - name: Set up Deno
         uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
-          deno-version: v2.x
+          deno-version: 2.9.3
 
       # Run inside supabase/functions so Deno uses that workspace's deno.json
       # and deno.lock instead of discovering the Expo app's package.json.
@@ -205,7 +205,8 @@ jobs:
   expo-export:
     name: Static export per build profile
     runs-on: ubuntu-latest
-    # Four web exports (production, tampering check, development, preview).
+    # Four web exports (production, development, preview, local), plus mutation
+    # checks against the production artefact.
     timeout-minutes: 45
     steps:
       - name: Check out repository
@@ -220,7 +221,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          node scripts/check-install-scripts.mjs --check-lock
+          npm ci --ignore-scripts
+          node scripts/check-install-scripts.mjs --rebuild
 
       # End-to-end proof that a production build carries the configured operator
       # values and no development placeholders.
@@ -325,33 +329,37 @@ jobs:
           fi
           echo "Production-Export bricht ohne vollstaendige Betreiberangaben ab."
 
-      # Development and preview must ship the private scheme and nothing else.
+      # Every non-production profile must ship the private scheme and nothing
+      # else. `local` is explicit here so the default local branch cannot drift
+      # while the named EAS profiles remain green.
       # Without this the per-profile split would only be asserted for production.
-      - name: Development and preview export must attest the private scheme
+      - name: Non-production exports must attest the private scheme
         run: |
           set -euo pipefail
-          for profile in development preview; do
-            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" EXPO_PUBLIC_BUILD_PROFILE="$profile" \
-              LERNZEIT_SKIP_RELEASE_GATE=1 \
+          for profile in development preview local; do
+            profile_env=(EXPO_PUBLIC_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1)
+            if [ "$profile" != 'local' ]; then
+              profile_env+=(EAS_BUILD=true EAS_BUILD_PROFILE="$profile")
+            fi
+            env "${profile_env[@]}" \
               npx --yes expo export --platform web --clear --output-dir "dist-$profile" > /dev/null
-            EAS_BUILD=true EAS_BUILD_PROFILE="$profile" EXPO_PUBLIC_BUILD_PROFILE="$profile" \
-              LERNZEIT_SKIP_RELEASE_GATE=1 \
+            env "${profile_env[@]}" \
               node scripts/check-exported-bundle.mjs "dist-$profile" | tee "$profile.log"
             grep -q 'transport=custom-scheme' "$profile.log"
             grep -q "profile=$profile" "$profile.log"
             rm -rf "dist-$profile" "$profile.log"
           done
-          echo "Development- und Preview-Export verwenden ausschliesslich das private Schema."
+          echo "Alle Non-Production-Exporte verwenden ausschliesslich das private Schema."
 
   native-linking:
     name: Generated AndroidManifest.xml per build profile
     runs-on: ubuntu-latest
-    # Three full prebuilds; each writes a fresh android/ directory.
+    # Four full prebuilds; each writes a fresh android/ directory.
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        profile: [production, development, preview]
+        profile: [production, development, preview, local]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -365,7 +373,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          node scripts/check-install-scripts.mjs --check-lock
+          npm ci --ignore-scripts
+          node scripts/check-install-scripts.mjs --rebuild
 
       # `expo config` is Expo's *input* to the prebuild; @expo/config-plugins is
       # what turns it into XML. Only the generated manifest proves what Google
@@ -374,13 +385,16 @@ jobs:
       #
       # android/ is gitignored and produced from scratch here (Continuous Native
       # Generation), so the checkout is disposable by construction.
-      - name: Prebuild and verify the native manifest
+      - name: Prebuild and verify the manifest variant shipped by this profile
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
           set -euo pipefail
           if [ "$PROFILE" = 'production' ]; then
             source scripts/ci-production-env.sh
+          elif [ "$PROFILE" = 'local' ]; then
+            export EXPO_PUBLIC_BUILD_PROFILE=local
+            export LERNZEIT_SKIP_RELEASE_GATE=1
           else
             export EXPO_PUBLIC_BUILD_PROFILE="$PROFILE"
             export EAS_BUILD=true
@@ -389,6 +403,26 @@ jobs:
           fi
           npx --yes expo prebuild --platform android --clean --no-install
           node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+          if [ "$PROFILE" = 'development' ] || [ "$PROFILE" = 'local' ]; then
+            variant=debug
+            manifest_task=:app:processDebugMainManifest
+            manifest_dir=processDebugMainManifest
+          else
+            variant=release
+            manifest_task=:app:processReleaseMainManifest
+            manifest_dir=processReleaseMainManifest
+          fi
+          (
+            cd android
+            ./gradlew "$manifest_task" --no-daemon
+          )
+          merged_manifest="android/app/build/intermediates/merged_manifest/$variant/$manifest_dir/AndroidManifest.xml"
+          if [ ! -f "$merged_manifest" ]; then
+            echo "::error::Gradle hat das erwartete gemergte $variant-Manifest nicht erzeugt: $merged_manifest"
+            exit 1
+          fi
+          node scripts/verify-native-linking.mjs "$merged_manifest"
+          echo "MERGED_PROFILE_MANIFEST=$merged_manifest" >> "$GITHUB_ENV"
 
       # The check must fail for the other profiles, otherwise it is asserting
       # nothing. Production and development are each other's negative case.
@@ -401,14 +435,14 @@ jobs:
             set +e
             EXPO_PUBLIC_BUILD_PROFILE=development EAS_BUILD_PROFILE=development \
               LERNZEIT_SKIP_RELEASE_GATE=1 \
-              node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+              node scripts/verify-native-linking.mjs "$MERGED_PROFILE_MANIFEST"
             status=$?
             set -e
           else
             set +e
             (
               source scripts/ci-production-env.sh
-              node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
+              node scripts/verify-native-linking.mjs "$MERGED_PROFILE_MANIFEST"
             )
             status=$?
             set -e
@@ -426,7 +460,7 @@ jobs:
           PROFILE: ${{ matrix.profile }}
         run: |
           set -euo pipefail
-          manifest=android/app/src/main/AndroidManifest.xml
+          manifest="$MERGED_PROFILE_MANIFEST"
           if [ "$PROFILE" = 'production' ]; then
             if grep -q 'android:scheme="lernzeit"' "$manifest"; then
               echo "::error::Das Production-Manifest registriert weiterhin das lernzeit-Scheme."

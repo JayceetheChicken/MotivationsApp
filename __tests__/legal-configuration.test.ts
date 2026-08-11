@@ -60,7 +60,7 @@ const completeEnvironment: Record<string, string> = {
   EXPO_PUBLIC_STATUTORY_RETENTION: 'Keine.',
   EXPO_PUBLIC_TERMS_LIABILITY: 'Es gilt deutsches Recht unter Wahrung zwingender Verbraucherschutzvorschriften.',
   EXPO_PUBLIC_LEGAL_EFFECTIVE_DATE: '2026-08-03',
-  EXPO_PUBLIC_SUPABASE_URL: 'https://abcdefghijklmnop.supabase.co',
+  EXPO_PUBLIC_SUPABASE_URL: 'https://abcdefghijklmnopqrst.supabase.co',
   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_AbCdEf1234567890',
 };
 

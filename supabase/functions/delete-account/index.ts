@@ -4,7 +4,11 @@ import { createClient } from "npm:@supabase/supabase-js@2.111.0";
 
 import {
   type DeleteAccountAdmin,
+  deleteAvatarTree,
   executeDeleteAccount,
+  isExplicitUserNotFoundError,
+  isValidAccountDeletionFence,
+  recentPasswordAuthenticationTimestamp,
 } from "../_shared/delete-account.ts";
 
 const allowedBrowserOrigins = new Set(
@@ -54,31 +58,23 @@ const adminClient = createClient(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-async function listFolder(folder: string): Promise<
+async function listFolderPage(folder: string, offset: number): Promise<
   readonly {
     id?: string | null;
     metadata?: unknown;
     name: string;
   }[]
 > {
-  const result: { id?: string | null; metadata?: unknown; name: string }[] = [];
-  for (let offset = 0;; offset += 100) {
-    const { data, error } = await adminClient.storage.from("avatars").list(
-      folder,
-      {
-        limit: 100,
-        offset,
-        sortBy: { column: "name", order: "asc" },
-      },
-    );
-    if (error) {
-      if (/bucket.*not found|not found.*bucket/i.test(error.message)) return [];
-      throw error;
-    }
-    result.push(...(data ?? []));
-    if (!data || data.length < 100) break;
-  }
-  return result;
+  const { data, error } = await adminClient.storage.from("avatars").list(
+    folder,
+    {
+      limit: 100,
+      offset,
+      sortBy: { column: "name", order: "asc" },
+    },
+  );
+  if (error) throw error;
+  return data ?? [];
 }
 
 const admin: DeleteAccountAdmin = {
@@ -89,55 +85,36 @@ const admin: DeleteAccountAdmin = {
     if (!encodedPayload) throw new Error("JWT payload missing");
     const normalized = encodedPayload.replaceAll("-", "+").replaceAll("_", "/");
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    const payload = JSON.parse(atob(padded)) as { iat?: unknown };
-    if (typeof payload.iat !== "number" || !Number.isFinite(payload.iat)) {
-      throw new Error("JWT issued-at missing");
-    }
-    return { userId: data.user.id, issuedAtEpochSeconds: payload.iat };
+    const payload = JSON.parse(atob(padded)) as unknown;
+    return {
+      userId: data.user.id,
+      passwordAuthenticatedAtEpochSeconds:
+        recentPasswordAuthenticationTimestamp(payload, data.user.id),
+    };
   },
-  async listAvatarObjectPaths(userId) {
-    const paths: string[] = [];
-    const folders = [userId];
-    let visitedFolders = 0;
-    while (folders.length > 0) {
-      const folder = folders.shift();
-      if (!folder) continue;
-      visitedFolders += 1;
-      if (visitedFolders > 100 || paths.length > 10_000) {
-        throw new Error("Avatar object traversal limit exceeded");
-      }
-      for (const entry of await listFolder(folder)) {
-        const path = `${folder}/${entry.name}`;
-        if (entry.id || entry.metadata) paths.push(path);
-        else folders.push(path);
-      }
-    }
-    return paths;
-  },
-  async removeAvatarObjects(paths) {
-    for (let offset = 0; offset < paths.length; offset += 100) {
-      const { error } = await adminClient.storage
-        .from("avatars")
-        .remove(paths.slice(offset, offset + 100));
-      if (error) throw error;
-    }
-  },
-  async prepareUserData(userId) {
-    const { data, error } = await adminClient.rpc("prepare_account_deletion", {
+  async beginAccountDeletion(userId) {
+    const { data, error } = await adminClient.rpc("begin_account_deletion", {
       p_user_id: userId,
     });
-    if (error || !(data as { prepared?: unknown } | null)?.prepared) {
-      throw error ?? new Error("Account preparation failed");
+    if (error) throw error;
+    if (!isValidAccountDeletionFence(data, userId)) {
+      throw new Error("Invalid account deletion fence response");
     }
+  },
+  async deleteAvatarObjects(userId) {
+    await deleteAvatarTree(userId, {
+      listFolderPage,
+      async removeObjects(paths) {
+        const { error } = await adminClient.storage.from("avatars").remove([
+          ...paths,
+        ]);
+        if (error) throw error;
+      },
+    });
   },
   async deleteUser(userId) {
     const { error } = await adminClient.auth.admin.deleteUser(userId, false);
-    if (
-      error &&
-      error.status !== 404 &&
-      error.code !== "user_not_found" &&
-      !/user.*not found/i.test(error.message)
-    ) throw error;
+    if (error && !isExplicitUserNotFoundError(error)) throw error;
   },
 };
 

@@ -31,13 +31,75 @@ import {
   displayNameError,
   usernameError,
 } from '@/auth/validation';
+import { cleanupStaleAccountDataExports } from '@/lib/account-data-export';
 import { withTimeout } from '@/lib/with-timeout';
 import { safeDebug, safeWarning } from '@/lib/safe-logger';
 
 const LOCAL_PROFILE_STORAGE_KEY = 'lernzeit.local-profile.v1';
+const PASSWORD_RECOVERY_CAPABILITY_KEY = 'lernzeit.password-recovery-capability.v1';
+const PASSWORD_RECOVERY_CAPABILITY_MAX_AGE_SECONDS = 15 * 60;
 const SIGN_UP_CONFIRMATION_MESSAGE =
   'Falls die Angaben verwendet werden können, erhältst du gleich eine E-Mail zur Bestätigung.';
 const BOOT_STEP_TIMEOUT_MS = 4000;
+
+interface PasswordRecoveryCapability {
+  schemaVersion: 1;
+  userId: string;
+  linkFingerprint: string;
+  createdAtEpochSeconds: number;
+  expiresAtEpochSeconds: number;
+}
+
+function createPasswordRecoveryCapability(
+  session: Session,
+  linkFingerprint: string,
+  nowEpochSeconds = Math.floor(Date.now() / 1000),
+): PasswordRecoveryCapability {
+  const sessionExpiry = typeof session.expires_at === 'number'
+    ? session.expires_at
+    : nowEpochSeconds + PASSWORD_RECOVERY_CAPABILITY_MAX_AGE_SECONDS;
+  return {
+    schemaVersion: 1,
+    userId: session.user.id,
+    linkFingerprint,
+    createdAtEpochSeconds: nowEpochSeconds,
+    expiresAtEpochSeconds: Math.min(
+      sessionExpiry,
+      nowEpochSeconds + PASSWORD_RECOVERY_CAPABILITY_MAX_AGE_SECONDS,
+    ),
+  };
+}
+
+function parsePasswordRecoveryCapability(
+  rawValue: string | null,
+  session: Session,
+  nowEpochSeconds = Math.floor(Date.now() / 1000),
+): PasswordRecoveryCapability | null {
+  if (!rawValue) return null;
+  try {
+    const candidate = JSON.parse(rawValue) as Partial<PasswordRecoveryCapability>;
+    if (
+      candidate.schemaVersion !== 1
+      || candidate.userId !== session.user.id
+      || typeof candidate.linkFingerprint !== 'string'
+      || !/^pkce:[0-9a-f]{8}:[1-9][0-9]{0,5}$/.test(candidate.linkFingerprint)
+      || !Number.isSafeInteger(candidate.createdAtEpochSeconds)
+      || !Number.isSafeInteger(candidate.expiresAtEpochSeconds)
+    ) return null;
+    const createdAt = candidate.createdAtEpochSeconds;
+    const expiresAt = candidate.expiresAtEpochSeconds;
+    if (
+      createdAt > nowEpochSeconds + 60
+      || nowEpochSeconds > expiresAt
+      || expiresAt <= createdAt
+      || expiresAt - createdAt > PASSWORD_RECOVERY_CAPABILITY_MAX_AGE_SECONDS
+      || (typeof session.expires_at === 'number' && expiresAt > session.expires_at)
+    ) return null;
+    return candidate as PasswordRecoveryCapability;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Boot steps must always settle: a hanging or failing step resolves to its
@@ -126,13 +188,12 @@ function isLocalProfile(value: unknown): value is LocalProfile {
   return (
     candidate.schemaVersion === 1 &&
     typeof candidate.displayName === 'string' &&
-    candidate.displayName.trim().length >= 2 &&
-    candidate.displayName.length <= 50 &&
+    displayNameError(candidate.displayName) === undefined &&
     typeof candidate.username === 'string' &&
-    candidate.username.trim().length >= 3 &&
-    candidate.username.length <= 30 &&
+    usernameError(candidate.username) === undefined &&
     (candidate.avatarUri === undefined || (
-      typeof candidate.avatarUri === 'string' && candidate.avatarUri.length <= 4096
+      typeof candidate.avatarUri === 'string'
+      && avatarUriError(candidate.avatarUri) === undefined
     )) &&
     typeof candidate.createdAt === 'string' &&
     Number.isFinite(Date.parse(candidate.createdAt)) &&
@@ -198,6 +259,9 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const sessionRef = useRef<Session | null>(null);
   const processedRecoveryLinksRef = useRef(new Set<string>());
+  const passwordRecoveryCapabilityRef = useRef<PasswordRecoveryCapability | null>(null);
+  const passwordRecoveryExpiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const passwordRecoveryStorageGenerationRef = useRef(0);
   const [localProfile, setLocalProfile] = useState<LocalProfile | null>(null);
   const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
   const [pendingAction, setPendingAction] = useState<AuthPendingAction | null>('restore');
@@ -205,13 +269,45 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const clearPasswordRecoveryCapability = useCallback(async () => {
+    passwordRecoveryStorageGenerationRef.current += 1;
+    if (passwordRecoveryExpiryTimerRef.current) {
+      clearTimeout(passwordRecoveryExpiryTimerRef.current);
+      passwordRecoveryExpiryTimerRef.current = null;
+    }
+    passwordRecoveryCapabilityRef.current = null;
+    setPasswordRecoveryPending(false);
+    try {
+      await authStorage.removeItem(PASSWORD_RECOVERY_CAPABILITY_KEY);
+    } catch {
+      safeWarning('Die lokale Passwort-Reset-Berechtigung konnte nicht sicher entfernt werden.');
+    }
+  }, []);
+
+  const activatePasswordRecoveryCapability = useCallback((capability: PasswordRecoveryCapability) => {
+    if (passwordRecoveryExpiryTimerRef.current) {
+      clearTimeout(passwordRecoveryExpiryTimerRef.current);
+    }
+    passwordRecoveryCapabilityRef.current = capability;
+    setPasswordRecoveryPending(true);
+    const remainingMs = Math.max(0, capability.expiresAtEpochSeconds * 1000 - Date.now());
+    passwordRecoveryExpiryTimerRef.current = setTimeout(() => {
+      void clearPasswordRecoveryCapability();
+    }, remainingMs);
+  }, [clearPasswordRecoveryCapability]);
+
   useEffect(() => {
     let isMounted = true;
     const authSubscription = supabase?.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) return;
       sessionRef.current = nextSession;
       setSession(nextSession);
-      if (event === 'PASSWORD_RECOVERY') setPasswordRecoveryPending(true);
+      const capability = passwordRecoveryCapabilityRef.current;
+      if (
+        event === 'SIGNED_OUT'
+        || !nextSession
+        || (capability && capability.userId !== nextSession.user.id)
+      ) void clearPasswordRecoveryCapability();
     }).data.subscription;
 
     const handleAuthUrl = async (url: string | null) => {
@@ -225,65 +321,116 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       }
       const fingerprint = passwordRecoveryRequestFingerprint(recovery);
       if (processedRecoveryLinksRef.current.has(fingerprint)) {
-        setError('Dieser Link zum Zurücksetzen wurde bereits verarbeitet. Fordere bei Bedarf einen neuen Link an.');
-        return;
-      }
-      let activeSession = sessionRef.current;
-      if (!activeSession) {
-        const { data: currentSessionData, error: currentSessionError } = await supabase.auth
-          .getSession();
-        if (!isMounted) return;
-        if (currentSessionError) {
-          setError('Der Link zum Zurücksetzen konnte nicht sicher geprüft werden. Versuche es später erneut.');
+        const capability = passwordRecoveryCapabilityRef.current;
+        const activeSession = sessionRef.current;
+        const liveCapability = capability && activeSession
+          ? parsePasswordRecoveryCapability(JSON.stringify(capability), activeSession)
+          : null;
+        if (liveCapability?.linkFingerprint === fingerprint) {
+          activatePasswordRecoveryCapability(liveCapability);
           return;
         }
-        activeSession = currentSessionData.session;
-        if (activeSession) {
-          sessionRef.current = activeSession;
-          setSession(activeSession);
-        }
-      }
-      if (activeSession?.user.id) {
-        setError('Melde dich zuerst ab, bevor du einen Link zum Zurücksetzen verwendest.');
+        await clearPasswordRecoveryCapability();
+        setError('Dieser Link zum Zurücksetzen ist abgelaufen. Fordere einen neuen Link an.');
         return;
       }
+      // Reserve before the first await. The queue below serialises distinct
+      // callbacks; this reservation additionally makes exact replays explicit.
+      // Failed/preflight attempts release it so a transient network failure can
+      // safely retry the same one-time PKCE code.
       processedRecoveryLinksRef.current.add(fingerprint);
       try {
-        if (recovery.kind === 'pkce') {
-          const { data: exchangeData, error: exchangeError } = await supabase.auth
-            .exchangeCodeForSession(recovery.code);
-          if (exchangeError) throw exchangeError;
-          if (!exchangeData.session) throw new Error('Recovery session missing');
-          if (isMounted) {
-            sessionRef.current = exchangeData.session;
-            setSession(exchangeData.session);
+        let activeSession = sessionRef.current;
+        if (!activeSession) {
+          const { data: currentSessionData, error: currentSessionError } = await supabase.auth
+            .getSession();
+          if (!isMounted) {
+            processedRecoveryLinksRef.current.delete(fingerprint);
+            return;
           }
-        } else {
-          const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-            access_token: recovery.accessToken,
-            refresh_token: recovery.refreshToken,
-          });
-          if (sessionError) throw sessionError;
-          if (!sessionData.session) throw new Error('Recovery session missing');
-          if (isMounted) {
-            sessionRef.current = sessionData.session;
-            setSession(sessionData.session);
+          if (currentSessionError) {
+            processedRecoveryLinksRef.current.delete(fingerprint);
+            setError('Der Link zum Zurücksetzen konnte nicht sicher geprüft werden. Versuche es später erneut.');
+            return;
+          }
+          activeSession = currentSessionData.session;
+          if (activeSession) {
+            sessionRef.current = activeSession;
+            setSession(activeSession);
           }
         }
+        if (activeSession?.user.id || sessionRef.current?.user.id) {
+          processedRecoveryLinksRef.current.delete(fingerprint);
+          setError('Melde dich zuerst ab, bevor du einen Link zum Zurücksetzen verwendest.');
+          return;
+        }
 
-        if (isMounted) setPasswordRecoveryPending(true);
+        const { data: exchangeData, error: exchangeError } = await supabase.auth
+          .exchangeCodeForSession(recovery.code);
+        if (exchangeError) throw exchangeError;
+        if (!exchangeData.session) throw new Error('Recovery session missing');
+        if (!isMounted) {
+          processedRecoveryLinksRef.current.delete(fingerprint);
+          return;
+        }
+        sessionRef.current = exchangeData.session;
+        setSession(exchangeData.session);
+
+        const capability = createPasswordRecoveryCapability(exchangeData.session, fingerprint);
+        const storageGeneration = passwordRecoveryStorageGenerationRef.current + 1;
+        passwordRecoveryStorageGenerationRef.current = storageGeneration;
+        let capabilityStored = false;
+        try {
+          await authStorage.setItem(
+            PASSWORD_RECOVERY_CAPABILITY_KEY,
+            JSON.stringify(capability),
+          );
+          capabilityStored = true;
+        } catch {
+          safeWarning('Die Passwort-Reset-Berechtigung konnte nicht dauerhaft gespeichert werden.');
+        }
+        if (
+          !isMounted
+          || passwordRecoveryStorageGenerationRef.current !== storageGeneration
+        ) {
+          if (capabilityStored) {
+            try {
+              await authStorage.removeItem(PASSWORD_RECOVERY_CAPABILITY_KEY);
+            } catch {
+              safeWarning('Die lokale Passwort-Reset-Berechtigung konnte nicht sicher entfernt werden.');
+            }
+          }
+          return;
+        }
+        activatePasswordRecoveryCapability(capability);
       } catch {
+        processedRecoveryLinksRef.current.delete(fingerprint);
         if (isMounted) {
           setError('Der Link zum Zurücksetzen ist ungültig oder abgelaufen. Fordere einen neuen Link an.');
         }
       }
     };
+    let recoveryQueue: Promise<void> = Promise.resolve();
+    const enqueueAuthUrl = (url: string | null): Promise<void> => {
+      const current = recoveryQueue.then(() => handleAuthUrl(url));
+      recoveryQueue = current.catch(() => undefined);
+      return current;
+    };
     const linkSubscription = Linking.addEventListener('url', ({ url }) => {
-      void handleAuthUrl(url);
+      void enqueueAuthUrl(url);
     });
 
     const restore = async () => {
       safeDebug('[BOOT] Auth-Wiederherstellung gestartet.');
+
+      // A process kill during the system share sheet can leave a plaintext
+      // account export in cache. Retry its narrowly scoped removal on every
+      // start, even if the user never opens the export action again.
+      try {
+        cleanupStaleAccountDataExports();
+      } catch {
+        safeWarning('[BOOT] Eine alte temporäre Exportdatei konnte nicht entfernt werden.');
+      }
 
       // Phase 1 – nur lokale Daten. Jeder Schritt settelt garantiert
       // (Timeout + Fallback), danach ist der App-Start freigegeben.
@@ -310,23 +457,43 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
         if (sessionResult && !sessionResult.error && sessionResult.data.session) {
           sessionRef.current = sessionResult.data.session;
           setSession(sessionResult.data.session);
+          const rawCapability = await settleBootStep(
+            'Passwort-Reset-Berechtigung laden',
+            authStorage.getItem(PASSWORD_RECOVERY_CAPABILITY_KEY),
+            null,
+          );
+          const capability = parsePasswordRecoveryCapability(
+            rawCapability,
+            sessionResult.data.session,
+          );
+          if (capability) {
+            processedRecoveryLinksRef.current.add(capability.linkFingerprint);
+            activatePasswordRecoveryCapability(capability);
+          } else if (rawCapability) {
+            await clearPasswordRecoveryCapability();
+          }
         }
         safeDebug('[BOOT] Online-Sitzung wiederhergestellt.');
       }
 
       const initialUrl = await settleBootStep('Start-URL lesen', Linking.getInitialURL(), null);
       if (!isMounted) return;
-      await handleAuthUrl(initialUrl);
+      await enqueueAuthUrl(initialUrl);
     };
 
     void restore();
 
     return () => {
       isMounted = false;
+      passwordRecoveryStorageGenerationRef.current += 1;
+      if (passwordRecoveryExpiryTimerRef.current) {
+        clearTimeout(passwordRecoveryExpiryTimerRef.current);
+        passwordRecoveryExpiryTimerRef.current = null;
+      }
       authSubscription?.unsubscribe();
       linkSubscription.remove();
     };
-  }, []);
+  }, [activatePasswordRecoveryCapability, clearPasswordRecoveryCapability]);
 
   const clearFeedback = useCallback(() => {
     setError(null);
@@ -362,6 +529,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
 
       sessionRef.current = data.session;
       setSession(data.session);
+      await clearPasswordRecoveryCapability();
       const message = 'Du bist jetzt angemeldet.';
       setNotice(message);
       return { ok: true, message, sessionCreated: true };
@@ -372,7 +540,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     } finally {
       setPendingAction(null);
     }
-  }, [configurationFailure]);
+  }, [clearPasswordRecoveryCapability, configurationFailure]);
 
   const signUp = useCallback(async (input: SignUpInput): Promise<AuthActionResult> => {
     if (!supabase) return configurationFailure();
@@ -406,6 +574,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
 
       sessionRef.current = data.session;
       setSession(data.session);
+      await clearPasswordRecoveryCapability();
       const sessionCreated = Boolean(data.session);
       const message = sessionCreated
         ? 'Dein Konto wurde erstellt und du bist angemeldet.'
@@ -423,7 +592,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     } finally {
       setPendingAction(null);
     }
-  }, [configurationFailure]);
+  }, [clearPasswordRecoveryCapability, configurationFailure]);
 
   const sendPasswordReset = useCallback(async (email: string): Promise<AuthActionResult> => {
     if (!supabase) return configurationFailure();
@@ -476,6 +645,20 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
 
   const updatePassword = useCallback(async (password: string): Promise<AuthActionResult> => {
     if (!supabase) return configurationFailure();
+    const activeSession = sessionRef.current;
+    const capability = activeSession && passwordRecoveryCapabilityRef.current
+      ? parsePasswordRecoveryCapability(
+        JSON.stringify(passwordRecoveryCapabilityRef.current),
+        activeSession,
+      )
+      : null;
+    if (!passwordRecoveryPending || !activeSession?.user.id || !capability) {
+      await clearPasswordRecoveryCapability();
+      const message = 'Öffne zuerst den aktuellen Link aus deiner Reset-E-Mail auf diesem Gerät.';
+      setError(message);
+      setNotice(null);
+      return { ok: false, message };
+    }
 
     setPendingAction('update-password');
     setError(null);
@@ -485,7 +668,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
 
-      setPasswordRecoveryPending(false);
+      await clearPasswordRecoveryCapability();
       const message = 'Dein neues Passwort wurde gespeichert.';
       setNotice(message);
       return { ok: true, message };
@@ -496,7 +679,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     } finally {
       setPendingAction(null);
     }
-  }, [configurationFailure]);
+  }, [clearPasswordRecoveryCapability, configurationFailure, passwordRecoveryPending]);
 
   const signOut = useCallback(async (): Promise<AuthActionResult> => {
     if (!supabase) return configurationFailure();
@@ -516,7 +699,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
 
       sessionRef.current = null;
       setSession(null);
-      setPasswordRecoveryPending(false);
+      await clearPasswordRecoveryCapability();
       const message = onlyLocal
         ? 'Du wurdest auf diesem Gerät abgemeldet. Andere Sitzungen konnten nicht beendet werden.'
         : 'Du wurdest abgemeldet.';
@@ -529,7 +712,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     } finally {
       setPendingAction(null);
     }
-  }, [configurationFailure]);
+  }, [clearPasswordRecoveryCapability, configurationFailure]);
 
   const signOutAndClearDeviceData = useCallback(async (): Promise<AuthActionResult> => {
     if (!supabase) return configurationFailure();
@@ -560,7 +743,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       const failedKeys = clearAccountLocalData(browserStorage, accountId);
       sessionRef.current = null;
       setSession(null);
-      setPasswordRecoveryPending(false);
+      await clearPasswordRecoveryCapability();
       const message = failedKeys.length > 0
         ? 'Du wurdest abgemeldet. Einige Kontodaten konnten auf diesem Gerät nicht vollständig entfernt werden.'
         : 'Du wurdest abgemeldet und die lokalen Daten dieses Kontos wurden von diesem Gerät entfernt.';
@@ -574,7 +757,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     } finally {
       setPendingAction(null);
     }
-  }, [configurationFailure, session]);
+  }, [clearPasswordRecoveryCapability, configurationFailure, session]);
 
   const deleteAccount = useCallback(async (password: string): Promise<AuthActionResult> => {
     if (!supabase) return configurationFailure();
@@ -599,10 +782,28 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
         return { ok: false, message };
       }
       if (reauthenticated.session.user.id !== activeSession.user.id) {
-        await supabase.auth.setSession({
+        const { data: restoredData, error: restoreError } = await supabase.auth.setSession({
           access_token: activeSession.access_token,
           refresh_token: activeSession.refresh_token,
         });
+        if (restoreError || restoredData.session?.user.id !== activeSession.user.id) {
+          try {
+            await supabase.removeAllChannels();
+          } catch {
+            // In-memory auth state is cleared below even if channel cleanup fails.
+          }
+          try {
+            await supabase.auth.signOut({ scope: 'local' });
+          } catch {
+            // The mismatched session must never remain authoritative in React.
+          }
+          sessionRef.current = null;
+          setSession(null);
+          await clearPasswordRecoveryCapability();
+        } else {
+          sessionRef.current = restoredData.session;
+          setSession(restoredData.session);
+        }
         const message = 'Die Identitätsbestätigung konnte nicht sicher abgeschlossen werden.';
         setError(message);
         return { ok: false, message };
@@ -639,7 +840,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       sessionRef.current = null;
       setSession(null);
       setLocalProfile(null);
-      setPasswordRecoveryPending(false);
+      await clearPasswordRecoveryCapability();
       const message = localCleanupIncomplete
         ? 'Dein Online-Konto wurde gelöscht. Einige lokale Anmeldedaten konnten nicht bestätigt bereinigt werden; lösche bei Bedarf die App-Daten in den Geräteeinstellungen.'
         : 'Dein Online-Konto und die zugehörigen Daten wurden dauerhaft gelöscht. Du nutzt Lernzeit jetzt als Gast.';
@@ -658,7 +859,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     } finally {
       setPendingAction(null);
     }
-  }, [configurationFailure, session]);
+  }, [clearPasswordRecoveryCapability, configurationFailure, session]);
 
   const saveLocalProfile = useCallback(async (input: LocalProfileInput): Promise<AuthActionResult> => {
     const validationMessage =

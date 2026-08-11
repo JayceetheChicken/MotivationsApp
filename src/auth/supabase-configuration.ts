@@ -74,7 +74,12 @@ export function validateSupabaseUrl(
     if (parsedUrl.search || parsedUrl.hash) {
       return 'EXPO_PUBLIC_SUPABASE_URL darf keine Query- oder Fragment-Parameter enthalten.';
     }
-    if (parsedUrl.protocol === 'https:') return null;
+    if (parsedUrl.protocol === 'https:') {
+      const canonicalIssue = releaseConfig.supabaseProjectUrlIssueDetail(value) as string | null;
+      return canonicalIssue === null
+        ? null
+        : `EXPO_PUBLIC_SUPABASE_URL ist keine kanonische Supabase-Projekt-URL. ${canonicalIssue}`;
+    }
     if (
       parsedUrl.protocol === 'http:'
       && options.allowLocalHttp === true
@@ -115,7 +120,9 @@ export function resolveSupabaseEnvironment(
   input: SupabaseEnvironmentInput,
 ): ResolvedSupabaseEnvironment {
   const url = input.url?.trim() || null;
-  const publicKey = input.publishableKey?.trim() || input.anonKey?.trim() || null;
+  const publishableKey = input.publishableKey?.trim() || null;
+  const anonKey = input.anonKey?.trim() || null;
+  const publicKey = publishableKey || anonKey;
 
   if (!url || !publicKey) {
     return {
@@ -129,8 +136,20 @@ export function resolveSupabaseEnvironment(
     };
   }
 
+  // Both EXPO_PUBLIC key references are statically inlined by Metro. Validate
+  // every configured value so an unused fallback cannot conceal a privileged
+  // key behind a valid primary key.
+  const publicKeyError = [publishableKey, anonKey]
+    .filter((value): value is string => value !== null)
+    .map(validateSupabasePublicKey)
+    .find((value): value is string => value !== null) ?? null;
+  const projectBindingError = [publishableKey, anonKey]
+    .filter((value): value is string => value !== null)
+    .map((value) => releaseConfig.supabasePublicKeyProjectBindingIssue(value, url) as string | null)
+    .find((value): value is string => value !== null) ?? null;
   const error = validateSupabaseUrl(url, { allowLocalHttp: input.allowLocalHttp })
-    ?? validateSupabasePublicKey(publicKey);
+    ?? publicKeyError
+    ?? projectBindingError;
   if (error) {
     return {
       url,

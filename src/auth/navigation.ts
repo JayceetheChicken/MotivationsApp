@@ -56,13 +56,10 @@ const RECOVERY_PATH = '/update-password';
 const MAX_AUTH_PARAMETER_LENGTH = 16_384;
 
 export type PasswordRecoveryRequest =
-  | Readonly<{ kind: 'pkce'; code: string }>
-  | Readonly<{ kind: 'tokens'; accessToken: string; refreshToken: string }>;
+  Readonly<{ kind: 'pkce'; code: string }>;
 
 export function passwordRecoveryRequestFingerprint(request: PasswordRecoveryRequest): string {
-  const value = request.kind === 'pkce'
-    ? `pkce:${request.code}`
-    : `tokens:${request.accessToken}:${request.refreshToken}`;
+  const value = `pkce:${request.code}`;
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
@@ -144,7 +141,12 @@ function isSafeAuthValue(value: string | null, maxLength = MAX_AUTH_PARAMETER_LE
  * Normal deep links are ignored even when they carry auth-looking keys.
  */
 export function parsePasswordRecoveryUrl(url: string | null): PasswordRecoveryRequest | null {
-  if (!url || url.length > 40_000) return null;
+  if (
+    !url
+    || url.length > 40_000
+    || url !== url.trim()
+    || /[\u0000-\u001f\u007f]/.test(url)
+  ) return null;
   // Manifest and bundle disagree about the transport: accept nothing.
   if (!PASSWORD_RECOVERY_AVAILABLE) return null;
 
@@ -169,36 +171,17 @@ export function parsePasswordRecoveryUrl(url: string | null): PasswordRecoveryRe
       || parsedUrl.password !== ''
     ) return null;
 
-    const fragment = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
     const query = parsedUrl.searchParams;
     const code = query.get('code');
 
-    if (code !== null) {
-      if (parsedUrl.hash) return null;
-      if (!hasOnlyUniqueParameters(query, new Set(['code', 'type']))) return null;
-      const type = query.get('type');
-      if (type !== 'recovery' || !isSafeAuthValue(code, 4096)) return null;
-      return { kind: 'pkce', code };
-    }
-
-    if (parsedUrl.search) return null;
-    if (!hasOnlyUniqueParameters(
-      fragment,
-      new Set(['access_token', 'refresh_token', 'type', 'token_type', 'expires_in', 'expires_at']),
-    )) return null;
-    if (fragment.get('type') !== 'recovery') return null;
-
-    const accessToken = fragment.get('access_token');
-    const refreshToken = fragment.get('refresh_token');
-    if (!isSafeAuthValue(accessToken) || !isSafeAuthValue(refreshToken)) return null;
-    const tokenType = fragment.get('token_type');
-    if (tokenType !== null && tokenType.toLowerCase() !== 'bearer') return null;
-    for (const key of ['expires_in', 'expires_at']) {
-      const value = fragment.get(key);
-      if (value !== null && (!/^[0-9]{1,12}$/.test(value) || Number(value) <= 0)) return null;
-    }
-
-    return { kind: 'tokens', accessToken, refreshToken };
+    // PKCE only: a code is useless without the verifier stored on the device
+    // that initiated the reset. Bearer-token fragments are deliberately
+    // rejected even if GoTrue or an old client can still create one.
+    if (code === null || parsedUrl.hash) return null;
+    if (!hasOnlyUniqueParameters(query, new Set(['code', 'type']))) return null;
+    const type = query.get('type');
+    if (type !== 'recovery' || !isSafeAuthValue(code, 4096)) return null;
+    return { kind: 'pkce', code };
   } catch {
     return null;
   }

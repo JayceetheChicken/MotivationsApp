@@ -20,7 +20,7 @@
  * __tests__/release-scripts.test.ts can run them against deliberately broken
  * manifests.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -43,11 +43,17 @@ try {
   process.exit(2);
 }
 
-const { failures, notes, summary } = collectNativeLinkingIssues(xml, process.env);
+const appBuildGradlePath = path.resolve(projectRoot, 'android', 'app', 'build.gradle');
+const gradlePropertiesPath = path.resolve(projectRoot, 'android', 'gradle.properties');
+const nativeFiles = {
+  appBuildGradle: existsSync(appBuildGradlePath) ? readFileSync(appBuildGradlePath, 'utf8') : undefined,
+  gradleProperties: existsSync(gradlePropertiesPath) ? readFileSync(gradlePropertiesPath, 'utf8') : undefined,
+};
+const { failures, notes, summary } = collectNativeLinkingIssues(xml, process.env, nativeFiles);
 
 for (const note of notes) process.stdout.write(`${note}\n`);
 process.stdout.write(
-  `Profil: ${summary.buildProfile}  Transport: ${summary.recoveryTransport}\n`,
+  `Profil: ${summary.buildProfile}  Variante: ${summary.nativeVariant}  Transport: ${summary.recoveryTransport}\n`,
 );
 process.stdout.write(
   `Intent-Filter: ${summary.intentFilters}  lernzeit-Scheme-Eintraege: ${summary.customSchemeEntries}`

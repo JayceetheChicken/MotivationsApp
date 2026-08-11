@@ -1,12 +1,12 @@
 node_modules/
 .expo/
 .expo-web-check/
-dist/
-dist-invalid/
-dist-development/
-dist-preview/
-web-build/
-coverage/
+/dist/
+/dist-invalid/
+/dist-development/
+/dist-preview/
+/web-build/
+/coverage/
 *.log
 .DS_Store
 

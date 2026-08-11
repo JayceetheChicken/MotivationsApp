@@ -27,9 +27,10 @@ const SERVICE_ROLE_JWT = jwt({ iss: 'supabase', role: 'service_role' });
 
 describe('Supabase environment configuration', () => {
   it('accepts a valid HTTPS project URL', () => {
-    expect(validateSupabaseUrl('https://project.supabase.co')).toBeNull();
+    expect(validateSupabaseUrl('https://abcdefghijklmnopqrst.supabase.co')).toBeNull();
+    expect(validateSupabaseUrl('https://ABCDEFGHIJKLMNOPQRST.supabase.co/')).toBeNull();
     expect(resolveSupabaseEnvironment({
-      url: 'https://project.supabase.co',
+      url: 'https://abcdefghijklmnopqrst.supabase.co',
       publishableKey: 'sb_publishable_AbCdEf1234567890',
     }).configuration.isConfigured).toBe(true);
   });
@@ -68,6 +69,22 @@ describe('Supabase environment configuration', () => {
     expect(validateSupabaseUrl('https://project.supabase.co/#secret')).toMatch(/Fragment/);
   });
 
+  it.each([
+    'https://api.example.org',
+    'https://project.supabase.co',
+    'https://project.supabase.co.evil.test',
+    'https://nested.project.supabase.co',
+    'https://project-ref.supabase.co',
+    'https://project.supabase.co/rest/v1',
+    'https://project.supabase.co:443',
+  ])('rejects a non-canonical hosted project URL: %s', (url) => {
+    expect(validateSupabaseUrl(url)).toMatch(/<project-ref>\.supabase\.co|keinen Pfad|exakt die Form/);
+    expect(resolveSupabaseEnvironment({
+      url,
+      publishableKey: 'sb_publishable_AbCdEf1234567890',
+    }).configuration.isConfigured).toBe(false);
+  });
+
   it('rejects an invalid URL', () => {
     expect(validateSupabaseUrl('definitely not a URL')).toBe(
       'EXPO_PUBLIC_SUPABASE_URL ist keine gültige URL.',
@@ -76,7 +93,7 @@ describe('Supabase environment configuration', () => {
 
   it.each([
     [{ publishableKey: 'sb_publishable_AbCdEf1234567890' }, 'EXPO_PUBLIC_SUPABASE_URL fehlt.'],
-    [{ url: 'https://project.supabase.co' }, 'PUBLISHABLE_KEY beziehungsweise EXPO_PUBLIC_SUPABASE_ANON_KEY fehlt.'],
+    [{ url: 'https://abcdefghijklmnopqrst.supabase.co' }, 'PUBLISHABLE_KEY beziehungsweise EXPO_PUBLIC_SUPABASE_ANON_KEY fehlt.'],
     [{}, 'Supabase ist noch nicht konfiguriert.'],
   ] as const)('disables online accounts for missing configuration %#', (input, message) => {
     const resolved = resolveSupabaseEnvironment(input);
@@ -130,11 +147,51 @@ describe('Supabase public key validation uses the central classifier', () => {
 
   it('disables online accounts instead of shipping a service_role key', () => {
     const resolved = resolveSupabaseEnvironment({
-      url: 'https://project.supabase.co',
+      url: 'https://abcdefghijklmnopqrst.supabase.co',
       anonKey: SERVICE_ROLE_JWT,
     });
     expect(resolved.configuration.isConfigured).toBe(false);
     expect(resolved.configuration.message).toMatch(/service_role/);
+  });
+
+  it.each<[string, string, RegExp]>([
+    ['Secret-Key', 'sb_secret_realsecretvalue', /Secret-Key/],
+    ['service_role-JWT', SERVICE_ROLE_JWT, /service_role/],
+  ])('rejects an invalid %s fallback even when the primary key is valid', (_label, anonKey, expected) => {
+    const resolved = resolveSupabaseEnvironment({
+      url: 'https://abcdefghijklmnopqrst.supabase.co',
+      publishableKey: 'sb_publishable_AbCdEf1234567890',
+      anonKey,
+    });
+    expect(resolved.configuration.isConfigured).toBe(false);
+    expect(resolved.configuration.message).toMatch(expected);
+  });
+
+  it('binds a legacy anon JWT ref claim to the canonical project host', () => {
+    const matching = resolveSupabaseEnvironment({
+      url: 'https://abcdefghijklmnopqrst.supabase.co',
+      anonKey: jwt({ iss: 'supabase', role: 'anon', ref: 'abcdefghijklmnopqrst' }),
+    });
+    expect(matching.configuration.isConfigured).toBe(true);
+
+    for (const ref of ['anotherproject', 42]) {
+      const mismatched = resolveSupabaseEnvironment({
+        url: 'https://abcdefghijklmnopqrst.supabase.co',
+        anonKey: jwt({ iss: 'supabase', role: 'anon', ref }),
+      });
+      expect(mismatched.configuration.isConfigured).toBe(false);
+      expect(mismatched.configuration.message).toMatch(/ref-Claim/);
+    }
+  });
+
+  it('validates the embedded anon fallback binding behind an opaque publishable key', () => {
+    const resolved = resolveSupabaseEnvironment({
+      url: 'https://abcdefghijklmnopqrst.supabase.co',
+      publishableKey: 'sb_publishable_AbCdEf1234567890',
+      anonKey: jwt({ iss: 'supabase', role: 'anon', ref: 'differentprojectrefx' }),
+    });
+    expect(resolved.configuration.isConfigured).toBe(false);
+    expect(resolved.configuration.message).toMatch(/ref-Claim/);
   });
 
   // The old implementation returned null from its decoder whenever `atob` was

@@ -8,7 +8,7 @@ import {
   AuthScaffold,
   AuthTextLink,
 } from '@/auth/auth-ui';
-import { emailError } from '@/auth/validation';
+import { emailError, MAX_EMAIL_LENGTH } from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
 import { useAuthStore } from '@/state/auth-store';
 
@@ -50,6 +50,7 @@ export default function ForgotPasswordScreen() {
           autoComplete="email"
           error={fieldError}
           keyboardType="email-address"
+          maxLength={MAX_EMAIL_LENGTH}
           label="E-Mail-Adresse"
           onChangeText={(value) => {
             setEmail(value);

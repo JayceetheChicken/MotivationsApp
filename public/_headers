@@ -1,5 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self' mailto:; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'none'; style-src 'self' 'unsafe-inline'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self' mailto:; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; style-src 'self' 'unsafe-inline'; upgrade-insecure-requests
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
@@ -15,4 +15,5 @@
 
 # Play requires this page to stay publicly reachable without app and without login.
 /account-deletion/*
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action mailto:; frame-ancestors 'none'; img-src 'self' data:; script-src 'none'; style-src 'unsafe-inline'; upgrade-insecure-requests
   Cache-Control: public, max-age=600

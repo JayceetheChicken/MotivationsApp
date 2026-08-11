@@ -15,6 +15,11 @@ const EXPECTED = {
   minSdkVersion: 24,
 };
 
+const REQUIRED_BLOCKED_ANDROID_PERMISSIONS = [
+  'android.permission.READ_EXTERNAL_STORAGE',
+  'android.permission.WRITE_EXTERNAL_STORAGE',
+];
+
 /** Placeholder tokens that must not survive into a production manifest. */
 const FORBIDDEN_TOKENS = [
   'example.invalid',
@@ -31,6 +36,67 @@ const SECRET_PATTERNS = [/service_role/i, /sb_secret_/, /SUPABASE_SERVICE_ROLE/i
 function filterData(filter) {
   if (!filter || typeof filter !== 'object') return [];
   return Array.isArray(filter.data) ? filter.data : [filter.data ?? {}];
+}
+
+/** @param {unknown} value @param {readonly string[]} expected */
+function hasExactStringMembers(value, expected) {
+  const actual = Array.isArray(value) ? value : [value];
+  return actual.length === expected.length
+    && new Set(actual).size === expected.length
+    && expected.every((entry) => actual.includes(entry));
+}
+
+/** @param {unknown} value @param {string} expected */
+function containsStringMember(value, expected) {
+  return (Array.isArray(value) ? value : [value]).includes(expected);
+}
+
+/**
+ * Browser-routable Android filters are security-sensitive even when they are
+ * unrelated to password recovery. Production approves one exact App Link and
+ * must enumerate every wider or additional VIEW+BROWSABLE route.
+ * @param {unknown} candidate
+ */
+function isBrowsableViewFilter(candidate) {
+  if (!candidate || typeof candidate !== 'object') return false;
+  const filter = /** @type {Record<string, unknown>} */ (candidate);
+  return containsStringMember(filter.action, 'VIEW')
+    && containsStringMember(filter.category, 'BROWSABLE');
+}
+
+/**
+ * The exact recovery filter Expo is allowed to turn into an Android component.
+ * Extra `<data>` entries widen the verified URL surface, so equality matters.
+ * @param {Record<string, unknown>} filter
+ * @param {{scheme: string, host: string, path: string, autoVerify: boolean}} expected
+ */
+function exactRecoveryFilterIssues(filter, expected) {
+  const issues = [];
+  if (filter.action !== 'VIEW') issues.push('action muss exakt "VIEW" sein');
+  if (!hasExactStringMembers(filter.category, ['BROWSABLE', 'DEFAULT'])) {
+    issues.push('category muss exakt BROWSABLE und DEFAULT enthalten');
+  }
+  if ((filter.autoVerify === true) !== expected.autoVerify) {
+    issues.push(`autoVerify muss ${expected.autoVerify ? 'true' : 'false/abwesend'} sein`);
+  }
+  const data = filterData(filter);
+  if (data.length !== 1) {
+    issues.push(`der Filter muss genau einen data-Eintrag enthalten, gefunden: ${data.length}`);
+  } else {
+    const entry = data[0] ?? {};
+    const keys = Object.keys(entry);
+    if (
+      entry.scheme !== expected.scheme
+      || entry.host !== expected.host
+      || entry.path !== expected.path
+      || keys.some((key) => !['scheme', 'host', 'path'].includes(key))
+    ) {
+      issues.push(
+        `data muss exakt ${expected.scheme}://${expected.host}${expected.path} mit android:path abbilden`,
+      );
+    }
+  }
+  return issues;
 }
 
 /**
@@ -119,6 +185,15 @@ function collectExpoConfigIssues(rawConfig, environment) {
     `minSdkVersion muss mindestens ${EXPECTED.minSdkVersion} sein, gefunden: ${androidBuildProperties.minSdkVersion}.`,
   );
   check(androidBuildProperties.usesCleartextTraffic === false, 'usesCleartextTraffic muss false sein.');
+  const blockedPermissions = Array.isArray(android.blockedPermissions)
+    ? android.blockedPermissions
+    : [];
+  for (const permission of REQUIRED_BLOCKED_ANDROID_PERMISSIONS) {
+    check(
+      blockedPermissions.includes(permission),
+      `${permission} muss in android.blockedPermissions stehen.`,
+    );
+  }
 
   // --- Recovery transport and app scheme, strictly per build profile ---------
   //
@@ -129,7 +204,8 @@ function collectExpoConfigIssues(rawConfig, environment) {
   if (profile.issue) failures.push(profile.issue);
   const auth = releaseConfig.resolveAuthBuildConfiguration(environment);
   const intentFilters = Array.isArray(android.intentFilters) ? android.intentFilters : [];
-  const appLink = intentFilters.find((filter) => filter?.autoVerify === true) ?? null;
+  const verifiedFilters = intentFilters.filter((filter) => filter?.autoVerify === true);
+  const appLink = verifiedFilters[0] ?? null;
   const appLinkHost = appLink ? (filterData(appLink)[0]?.host ?? null) : null;
   const privateRecoveryFilter = findPrivateRecoveryFilter(intentFilters);
   const schemes = declaredSchemes(config.scheme);
@@ -161,11 +237,37 @@ function collectExpoConfigIssues(rawConfig, environment) {
   }
 
   if (auth.recoveryTransport === 'https-app-link') {
+    const unapprovedBrowsableFilters = intentFilters.filter(isBrowsableViewFilter).filter(
+      (filter) => exactRecoveryFilterIssues(filter, {
+        scheme: 'https',
+        host: auth.androidAppLinkHost,
+        path: releaseConfig.RECOVERY_PATH,
+        autoVerify: true,
+      }).length > 0,
+    );
+    for (const filter of unapprovedBrowsableFilters) {
+      failures.push(
+        'Unerlaubter VIEW+BROWSABLE-Intent-Filter in Production: '
+        + `${JSON.stringify(filterData(filter))}. Erlaubt ist ausschliesslich der exakte Recovery-App-Link.`,
+      );
+    }
+    check(
+      verifiedFilters.length === 1,
+      `Production muss genau einen autoVerify-Intent-Filter enthalten, gefunden: ${verifiedFilters.length}.`,
+    );
     check(Boolean(appLink), 'Es ist kein verifizierter Android App Link (autoVerify) konfiguriert.');
     check(
       appLinkHost === auth.androidAppLinkHost,
       `Der App-Links-Host ist "${appLinkHost}", erwartet "${auth.androidAppLinkHost}".`,
     );
+    if (appLink) {
+      for (const issue of exactRecoveryFilterIssues(appLink, {
+        scheme: 'https',
+        host: auth.androidAppLinkHost,
+        path: releaseConfig.RECOVERY_PATH,
+        autoVerify: true,
+      })) failures.push(`Der Production-App-Link ist nicht exakt: ${issue}.`);
+    }
     // The decisive production check. Any other installed app may claim
     // "lernzeit://", so a registered private recovery route is an account
     // takeover path, not a convenience fallback.
@@ -196,10 +298,18 @@ function collectExpoConfigIssues(rawConfig, environment) {
       + `${releaseConfig.APP_SCHEME}://auth${releaseConfig.RECOVERY_PATH}.`,
     );
     check(
-      !appLink,
+      verifiedFilters.length === 0,
       'Ohne verifizierbare Betreiberdomain darf kein autoVerify-App-Link konfiguriert sein; '
       + 'er koennte nie verifiziert werden.',
     );
+    if (privateRecoveryFilter) {
+      for (const issue of exactRecoveryFilterIssues(privateRecoveryFilter, {
+        scheme: releaseConfig.APP_SCHEME,
+        host: releaseConfig.CUSTOM_RECOVERY_HOST,
+        path: releaseConfig.RECOVERY_PATH,
+        autoVerify: false,
+      })) failures.push(`Der private Recovery-Filter ist nicht exakt: ${issue}.`);
+    }
     // The shared definition of a correct non-production build, so this verifier
     // cannot drift away from the export scanner or the runtime.
     for (const issue of releaseConfig.collectDevelopmentAuthBuildIssues(auth)) failures.push(issue);
@@ -281,6 +391,9 @@ module.exports = {
   filterData,
   findPrivateRecoveryFilter,
   findCustomSchemeFilters,
+  hasExactStringMembers,
+  exactRecoveryFilterIssues,
+  isBrowsableViewFilter,
   declaredSchemes,
   collectExpoConfigIssues,
 };

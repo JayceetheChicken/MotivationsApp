@@ -24,8 +24,8 @@
 *.keystore binary
 *.jks binary
 
-# Keep lockfile diffs reviewable.
-package-lock.json -diff merge=binary
+# Keep dependency, integrity and install-script changes visible in review.
+package-lock.json text eol=lf
 
 # Generated file that reproduces third-party licence texts verbatim. Some of
 # those texts contain trailing whitespace; normalizing it would alter a licence

@@ -138,7 +138,7 @@ describe('production recovery transport', () => {
       )).toEqual({ kind: 'pkce', code: 'pkce-code' });
       expect(navigation.parsePasswordRecoveryUrl(
         'https://lernzeit.de/update-password#access_token=access&refresh_token=refresh&type=recovery',
-      )).toEqual({ kind: 'tokens', accessToken: 'access', refreshToken: 'refresh' });
+      )).toBeNull();
     });
   });
 
@@ -178,6 +178,7 @@ describe('production recovery transport', () => {
     ['doppelter Parameter', 'https://lernzeit.de/update-password?code=a&code=b&type=recovery'],
     ['unbekannter Parameter', 'https://lernzeit.de/update-password?code=a&type=recovery&next=x'],
     ['falscher type', 'https://lernzeit.de/update-password?code=a&type=signup'],
+    ['implizites Token-Paar', 'https://lernzeit.de/update-password#access_token=a&refresh_token=r&type=recovery'],
     ['Token-Paar ohne type', 'https://lernzeit.de/update-password#access_token=a&refresh_token=r'],
     ['nur Access-Token', 'https://lernzeit.de/update-password#access_token=a&type=recovery'],
     ['nur Refresh-Token', 'https://lernzeit.de/update-password#refresh_token=r&type=recovery'],
@@ -187,6 +188,9 @@ describe('production recovery transport', () => {
       'Query-Code und Fragment-Token zugleich',
       'https://lernzeit.de/update-password?code=a&type=recovery#access_token=a&refresh_token=r&type=recovery',
     ],
+    ['führendes Leerzeichen', ' https://lernzeit.de/update-password?code=a&type=recovery'],
+    ['abschließender Zeilenumbruch', 'https://lernzeit.de/update-password?code=a&type=recovery\n'],
+    ['eingebettetes Control-Zeichen', 'https://lernzeit.de/update-password?code=a\u0001&type=recovery'],
   ])('still rejects %s on the HTTPS route', (_label, url) => {
     withProductionBuild((navigation) => {
       expect(navigation.parsePasswordRecoveryUrl(url)).toBeNull();
@@ -215,7 +219,7 @@ describe('development and preview recovery transport', () => {
       )).toEqual({ kind: 'pkce', code: 'pkce-code' });
       expect(navigation.parsePasswordRecoveryUrl(
         'lernzeit://auth/update-password#access_token=access&refresh_token=refresh&type=recovery&token_type=bearer&expires_in=3600',
-      )).toEqual({ kind: 'tokens', accessToken: 'access', refreshToken: 'refresh' });
+      )).toBeNull();
     });
   });
 
@@ -237,6 +241,7 @@ describe('development and preview recovery transport', () => {
     ['wrong path', 'lernzeit://auth/other?code=pkce-code'],
     ['code on normal link', 'lernzeit://auth/profile?code=pkce-code'],
     ['tampered fragment', 'lernzeit://auth/update-password#access_token=a&refresh_token=r&type=signup'],
+    ['implicit recovery tokens', 'lernzeit://auth/update-password#access_token=a&refresh_token=r&type=recovery'],
     ['access only', 'lernzeit://auth/update-password#access_token=a&type=recovery'],
     ['refresh only', 'lernzeit://auth/update-password#refresh_token=r&type=recovery'],
     ['embedded credentials', 'lernzeit://user:password@auth/update-password?code=pkce-code'],

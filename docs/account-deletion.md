@@ -1,6 +1,6 @@
 # Sichere Kontolöschung
 
-Stand: 2. August 2026
+Stand: 9. August 2026
 
 ## Ablauf und Autorisierung
 
@@ -10,10 +10,13 @@ Stand: 2. August 2026
    `LÖSCHEN`. Die Re-Authentifizierung muss wieder genau dieselbe Nutzer-ID
    ergeben; andernfalls wird die vorherige Sitzung wiederhergestellt und kein
    Löschaufruf ausgeführt.
-3. Nur der frisch ausgestellte Access Token wird an die Edge Function
-   `delete-account` gesendet. Die Function akzeptiert ausschließlich `POST`,
-   verlangt die feste Bestätigung `DELETE`, validiert den Token serverseitig
-   und lehnt Tokens mit einem `iat`-Alter über fünf Minuten ab.
+3. Nur der durch diese Passwortanmeldung ausgestellte Access Token wird an die
+   Edge Function `delete-account` gesendet. Die Function akzeptiert
+   ausschließlich `POST`, verlangt die feste Bestätigung `DELETE`, validiert
+   den Token serverseitig und verlangt im signierten `amr`-Claim eine
+   Passwortanmeldung derselben Nutzer-ID aus den letzten fünf Minuten. Ein nur
+   automatisch erneuerter Access Token (`token_refresh`) genügt ausdrücklich
+   nicht.
 4. Browser-Origin-Header werden nur aus `ALLOWED_BROWSER_ORIGINS` akzeptiert.
    Native Requests haben keinen Origin. Der statische Web-Build bietet keine
    Online-Authentifizierung und damit keinen browserseitigen Löschaufruf.
@@ -22,19 +25,33 @@ Stand: 2. August 2026
 
 ## Serverseitige Reihenfolge
 
-1. Alle Dateien und Unterordner unter `<user-id>/` im Bucket `avatars` werden
+1. Die service-role-only RPC `begin_account_deletion(user_id)` setzt zuerst
+   eine Löschsperre. Der Avatar-Upload-Trigger serialisiert sich mit derselben
+   Sperre und lehnt ab diesem Zeitpunkt neue Objekte für das Konto ab.
+2. Alle Dateien und Unterordner unter `<user-id>/` im Bucket `avatars` werden
    begrenzt, paginiert und rekursiv aufgelistet und gelöscht.
-2. Die service-role-only RPC `prepare_account_deletion(user_id)` überträgt
-   erforderlichenfalls gemeinsames Eigentum.
-3. Erst danach löscht `auth.admin.deleteUser` den Auth-Nutzer. Private Daten
-   und personenbezogene Beziehungen kaskadieren über Foreign Keys.
+3. Danach löscht `auth.admin.deleteUser` den Auth-Nutzer. Ein
+   `BEFORE DELETE`-Trigger auf `auth.users` überträgt erforderlichenfalls
+   gemeinsames Eigentum. Vorbereitung, Auth-Löschung und relationale Cascades
+   laufen damit in **derselben Datenbanktransaktion**; ein Fehler rollt alles
+   zurück.
 4. Antworten enthalten nur `deleted: true` oder eine feste, nicht technische
    Fehlermeldung. Rohfehler, Nutzerobjekte und Tokens werden nicht geloggt.
 
 Fehlende Avatarobjekte und bereits entfernte Daten werden toleriert. Scheitert
-Storage oder Vorbereitung, bleibt der Auth-Nutzer bestehen und der Vorgang kann
-wiederholt werden. Nach bereits vollständiger Auth-Löschung ist der alte Token
-nicht mehr validierbar; ein erneuter Aufruf endet daher sicher mit `401`.
+Storage oder die Auth-Löschung, bleibt der Auth-Nutzer bestehen und die Function
+versucht, die Upload-Sperre wieder aufzuheben; der Vorgang kann wiederholt
+werden. Bleibt die Sperre wegen eines zweiten Infrastrukturfehlers bestehen,
+ist das datenschutzfreundlich fehlgeschlagen: neue Avatare bleiben blockiert,
+bis die Löschung erneut ausgeführt oder die Sperre betrieblich geprüft wird.
+Nach bereits vollständiger Auth-Löschung ist der alte Token nicht mehr
+validierbar; ein erneuter Aufruf endet daher sicher mit `401`.
+
+Storage und Auth sind getrennte Dienste und deshalb nicht gemeinsam
+transaktional. Bei einem Fehler nach der Storage-Bereinigung kann ein noch
+lebendes Konto vorübergehend ohne Avatarobjekte bleiben. Die Upload-Sperre
+verhindert dabei aber, dass ein parallel hochgeladenes Objekt die erfolgreiche
+Kontolöschung überlebt; alle relationalen Eigentumsänderungen sind atomar.
 
 ## Regeln für gemeinsame Inhalte
 
@@ -42,14 +59,15 @@ nicht mehr validierbar; ein erneuter Aufruf endet daher sicher mit `401`.
 |---|---|
 | Eigene private Fächer, Sessions/Segmente, Noten und persönliche Ziele | Keine Übertragung; vollständige Cascade-Löschung |
 | Freundschaften, offene Einladungen, Blockierungen, eigene Meldungen und Presence | Personenbezogene Zeilen werden gelöscht; `invited_by` wird je nach bestehendem FK gelöscht oder auf `null` gesetzt |
-| Erstellte Gruppen | Bei weiteren akzeptierten Mitgliedern geht der Besitz an das Mitglied mit dem frühesten `accepted_at`, danach `created_at`, danach Nutzer-ID. Ohne Nachfolger wird die Gruppe gelöscht. |
-| Erstellte gemeinsame Ziele | Vorrangig übernimmt der neue Gruppenersteller, sonst der erste akzeptierte Teilnehmer nach derselben stabilen Sortierung. Ohne Nachfolger wird das Ziel gelöscht. |
-| Erstellte gemeinsame Sessions | Vorrangig übernimmt der Gruppenersteller, sonst der erste beigetretene/aktive/pausierte/fertige Teilnehmer. Ohne Nachfolger wird die Session gelöscht. |
+| Erstellte Gruppen | Bei weiteren akzeptierten Gruppenmitgliedern geht der Besitz an das Mitglied mit dem frühesten `accepted_at`, danach `created_at`, danach Nutzer-ID. Ohne Gruppennachfolger wird die Gruppe gelöscht. Gruppenbezogene Ziele und Sessions werden vorher anhand ihrer **eigenen** Teilnehmer erhalten und von der zu löschenden Gruppe gelöst. |
+| Erstellte gemeinsame Ziele | Der erste akzeptierte Zielteilnehmer übernimmt nach stabiler Sortierung. Gruppenbesitz allein reicht nicht. Ohne akzeptierten Zielteilnehmer wird nur dieses Ziel gelöscht. |
+| Erstellte gemeinsame Sessions | Der erste beigetretene/aktive/pausierte/fertige Sessionteilnehmer übernimmt nach stabiler Sortierung. Gruppenbesitz allein reicht nicht. Ohne geeigneten Sessionteilnehmer wird nur diese Session gelöscht. |
 | Teilnehmerbeziehungen der gelöschten Person | Cascade-Löschung nach erfolgter Eigentumsübertragung |
 
-Die funktionale pgTAP-Datei
-`supabase/tests/008_privacy_moderation_deletion.sql` prüft Transfer, Auth-
-Cascade und Erhalt der gemeinsamen Objekte.
+Die funktionalen pgTAP-Dateien
+`supabase/tests/008_privacy_moderation_deletion.sql` und
+`supabase/tests/009_final_release_security_hardening.sql` prüfen Transfer,
+Auth-Cascade, Teilnehmerzustände, Upload-Sperre und Erhalt gemeinsamer Objekte.
 
 ## Löschanfrage ohne Zugriff auf die App
 
@@ -99,13 +117,14 @@ dass der Auth-Nutzer tatsächlich gelöscht wurde.
 
 | Situation | Verhalten |
 | --- | --- |
-| Avatar-Auflistung schlägt fehl | Abbruch mit 500, nichts wurde gelöscht, Wiederholung gefahrlos |
+| Löschsperre kann nicht gesetzt werden | Abbruch mit 500 vor Storage- oder Auth-Löschung |
+| Avatar-Auflistung schlägt fehl | Abbruch mit 500; bereits entfernte Seiten bleiben entfernt, Upload-Sperre wird bestmöglich aufgehoben, Wiederholung gefahrlos |
 | Avatar-Löschung schlägt teilweise fehl | Abbruch mit 500. Beim nächsten Versuch werden die verbliebenen Objekte erneut aufgelistet und gelöscht |
-| `prepare_account_deletion` schlägt fehl | Abbruch mit 500. Die Funktion arbeitet auf dem aktuellen Zustand; ein zweiter Aufruf findet nur noch nicht übertragene Objekte |
-| `prepare_account_deletion` lief, `deleteUser` schlug fehl | Abbruch mit 500. Wiederholung überträgt nichts erneut (Eigentum liegt bereits beim Nachfolger) und löscht dann den Auth-Nutzer |
+| Mehr als 10.000 Legacy-Avatarobjekte | Abbruch nach begrenztem Fortschritt; jeder erneute Aufruf entfernt die nächste begrenzte Menge |
+| Eigentumsvorbereitung oder `deleteUser` schlägt fehl | Abbruch mit 500; die Auth-Transaktion rollt Eigentumsänderungen und Cascades vollständig zurück |
 | `deleteUser` meldet „user not found“ | Wird als Erfolg gewertet; der gewünschte Endzustand ist erreicht |
-| Zweiter Aufruf während der erste läuft | Beide durchlaufen dieselbe Reihenfolge. Der zweite findet keine Avatare und keine zu übertragenden Objekte mehr |
-| JWT älter als fünf Minuten | 403, keine Änderung |
+| Zweiter Aufruf während der erste läuft | Sperren serialisieren Upload und Vorbereitung. Der zweite Aufruf endet nach Auth-Löschung konservativ mit 401 oder findet nur noch Restarbeit |
+| Passwort-AMR älter als fünf Minuten oder nur frischer Refresh-Token | 403, keine Änderung |
 | Falsches Passwort | Die Re-Authentifizierung schlägt vor dem Function-Aufruf fehl |
 | Re-Authentifizierung liefert eine andere UID | Die vorherige Sitzung wird wiederhergestellt, kein Löschaufruf |
 
@@ -130,7 +149,11 @@ Geräteeinstellungen entfernen. Der Support sollte diesen Hinweis kennen.
 
 ## Deployment und manuelle Abnahme
 
-Vor Produktion zuerst in Staging:
+Vor Produktion zuerst in Staging. Die Migration muss vor der neuen Edge
+Function ausgerollt werden; die neue Function verlangt die erst dort
+eingeführte `begin_account_deletion`-RPC und scheitert gegen ein altes Schema
+sicher vor jeder Löschung. Die Kompatibilitäts-RPC hält während des kurzen
+Zwischenstands auch die vorherige Function funktionsfähig.
 
 ```bash
 npx supabase migration up --linked
@@ -138,8 +161,9 @@ npx supabase functions deploy delete-account --project-ref <PROJECT_REF>
 npx supabase secrets set ALLOWED_BROWSER_ORIGINS=https://<ECHTE-DOMAIN>
 ```
 
-Anschließend mit separaten Testkonten prüfen: frische und abgelaufene Sitzung,
-falsches Passwort, manipulierte Bestätigung, fremder Browser-Origin,
-Avatarunterordner, Storage-Fehler, leere und mehrgliedrige gemeinsame Inhalte,
-lokale Daten zweier Konten sowie erneuter Aufruf. Die Produktivdatenbank darf
-nicht für destruktive Probefälle verwendet werden.
+Anschließend mit separaten Testkonten prüfen: echte Passwort-Reauthentifizierung,
+frisch erneuerter Token ohne frische Passwort-AMR, abgelaufene AMR, falsches
+Passwort, manipulierte Bestätigung, fremder Browser-Origin, paralleler
+Avatar-Upload, Avatarunterordner, Storage-Fehler, leere und mehrgliedrige
+gemeinsame Inhalte, lokale Daten zweier Konten sowie erneuter Aufruf. Die
+Produktivdatenbank darf nicht für destruktive Probefälle verwendet werden.

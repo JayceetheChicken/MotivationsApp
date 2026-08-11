@@ -8,7 +8,9 @@
 #
 # Usage: bash scripts/ci-release-gate-matrix.sh
 #
-# The script restores public/ before it exits; it never publishes anything.
+# The production CLI categorically reads and writes public/ so an environment
+# variable cannot redirect validation away from the shipped files. This matrix
+# backs up the two fixtures it exercises and restores their exact bytes on exit.
 set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -18,6 +20,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # exists Base64URL encoded - a plaintext grep for service_role finds nothing.
 ANON_JWT='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.c2lnbmF0dXJl'
 SERVICE_ROLE_JWT='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJvbGUiOiJzZXJ2aWNlX3JvbGUiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MjAwMDAwMDAwMH0.c2lnbmF0dXJl'
+MISMATCHED_ANON_JWT='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJvbGUiOiJhbm9uIiwicmVmIjoiZGlmZmVyZW50cHJvamVjdCIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.c2lnbmF0dXJl'
 VALID_FINGERPRINT='AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99'
 SECOND_FINGERPRINT='11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00'
 
@@ -74,10 +77,43 @@ expect_success() {
   printf '[ok]   akzeptiert: %s\n' "$name"
 }
 
-restore_public() {
-  git checkout -- public/ 2>/dev/null || true
+matrix_backup_dir=''
+if ! matrix_backup_dir="$(mktemp -d .release-gate-matrix-XXXXXXXX)" \
+  || [[ "$matrix_backup_dir" != .release-gate-matrix-* ]]; then
+  printf '[FAIL] Kein sicheres temporaeres Matrix-Backup erzeugt.\n' >&2
+  exit 2
+fi
+config_dir=''
+
+mkdir -p "$matrix_backup_dir/account-deletion" "$matrix_backup_dir/.well-known"
+if ! cp -- public/account-deletion/index.html "$matrix_backup_dir/account-deletion/index.html" \
+  || ! cp -- public/.well-known/assetlinks.json "$matrix_backup_dir/.well-known/assetlinks.json"; then
+  printf '[FAIL] Die aktuellen public/-Fixtures konnten nicht gesichert werden.\n' >&2
+  rm -rf -- "$matrix_backup_dir"
+  exit 2
+fi
+
+reset_matrix_public() {
+  git show HEAD:public/account-deletion/index.html > public/account-deletion/index.html \
+    && git show HEAD:public/.well-known/assetlinks.json > public/.well-known/assetlinks.json
 }
-trap restore_public EXIT
+
+cleanup() {
+  if [[ "$matrix_backup_dir" == .release-gate-matrix-* ]]; then
+    cp -- "$matrix_backup_dir/account-deletion/index.html" public/account-deletion/index.html
+    cp -- "$matrix_backup_dir/.well-known/assetlinks.json" public/.well-known/assetlinks.json
+    rm -rf -- "$matrix_backup_dir"
+  fi
+  if [[ -n "$config_dir" ]]; then
+    rm -rf -- "$config_dir"
+  fi
+}
+trap cleanup EXIT
+
+if ! reset_matrix_public; then
+  printf '[FAIL] Die eingecheckten public/-Fixtures konnten nicht in die Matrix kopiert werden.\n' >&2
+  exit 2
+fi
 
 # Runs a command with the complete synthetic production environment plus any
 # VAR=VALUE overrides given before the command. An empty value unsets.
@@ -114,6 +150,23 @@ expect_failure 'Production mit Supabase-Secret-Key' 'Secret-Key' \
   with_production_env 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_secret_abcdefgh12345678' \
   node scripts/check-release-config.mjs --production
 
+expect_failure 'Production mit gueltigem Publishable Key und verstecktem Secret-Fallback' 'Secret-Key' \
+  with_production_env 'EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_secret_abcdefgh12345678' \
+  node scripts/check-release-config.mjs --production
+
+expect_failure 'Production mit gueltigem Publishable Key und verstecktem service_role-Fallback' 'service_role' \
+  with_production_env "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SERVICE_ROLE_JWT" \
+  node scripts/check-release-config.mjs --production
+
+expect_failure 'Production mit Supabase-Custom-Domain' '<project-ref>.supabase.co' \
+  with_production_env 'EXPO_PUBLIC_SUPABASE_URL=https://supabase.lernzeit-ci.de' \
+  node scripts/check-release-config.mjs --production
+
+expect_failure 'Production mit Anon-JWT aus einem anderen Supabase-Projekt' 'ref-Claim' \
+  with_production_env 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=' \
+  "EXPO_PUBLIC_SUPABASE_ANON_KEY=$MISMATCHED_ANON_JWT" \
+  node scripts/check-release-config.mjs --production
+
 # 2. The escape hatch must not work for a build that identifies as production.
 expect_failure 'Production mit LERNZEIT_SKIP_RELEASE_GATE=1 und fehlenden Pflichtwerten' \
   'EXPO_PUBLIC_OPERATOR_NAME' \
@@ -136,7 +189,10 @@ expect_failure 'Production-Seiten mit ungueltigem Fingerprint' 'Ungueltige SHA-2
 
 expect_failure 'Production-Gate mit Entwicklungs-Kontoloeschseite' 'Entwicklungsbanner' \
   with_production_env node scripts/check-release-config.mjs --production
-restore_public
+if ! reset_matrix_public; then
+  printf '[FAIL] Die public/-Fixtures konnten nicht zurueckgesetzt werden.\n' >&2
+  exit 2
+fi
 
 # 5. A production build must never fall back to the private URL scheme.
 expect_failure 'Production mit Custom-Scheme-Recovery-Fallback' 'lernzeit://auth/update-password' \
@@ -192,8 +248,10 @@ printf '\n=== Recovery-Transport und App-Scheme pro Buildprofil ===\n'
 #                         handed a real operator domain, because its signing
 #                         certificate is not in that domain's assetlinks.json
 #   unknown/conflicting → the config must refuse to resolve
-config_dir="$(mktemp -d)"
-trap 'restore_public; rm -rf "$config_dir"' EXIT
+if ! config_dir="$(mktemp -d)" || [[ -z "$config_dir" ]]; then
+  printf '[FAIL] Kein temporaeres Konfigurationsverzeichnis erzeugt.\n' >&2
+  exit 2
+fi
 
 resolve_config() {
   local target="$1"
@@ -288,22 +346,34 @@ else
   checks=$((checks + 1))
 fi
 
-# Development and preview, each without and *with* a real operator domain. The
-# second half is the case the old "is a domain configured?" rule got wrong.
-for profile in development preview; do
+# Development, preview and the explicit local branch, each without and *with* a
+# real operator domain. The second half is the case the old "is a domain
+# configured?" rule got wrong.
+for profile in development preview local; do
   for domain in ohne mit; do
     target="$config_dir/$profile-$domain-domain.json"
     if [ "$domain" = 'ohne' ]; then
-      resolved=$(env EAS_BUILD=true EAS_BUILD_PROFILE="$profile" \
-        EXPO_PUBLIC_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
-        npx --yes expo config --type public --json > "$target" 2>&1) && status=0 || status=$?
+      if [ "$profile" = 'local' ]; then
+        resolved=$(env EXPO_PUBLIC_BUILD_PROFILE=local LERNZEIT_SKIP_RELEASE_GATE=1 \
+          npx --yes expo config --type public --json > "$target" 2>&1) && status=0 || status=$?
+      else
+        resolved=$(env EAS_BUILD=true EAS_BUILD_PROFILE="$profile" \
+          EXPO_PUBLIC_BUILD_PROFILE="$profile" LERNZEIT_SKIP_RELEASE_GATE=1 \
+          npx --yes expo config --type public --json > "$target" 2>&1) && status=0 || status=$?
+      fi
     else
       # The full synthetic operator environment, but without the release-gate
       # flag: the profile, not the domain, decides the transport.
-      resolved=$(with_production_env 'LERNZEIT_RELEASE_GATE=' \
-        "EXPO_PUBLIC_BUILD_PROFILE=$profile" "EAS_BUILD_PROFILE=$profile" \
-        'EAS_BUILD=true' 'LERNZEIT_SKIP_RELEASE_GATE=1' \
-        npx --yes expo config --type public --json > "$target" 2>&1) && status=0 || status=$?
+      if [ "$profile" = 'local' ]; then
+        resolved=$(with_production_env 'LERNZEIT_RELEASE_GATE=' 'EAS_BUILD=' 'EAS_BUILD_PROFILE=' \
+          'EXPO_PUBLIC_BUILD_PROFILE=local' 'LERNZEIT_SKIP_RELEASE_GATE=1' \
+          npx --yes expo config --type public --json > "$target" 2>&1) && status=0 || status=$?
+      else
+        resolved=$(with_production_env 'LERNZEIT_RELEASE_GATE=' \
+          "EXPO_PUBLIC_BUILD_PROFILE=$profile" "EAS_BUILD_PROFILE=$profile" \
+          'EAS_BUILD=true' 'LERNZEIT_SKIP_RELEASE_GATE=1' \
+          npx --yes expo config --type public --json > "$target" 2>&1) && status=0 || status=$?
+      fi
     fi
 
     if [ "$status" -ne 0 ]; then
@@ -314,10 +384,17 @@ for profile in development preview; do
       continue
     fi
 
-    expect_success "$profile-Manifest ($domain Domain) mit privatem Recovery-Filter" \
-      'privater Intent-Filter: ja' \
-      env EAS_BUILD=true EAS_BUILD_PROFILE="$profile" EXPO_PUBLIC_BUILD_PROFILE="$profile" \
-      LERNZEIT_SKIP_RELEASE_GATE=1 node scripts/verify-expo-config.mjs "$target"
+    if [ "$profile" = 'local' ]; then
+      expect_success "$profile-Manifest ($domain Domain) mit privatem Recovery-Filter" \
+        'privater Intent-Filter: ja' \
+        env EXPO_PUBLIC_BUILD_PROFILE=local LERNZEIT_SKIP_RELEASE_GATE=1 \
+        node scripts/verify-expo-config.mjs "$target"
+    else
+      expect_success "$profile-Manifest ($domain Domain) mit privatem Recovery-Filter" \
+        'privater Intent-Filter: ja' \
+        env EAS_BUILD=true EAS_BUILD_PROFILE="$profile" EXPO_PUBLIC_BUILD_PROFILE="$profile" \
+        LERNZEIT_SKIP_RELEASE_GATE=1 node scripts/verify-expo-config.mjs "$target"
+    fi
 
     assert_config "$profile ($domain Domain)" "$target" \
       'manifest.scheme === "lernzeit"' \
@@ -349,8 +426,6 @@ expect_failure 'Widersprechende Buildprofile' 'widersprechen sich' \
 expect_failure 'Production-Profil ohne Betreiberdomain' 'EXPO_PUBLIC_LEGAL_SITE_URL' \
   env EXPO_PUBLIC_BUILD_PROFILE=production \
   npx --yes expo config --type public --json
-
-restore_public
 
 printf '\n%s\n' '------------------------------------------------------------'
 if [ "$failures" -gt 0 ]; then

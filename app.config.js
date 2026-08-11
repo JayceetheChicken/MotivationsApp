@@ -37,8 +37,8 @@ const authBuild = require('./config/auth-build.cjs');
 function androidVersionCode(environment, fallback) {
   const provided = environment.ANDROID_VERSION_CODE?.trim();
   if (!provided) return fallback;
-  const parsed = Number.parseInt(provided, 10);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 2_100_000_000) {
+  const parsed = Number(provided);
+  if (!/^[1-9]\d*$/.test(provided) || !Number.isSafeInteger(parsed) || parsed > 2_100_000_000) {
     throw new Error(
       `ANDROID_VERSION_CODE muss eine ganze Zahl zwischen 1 und 2100000000 sein, erhalten: "${provided}".`,
     );
@@ -142,6 +142,22 @@ module.exports = ({ config }) => {
   const profile = authBuild.resolveBuildProfile(environment);
   if (profile.issue) {
     throw new Error(`\nDas Buildprofil ist nicht aufloesbar.\n${profile.issue}\n`);
+  }
+
+  // Expo statically inlines every EXPO_PUBLIC_* value before runtime. Missing
+  // Supabase configuration remains valid for offline non-production builds,
+  // but any key that is present must be public in every profile; disabling the
+  // client later cannot remove an already bundled secret.
+  for (const envVar of [
+    'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+    'EXPO_PUBLIC_SUPABASE_ANON_KEY',
+  ]) {
+    const configuredKey = environment[envVar]?.trim() ?? '';
+    if (!configuredKey) continue;
+    const classification = releaseConfig.classifySupabasePublicKey(configuredKey);
+    if (!classification.valid) {
+      throw new Error(`\n${envVar} darf in keinem Build eingebettet werden. ${classification.reason}\n`);
+    }
   }
 
   if (releaseConfig.isProductionRelease(environment)) {

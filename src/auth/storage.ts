@@ -94,14 +94,13 @@ async function setNativeItem(key: string, value: string): Promise<void> {
 }
 
 async function removeNativeItem(key: string): Promise<void> {
-  const chunkCount = parseChunkCount(
-    await SecureStore.getItemAsync(chunkMetaKey(key), secureStoreOptions),
-  ) ?? 0;
-
+  // Always sweep the bounded namespace. A crash can leave chunks behind before
+  // their metadata is written, and corrupt metadata must not make token
+  // fragments survive logout or account deletion.
   await Promise.all([
     SecureStore.deleteItemAsync(key, secureStoreOptions),
     SecureStore.deleteItemAsync(chunkMetaKey(key), secureStoreOptions),
-    ...Array.from({ length: chunkCount }, (_, index) =>
+    ...Array.from({ length: MAX_CHUNKS }, (_, index) =>
       SecureStore.deleteItemAsync(chunkKey(key, index), secureStoreOptions),
     ),
   ]);

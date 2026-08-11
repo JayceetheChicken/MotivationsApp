@@ -34,11 +34,13 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const releaseConfig = require('../config/release-config.cjs');
 const publicPages = require('./lib/public-pages.cjs');
+const publicOutput = require('./lib/public-output-root.cjs');
 const { writeFilesAtomically } = require('./lib/atomic-write.cjs');
 const appJson = require('../app.json');
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const environment = process.env;
+const publicRoot = publicOutput.resolvePublicOutputRoot(projectRoot, environment);
 const argv = new Set(process.argv.slice(2));
 const enforce = argv.has('--production') || releaseConfig.isProductionRelease(environment);
 
@@ -100,8 +102,8 @@ if (enforce) {
   }
 }
 
-const accountDeletionPath = path.join(projectRoot, 'public', 'account-deletion', 'index.html');
-const assetLinksPath = path.join(projectRoot, 'public', '.well-known', 'assetlinks.json');
+const accountDeletionPath = path.join(publicRoot, 'account-deletion', 'index.html');
+const assetLinksPath = path.join(publicRoot, '.well-known', 'assetlinks.json');
 
 // Both files are rendered and validated above; they are now published together
 // or not at all. A deletion page next to a stale assetlinks.json is a state

@@ -266,16 +266,26 @@ values (
   'Private deletion subject', '#123456', 'book'
 );
 
-select is(
-  public.prepare_account_deletion('a8111111-1111-4111-8111-111111111111') ->> 'prepared',
-  'true',
-  'the service preparation path completes before auth deletion'
+select throws_ok(
+  $$select public.prepare_account_deletion(
+    'a8111111-1111-4111-8111-111111111111'
+  )$$,
+  'P0001',
+  'account_deletion_edge_upgrade_required',
+  'the legacy post-traversal RPC fails closed until the Edge worker is upgraded'
 );
 select ok(
-  (select creator_id = 'b8222222-2222-4222-8222-222222222222' from public.study_groups where id = 'a8100000-0000-4000-8000-000000000001')
-  and (select creator_id = 'b8222222-2222-4222-8222-222222222222' from public.goals where id = 'a8200000-0000-4000-8000-000000000001')
-  and (select creator_id = 'b8222222-2222-4222-8222-222222222222' from public.shared_study_sessions where id = 'a8300000-0000-4000-8000-000000000001'),
-  'group, shared goal and shared session ownership transfer deterministically'
+  (select creator_id = 'a8111111-1111-4111-8111-111111111111' from public.study_groups where id = 'a8100000-0000-4000-8000-000000000001')
+  and (select creator_id = 'a8111111-1111-4111-8111-111111111111' from public.goals where id = 'a8200000-0000-4000-8000-000000000001')
+  and (select creator_id = 'a8111111-1111-4111-8111-111111111111' from public.shared_study_sessions where id = 'a8300000-0000-4000-8000-000000000001')
+  and not exists (
+    select 1 from private.account_deletion_intents intent
+    where intent.user_id = 'a8111111-1111-4111-8111-111111111111'
+  ),
+  'the compatibility RPC makes no non-atomic ownership changes'
+);
+select public.begin_account_deletion(
+  'a8111111-1111-4111-8111-111111111111'
 );
 select lives_ok(
   $$delete from auth.users where id = 'a8111111-1111-4111-8111-111111111111'$$,
@@ -285,8 +295,11 @@ select ok(
   not exists (select 1 from public.subjects where owner_id = 'a8111111-1111-4111-8111-111111111111')
   and exists (select 1 from public.study_groups where id = 'a8100000-0000-4000-8000-000000000001')
   and exists (select 1 from public.goals where id = 'a8200000-0000-4000-8000-000000000001')
-  and exists (select 1 from public.shared_study_sessions where id = 'a8300000-0000-4000-8000-000000000001'),
-  'private data is deleted while shared objects remain for other participants'
+  and exists (select 1 from public.shared_study_sessions where id = 'a8300000-0000-4000-8000-000000000001')
+  and (select creator_id = 'b8222222-2222-4222-8222-222222222222' from public.study_groups where id = 'a8100000-0000-4000-8000-000000000001')
+  and (select creator_id = 'b8222222-2222-4222-8222-222222222222' from public.goals where id = 'a8200000-0000-4000-8000-000000000001')
+  and (select creator_id = 'b8222222-2222-4222-8222-222222222222' from public.shared_study_sessions where id = 'a8300000-0000-4000-8000-000000000001'),
+  'Auth deletion atomically transfers shared ownership while deleting private data'
 );
 select ok(
   not exists (select 1 from public.study_group_members where user_id = 'a8111111-1111-4111-8111-111111111111')

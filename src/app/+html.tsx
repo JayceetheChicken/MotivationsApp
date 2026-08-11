@@ -13,10 +13,10 @@ export default function Root({ children }: PropsWithChildren) {
         <meta content="light" name="color-scheme" />
         <meta content="#F4E8D0" name="theme-color" />
         <meta content="no-referrer" name="referrer" />
-        <meta content="nosniff" httpEquiv="X-Content-Type-Options" />
-        <meta content="DENY" httpEquiv="X-Frame-Options" />
+        {/* Header-only protections (for example frame-ancestors, nosniff and
+            DENY) live in public/_headers; browsers ignore them in meta tags. */}
         <meta
-          content="default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self' mailto:; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; upgrade-insecure-requests"
+          content="default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self' mailto:; img-src 'self' data: blob:; object-src 'none'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; style-src 'self' 'unsafe-inline'; upgrade-insecure-requests"
           httpEquiv="Content-Security-Policy"
         />
         <ScrollViewStyleReset />

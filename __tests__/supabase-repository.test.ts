@@ -669,14 +669,27 @@ describe('SupabaseStudyRepository RPC contract', () => {
       }));
       expect(onError.mock.calls[0]?.[0].message).not.toMatch(/MissingPartition|socket closed/);
 
+      const replacementSubscribed = jest.fn();
+      const replacementCleanup = await repository.subscribeSocialUpdates({
+        onInvalidated: jest.fn(),
+        onSubscribed: replacementSubscribed,
+      });
+      expect(channel).toHaveBeenCalledTimes(3);
+      const replacementStatus = channelObject.subscribe.mock.calls[2]?.[0] as (
+        status: string,
+      ) => void;
+      replacementStatus('SUBSCRIBED');
+      expect(replacementSubscribed).toHaveBeenCalledTimes(1);
+
       await cleanup();
+      await replacementCleanup();
     } finally {
       warning.mockRestore();
       jest.useRealTimers();
     }
   });
 
-  it('replaces an existing social topic before a rerender can create a duplicate channel', async () => {
+  it('replaces a social-inbox listener without creating a duplicate channel', async () => {
     const { client, channel, removeChannel } = fakeClient();
     const repository = createSupabaseStudyRepository({
       client,
@@ -687,22 +700,96 @@ describe('SupabaseStudyRepository RPC contract', () => {
     const firstCleanup = await repository.subscribeSocialUpdates({ onInvalidated: jest.fn() });
     const secondCleanup = await repository.subscribeSocialUpdates({ onInvalidated: jest.fn() });
 
-    expect(channel).toHaveBeenCalledTimes(2);
-    expect(removeChannel).toHaveBeenCalledTimes(1);
+    expect(channel).toHaveBeenCalledTimes(1);
+    expect(removeChannel).toHaveBeenCalledTimes(0);
     await firstCleanup();
-    expect(removeChannel).toHaveBeenCalledTimes(1);
+    expect(removeChannel).toHaveBeenCalledTimes(0);
     await secondCleanup();
-    expect(removeChannel).toHaveBeenCalledTimes(2);
+    expect(removeChannel).toHaveBeenCalledTimes(1);
   });
 
-  it('authenticates the private shared-goal channel before subscribing', async () => {
+  it('immediately reports an already-subscribed inbox to a late social listener', async () => {
+    const { client, rpc, channelObject, channel } = fakeClient();
+    rpc.mockResolvedValueOnce({
+      data: {
+        goal_id: 'goal-id', type: 'duration', mode: 'per_participant', target: 60,
+        participants: [],
+      },
+      error: null,
+    });
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    const progressCleanup = await repository.subscribeSharedGoalProgress('goal-id', {
+      onProgress: jest.fn(),
+    });
+    const statusHandler = channelObject.subscribe.mock.calls[0]?.[0] as (
+      status: string,
+    ) => void;
+    statusHandler('SUBSCRIBED');
+
+    const onSubscribed = jest.fn();
+    const socialCleanup = await repository.subscribeSocialUpdates({
+      onInvalidated: jest.fn(),
+      onSubscribed,
+    });
+
+    expect(channel).toHaveBeenCalledTimes(1);
+    expect(onSubscribed).toHaveBeenCalledTimes(1);
+    await socialCleanup();
+    await progressCleanup();
+  });
+
+  it('rolls back a social-inbox subscriber when initial Realtime auth fails', async () => {
+    jest.useFakeTimers();
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const { client, getSession } = fakeClient();
+      getSession.mockResolvedValue({
+        data: { session: null },
+        error: { message: 'expired' },
+      });
+      const repository = createSupabaseStudyRepository({
+        client,
+        accountId: 'account-id',
+        storage: new MemoryKeyValueStorage(),
+      });
+
+      const subscription = repository.subscribeSocialUpdates({
+        onInvalidated: jest.fn(),
+      });
+      const rejection = expect(subscription).rejects.toMatchObject({
+        code: 'unavailable',
+      });
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(600);
+      await rejection;
+
+      const internal = repository as unknown as {
+        socialInboxSubscribers: Map<string, unknown>;
+        realtimeCleanups: Set<unknown>;
+      };
+      expect(internal.socialInboxSubscribers.size).toBe(0);
+      expect(internal.realtimeCleanups.size).toBe(0);
+      await repository.dispose();
+    } finally {
+      warning.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('uses the authenticated per-user inbox for shared-goal progress', async () => {
     const {
       client,
       rpc,
       channel,
+      channelObject,
       realtimeSetAuth,
     } = fakeClient();
-    rpc.mockResolvedValueOnce({
+    rpc.mockResolvedValue({
       data: {
         goal_id: 'goal-id',
         type: 'duration',
@@ -726,14 +813,35 @@ describe('SupabaseStudyRepository RPC contract', () => {
     expect(realtimeSetAuth.mock.invocationCallOrder[0]).toBeLessThan(
       channel.mock.invocationCallOrder[0],
     );
-    expect(channel).toHaveBeenCalledWith('shared-goal:goal-id', {
+    expect(channel).toHaveBeenCalledWith('social:user:account-id', {
       config: { private: true },
     });
+    const broadcastHandler = channelObject.on.mock.calls[0]?.[2] as (
+      (message: unknown) => void
+    ) | undefined;
+    broadcastHandler?.({ payload: { kind: 'shared_goal_progress', entity_id: 'other-goal' } });
+    await Promise.resolve();
+    expect(rpc).toHaveBeenCalledTimes(1);
+    broadcastHandler?.({ payload: { kind: 'shared_goal_progress', entity_id: 'goal-id' } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rpc).toHaveBeenCalledTimes(2);
+    broadcastHandler?.({ payload: { kind: 'profile' } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rpc).toHaveBeenCalledTimes(3);
+    broadcastHandler?.({ payload: { kind: 'social' } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rpc).toHaveBeenCalledTimes(4);
+    broadcastHandler?.({ payload: { kind: 'profile', entity_id: 'other-profile' } });
+    await Promise.resolve();
+    expect(rpc).toHaveBeenCalledTimes(4);
     await cleanup();
   });
 
   it('removes every active private channel when the account repository is disposed on logout', async () => {
-    const { client, rpc, removeChannel } = fakeClient();
+    const { client, rpc, channel, removeChannel } = fakeClient();
     rpc.mockResolvedValueOnce({
       data: {
         goal_id: 'goal-id', type: 'duration', mode: 'per_participant', target: 60,
@@ -749,10 +857,11 @@ describe('SupabaseStudyRepository RPC contract', () => {
     await repository.subscribeSocialUpdates({ onInvalidated: jest.fn() });
     await repository.subscribeSharedGoalProgress('goal-id', { onProgress: jest.fn() });
 
+    expect(channel).toHaveBeenCalledTimes(1);
     await repository.dispose();
-    expect(removeChannel).toHaveBeenCalledTimes(2);
+    expect(removeChannel).toHaveBeenCalledTimes(1);
     await repository.dispose();
-    expect(removeChannel).toHaveBeenCalledTimes(2);
+    expect(removeChannel).toHaveBeenCalledTimes(1);
   });
 
   it('reports a missing bucket or policy distinctly from a rejected upload', async () => {

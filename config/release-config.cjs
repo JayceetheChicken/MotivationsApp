@@ -539,6 +539,77 @@ function httpsBaseUrlIssueDetail(value) {
     ?? 'Keine saubere HTTPS-Basis-URL ohne Zugangsdaten, Port, Query oder Fragment.';
 }
 
+/**
+ * Why a Supabase client URL is not the canonical hosted project origin.
+ *
+ * Custom domains are deliberately not accepted: the app has no product or
+ * operator contract for them, so accepting an arbitrary HTTPS origin would
+ * make a typo or attacker-controlled proxy indistinguishable from Supabase.
+ * The raw spelling is checked as well as the parsed URL so an explicit default
+ * port, credentials, an extra path or another subdomain cannot be normalised
+ * away by `URL` and accidentally pass.
+ *
+ * @param {string} value
+ * @returns {string | null}
+ */
+function supabaseProjectUrlIssueDetail(value) {
+  const candidate = String(value ?? '').trim();
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return 'Keine gueltige URL.';
+  }
+  if (parsed.protocol !== 'https:') return 'Nur https:// ist zulaessig.';
+  if (parsed.username || parsed.password) return 'Zugangsdaten sind in der Projekt-URL nicht zulaessig.';
+  if (parsed.port) return 'Ein abweichender Port ist nicht zulaessig.';
+  if (parsed.search || parsed.hash) return 'Query- und Fragmentanteile sind nicht zulaessig.';
+  if (parsed.pathname !== '/') return 'Die Projekt-URL darf keinen Pfad enthalten.';
+  if (!/^[a-z0-9]{20}\.supabase\.co$/.test(parsed.hostname)) {
+    return 'Der Host muss exakt <project-ref>.supabase.co mit einer 20-stelligen Projektreferenz entsprechen; Custom Domains sind nicht freigegeben.';
+  }
+  if (!/^https:\/\/[a-z0-9]{20}\.supabase\.co\/?$/i.test(candidate)) {
+    return 'Die URL muss exakt die Form https://<project-ref>.supabase.co mit einer 20-stelligen Projektreferenz haben.';
+  }
+  return null;
+}
+
+/** @param {string} value @returns {string | null} */
+function supabaseProjectRefFromUrl(value) {
+  if (supabaseProjectUrlIssueDetail(value) !== null) return null;
+  const hostname = new URL(String(value).trim()).hostname;
+  return hostname.slice(0, -'.supabase.co'.length);
+}
+
+/**
+ * Legacy anon JWTs commonly carry the hosted project reference in `ref`. When
+ * that standard claim exists, bind it to the configured canonical host. The
+ * claim is not signature-verified here (the verifier is server-side), but a
+ * mismatch is still definitive evidence that the operator combined values from
+ * different projects. New opaque `sb_publishable_*` keys expose no project
+ * identifier and therefore cannot be bound without a network request.
+ *
+ * @param {string} key
+ * @param {string} url
+ * @returns {string | null}
+ */
+function supabasePublicKeyProjectBindingIssue(key, url) {
+  if (classifySupabasePublicKey(key).kind !== 'anon-jwt') return null;
+  const decoded = decodeJwt(String(key ?? '').trim());
+  if (!decoded.ok || !Object.prototype.hasOwnProperty.call(decoded.payload, 'ref')) return null;
+
+  const ref = decoded.payload.ref;
+  if (typeof ref !== 'string' || !/^[a-z0-9]{20}$/.test(ref)) {
+    return 'Der ref-Claim des Anon-JWT ist keine gueltige 20-stellige Supabase-Projektreferenz.';
+  }
+  const configuredRef = supabaseProjectRefFromUrl(url);
+  if (configuredRef === null) return null;
+  if (ref !== configuredRef) {
+    return `Der ref-Claim des Anon-JWT nennt Projekt "${ref}", die Projekt-URL aber "${configuredRef}".`;
+  }
+  return null;
+}
+
 /** @param {{key:string,label:string,kind:string}} field */
 function developmentValue(field) {
   switch (field.kind) {
@@ -640,11 +711,12 @@ function collectOperatorReleaseIssues(environment) {
 function collectSupabaseReleaseIssues(environment) {
   const issues = [];
   const url = environment.EXPO_PUBLIC_SUPABASE_URL?.trim() ?? '';
-  const publicKey = (
-    environment.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim()
-    || environment.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim()
-    || ''
-  );
+  const publishableKey = environment.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ?? '';
+  const anonKey = environment.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? '';
+  const publicKey = publishableKey || anonKey;
+  const publicKeyEnvVar = publishableKey
+    ? 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY'
+    : 'EXPO_PUBLIC_SUPABASE_ANON_KEY';
 
   if (!url) {
     issues.push({
@@ -654,13 +726,14 @@ function collectSupabaseReleaseIssues(environment) {
       reason: 'missing',
       detail: 'Ohne Projekt-URL sind Registrierung, Login und Kontolöschung deaktiviert.',
     });
-  } else if (isPlaceholderValue(url) || !normalizeHttpsBaseUrl(url)) {
+  } else if (isPlaceholderValue(url) || supabaseProjectUrlIssueDetail(url)) {
     issues.push({
       key: 'supabaseUrl',
       envVar: 'EXPO_PUBLIC_SUPABASE_URL',
       label: 'Supabase-Projekt-URL',
       reason: isPlaceholderValue(url) ? 'placeholder' : 'invalid-format',
-      detail: `„${url}“ ist keine echte HTTPS-Projekt-URL. ${httpsBaseUrlIssueDetail(url)}`,
+      detail: `„${url}“ ist keine kanonische Supabase-Projekt-URL. `
+        + `${supabaseProjectUrlIssueDetail(url) ?? 'Der Wert ist noch ein Platzhalter.'}`,
     });
   }
 
@@ -675,7 +748,7 @@ function collectSupabaseReleaseIssues(environment) {
   } else if (isPlaceholderValue(publicKey)) {
     issues.push({
       key: 'supabasePublicKey',
-      envVar: 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+      envVar: publicKeyEnvVar,
       label: 'Supabase Publishable- beziehungsweise Anon-Key',
       reason: 'placeholder',
       detail: 'Der hinterlegte Key ist noch ein Platzhalter.',
@@ -685,13 +758,62 @@ function collectSupabaseReleaseIssues(environment) {
     if (!classification.valid) {
       issues.push({
         key: 'supabasePublicKey',
-        envVar: 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+        envVar: publicKeyEnvVar,
         label: 'Supabase Publishable- beziehungsweise Anon-Key',
         reason: 'invalid-format',
         // The concrete reason matters here: "service_role" and "typo in the key"
         // need very different responses from the operator.
         detail: classification.reason,
       });
+    } else {
+      const bindingIssue = supabasePublicKeyProjectBindingIssue(publicKey, url);
+      if (bindingIssue) {
+        issues.push({
+          key: 'supabasePublicKeyProjectBinding',
+          envVar: publicKeyEnvVar,
+          label: 'Supabase Projektbindung des Client-Keys',
+          reason: 'project-mismatch',
+          detail: bindingIssue,
+        });
+      }
+    }
+  }
+
+  // Metro statically inlines every EXPO_PUBLIC_* reference, even when the
+  // runtime later selects the publishable key. Validate the configured fallback
+  // independently so a valid primary key cannot hide and ship a secret/service
+  // role value through EXPO_PUBLIC_SUPABASE_ANON_KEY.
+  if (publishableKey && anonKey) {
+    if (isPlaceholderValue(anonKey)) {
+      issues.push({
+        key: 'supabaseAnonKey',
+        envVar: 'EXPO_PUBLIC_SUPABASE_ANON_KEY',
+        label: 'Supabase Anon-Key-Fallback',
+        reason: 'placeholder',
+        detail: 'Der hinterlegte Fallback-Key ist noch ein Platzhalter.',
+      });
+    } else {
+      const fallbackClassification = classifySupabasePublicKey(anonKey);
+      if (!fallbackClassification.valid) {
+        issues.push({
+          key: 'supabaseAnonKey',
+          envVar: 'EXPO_PUBLIC_SUPABASE_ANON_KEY',
+          label: 'Supabase Anon-Key-Fallback',
+          reason: 'invalid-format',
+          detail: fallbackClassification.reason,
+        });
+      } else {
+        const bindingIssue = supabasePublicKeyProjectBindingIssue(anonKey, url);
+        if (bindingIssue) {
+          issues.push({
+            key: 'supabaseAnonKeyProjectBinding',
+            envVar: 'EXPO_PUBLIC_SUPABASE_ANON_KEY',
+            label: 'Supabase Projektbindung des Anon-Key-Fallbacks',
+            reason: 'project-mismatch',
+            detail: bindingIssue,
+          });
+        }
+      }
     }
   }
 
@@ -810,6 +932,9 @@ module.exports = {
   isPlaceholderValue,
   normalizeHttpsBaseUrl,
   httpsBaseUrlIssueDetail,
+  supabaseProjectUrlIssueDetail,
+  supabaseProjectRefFromUrl,
+  supabasePublicKeyProjectBindingIssue,
   isBase64UrlSegment,
   decodeJwt,
   decodeJwtPayload,

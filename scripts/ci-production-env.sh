@@ -39,7 +39,8 @@ export EXPO_PUBLIC_LOG_RETENTION_POLICY="Auth- und API-Logs 14 Tage."
 export EXPO_PUBLIC_STATUTORY_RETENTION="Keine."
 export EXPO_PUBLIC_TERMS_LIABILITY="Es gilt deutsches Recht unter Wahrung zwingender Verbraucherschutzvorschriften."
 export EXPO_PUBLIC_LEGAL_EFFECTIVE_DATE=2026-08-03
-export EXPO_PUBLIC_SUPABASE_URL=https://ciprojectreference.supabase.co
+export EXPO_PUBLIC_SUPABASE_URL=https://ciprojectreferencexx.supabase.co
 export EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_CiPruefwert1234567890
+unset EXPO_PUBLIC_SUPABASE_ANON_KEY
 export ANDROID_VERSION_CODE=1
 export ANDROID_SHA256_CERT_FINGERPRINTS=AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99

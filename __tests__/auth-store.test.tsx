@@ -1,7 +1,10 @@
 import type { PropsWithChildren } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 
-import { PASSWORD_RECOVERY_REDIRECT_URL } from '@/auth/navigation';
+import {
+  PASSWORD_RECOVERY_REDIRECT_URL,
+  passwordRecoveryRequestFingerprint,
+} from '@/auth/navigation';
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 
 import { attestationFor, embeddedAuthBuildAttestation } from './support/auth-build-manifest';
@@ -20,7 +23,10 @@ const mockSignOut = jest.fn();
 const mockSignInWithPassword = jest.fn();
 const mockResetPasswordForEmail = jest.fn();
 const mockSignUp = jest.fn();
+const mockUpdateUser = jest.fn();
+const mockCleanupStaleExports = jest.fn();
 let mockLinkHandler: ((event: { url: string }) => void) | null = null;
+let mockAuthStateHandler: ((event: string, session: typeof mockRecoverySession | null) => void) | null = null;
 
 const mockRecoverySession = {
   access_token: 'access',
@@ -79,14 +85,19 @@ jest.mock('@/auth/account-local-cleanup', () => ({
   ),
 }));
 
+jest.mock('@/lib/account-data-export', () => ({
+  cleanupStaleAccountDataExports: () => mockCleanupStaleExports(),
+}));
+
 jest.mock('@/auth/supabase', () => ({
   supabase: {
     auth: {
       exchangeCodeForSession: (code: string) => mockExchangeCodeForSession(code),
       getSession: () => mockGetSession(),
-      onAuthStateChange: jest.fn(() => ({
-        data: { subscription: { unsubscribe: jest.fn() } },
-      })),
+      onAuthStateChange: jest.fn((handler: typeof mockAuthStateHandler) => {
+        mockAuthStateHandler = handler;
+        return { data: { subscription: { unsubscribe: jest.fn() } } };
+      }),
       setSession: (tokens: unknown) => mockSetSession(tokens),
       signInWithPassword: (input: unknown) => mockSignInWithPassword(input),
       resetPasswordForEmail: (email: string, options: unknown) => (
@@ -94,6 +105,7 @@ jest.mock('@/auth/supabase', () => ({
       ),
       signUp: (input: unknown) => mockSignUp(input),
       signOut: (options: unknown) => mockSignOut(options),
+      updateUser: (input: unknown) => mockUpdateUser(input),
     },
     removeAllChannels: () => mockRemoveAllChannels(),
   },
@@ -114,6 +126,7 @@ describe('AuthStoreProvider startup', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockLinkHandler = null;
+    mockAuthStateHandler = null;
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockStorageGetItem.mockResolvedValue(null);
@@ -129,6 +142,8 @@ describe('AuthStoreProvider startup', () => {
     });
     mockResetPasswordForEmail.mockResolvedValue({ error: null });
     mockSignUp.mockResolvedValue({ data: { session: null }, error: null });
+    mockUpdateUser.mockResolvedValue({ data: { user: mockRecoverySession.user }, error: null });
+    mockCleanupStaleExports.mockReturnValue(undefined);
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
       value: { removeItem: jest.fn() },
@@ -157,11 +172,24 @@ describe('AuthStoreProvider startup', () => {
     const restarted = await renderHook(() => useAuthStore(), { wrapper });
     await waitFor(() => expect(restarted.result.current.hydrated).toBe(true));
     expect(restarted.result.current.activeMode).toBe('none');
+    expect(mockCleanupStaleExports).toHaveBeenCalledTimes(2);
     await restarted.unmount();
   });
 
+  it('continues startup when a stale export cannot be removed yet', async () => {
+    mockCleanupStaleExports.mockImplementationOnce(() => {
+      throw new Error('cache locked');
+    });
+
+    const result = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(result.result.current.hydrated).toBe(true));
+    expect(result.result.current.activeMode).toBe('none');
+    await result.unmount();
+  });
+
   it('processes a genuine password-reset deep link in the background after hydration', async () => {
-    mockGetInitialURL.mockResolvedValue('lernzeit://auth/update-password?code=recovery-code&type=recovery');
+    const link = 'lernzeit://auth/update-password?code=recovery-code&type=recovery';
+    mockGetInitialURL.mockResolvedValue(link);
     mockExchangeCodeForSession.mockResolvedValue({
       data: { session: mockRecoverySession },
       error: null,
@@ -173,7 +201,117 @@ describe('AuthStoreProvider startup', () => {
 
     expect(mockExchangeCodeForSession).toHaveBeenCalledWith('recovery-code');
     expect(recovery.result.current.user?.id).toBe('account-123');
+    expect(mockStorageSetItem).toHaveBeenCalledWith(
+      'lernzeit.password-recovery-capability.v1',
+      expect.stringContaining(passwordRecoveryRequestFingerprint({
+        kind: 'pkce',
+        code: 'recovery-code',
+      })),
+    );
     await recovery.unmount();
+  });
+
+  it('restores a live user-bound recovery capability after an app restart', async () => {
+    const link = 'lernzeit://auth/update-password?code=restart-code&type=recovery';
+    const now = Math.floor(Date.now() / 1000);
+    const capability = {
+      schemaVersion: 1,
+      userId: mockRecoverySession.user.id,
+      linkFingerprint: passwordRecoveryRequestFingerprint({ kind: 'pkce', code: 'restart-code' }),
+      createdAtEpochSeconds: now,
+      expiresAtEpochSeconds: now + 600,
+    };
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    mockGetInitialURL.mockResolvedValue(link);
+    mockStorageGetItem.mockImplementation(async (key) => (
+      key === 'lernzeit.password-recovery-capability.v1'
+        ? JSON.stringify(capability)
+        : null
+    ));
+
+    const recovery = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(recovery.result.current.passwordRecoveryPending).toBe(true));
+
+    expect(recovery.result.current.user?.id).toBe('account-123');
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled();
+    expect(recovery.result.current.error).toBeNull();
+    await recovery.unmount();
+  });
+
+  it('does not expose or resurrect a recovery capability while its storage write is pending', async () => {
+    const link = 'lernzeit://auth/update-password?code=deferred-code&type=recovery';
+    let resolveStorageWrite: () => void = () => undefined;
+    mockGetInitialURL.mockResolvedValue(link);
+    mockExchangeCodeForSession.mockResolvedValue({
+      data: { session: mockRecoverySession },
+      error: null,
+    });
+    mockStorageSetItem.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolveStorageWrite = resolve;
+    }));
+
+    const recovery = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(mockStorageSetItem).toHaveBeenCalledTimes(1));
+    expect(recovery.result.current.passwordRecoveryPending).toBe(false);
+
+    await act(async () => {
+      mockAuthStateHandler?.('SIGNED_OUT', null);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveStorageWrite();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(recovery.result.current.passwordRecoveryPending).toBe(false);
+    expect(mockStorageRemoveItem).toHaveBeenCalledWith(
+      'lernzeit.password-recovery-capability.v1',
+    );
+    await recovery.unmount();
+  });
+
+  it('expires a restored recovery capability while mounted and rejects its replay', async () => {
+    jest.useFakeTimers();
+    const nowMs = Date.UTC(2026, 7, 9, 12, 0, 0);
+    jest.setSystemTime(nowMs);
+    const link = 'lernzeit://auth/update-password?code=expiring-code&type=recovery';
+    const now = Math.floor(nowMs / 1000);
+    const capability = {
+      schemaVersion: 1,
+      userId: mockRecoverySession.user.id,
+      linkFingerprint: passwordRecoveryRequestFingerprint({ kind: 'pkce', code: 'expiring-code' }),
+      createdAtEpochSeconds: now,
+      expiresAtEpochSeconds: now + 60,
+    };
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    mockGetInitialURL.mockResolvedValue(link);
+    mockStorageGetItem.mockImplementation(async (key) => (
+      key === 'lernzeit.password-recovery-capability.v1'
+        ? JSON.stringify(capability)
+        : null
+    ));
+
+    try {
+      const recovery = await renderHook(() => useAuthStore(), { wrapper });
+      await waitFor(() => expect(recovery.result.current.passwordRecoveryPending).toBe(true));
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(60_000);
+      });
+      expect(recovery.result.current.passwordRecoveryPending).toBe(false);
+      expect(mockStorageRemoveItem).toHaveBeenCalledWith(
+        'lernzeit.password-recovery-capability.v1',
+      );
+
+      await act(async () => { mockLinkHandler?.({ url: link }); });
+      expect(mockExchangeCodeForSession).not.toHaveBeenCalled();
+      expect(recovery.result.current.error).toMatch(/abgelaufen/);
+      expect(recovery.result.current.passwordRecoveryPending).toBe(false);
+      await recovery.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it.each([
@@ -191,17 +329,16 @@ describe('AuthStoreProvider startup', () => {
     await recovery.unmount();
   });
 
-  it('sets a session only for a complete, route-bound recovery token pair', async () => {
-    mockSetSession.mockResolvedValueOnce({ data: { session: mockRecoverySession }, error: null });
+  it('rejects implicit recovery bearer tokens without installing a session', async () => {
     mockGetInitialURL.mockResolvedValue(
       'lernzeit://auth/update-password#access_token=access&refresh_token=refresh&type=recovery',
     );
     const recovery = await renderHook(() => useAuthStore(), { wrapper });
-    await waitFor(() => expect(recovery.result.current.passwordRecoveryPending).toBe(true));
-    expect(mockSetSession).toHaveBeenCalledWith({
-      access_token: 'access',
-      refresh_token: 'refresh',
-    });
+    await waitFor(() => expect(recovery.result.current.hydrated).toBe(true));
+    await waitFor(() => expect(recovery.result.current.error).toMatch(/ungültig oder abgelaufen/));
+    expect(mockSetSession).not.toHaveBeenCalled();
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled();
+    expect(recovery.result.current.passwordRecoveryPending).toBe(false);
     await recovery.unmount();
   });
 
@@ -251,7 +388,8 @@ describe('AuthStoreProvider startup', () => {
     await act(async () => { mockLinkHandler?.({ url: link }); });
 
     expect(mockExchangeCodeForSession).toHaveBeenCalledTimes(1);
-    expect(recovery.result.current.error).toMatch(/bereits verarbeitet/);
+    expect(recovery.result.current.error).toBeNull();
+    expect(recovery.result.current.passwordRecoveryPending).toBe(true);
     await recovery.unmount();
   });
 
@@ -298,6 +436,29 @@ describe('AuthStoreProvider startup', () => {
     expect(corrupt.result.current.activeMode).toBe('none');
     expect(corrupt.result.current.localProfile).toBeNull();
     await corrupt.unmount();
+  });
+
+  it.each([
+    { displayName: 'Lea\u202eAdmin', username: 'lea', avatarUri: undefined },
+    { displayName: 'Lea Lokal', username: 'LEA', avatarUri: undefined },
+    {
+      displayName: 'Lea Lokal',
+      username: 'lea',
+      avatarUri: 'https://user:password@example.org/avatar.jpg#fragment',
+    },
+  ])('rejects a persisted local profile that bypasses current input validation %#', async (fields) => {
+    mockStorageGetItem.mockResolvedValue(JSON.stringify({
+      schemaVersion: 1,
+      ...fields,
+      createdAt: '2026-08-09T10:00:00.000Z',
+      updatedAt: '2026-08-09T10:00:00.000Z',
+    }));
+
+    const result = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(result.result.current.hydrated).toBe(true));
+    expect(result.result.current.localProfile).toBeNull();
+    expect(result.result.current.activeMode).toBe('none');
+    await result.unmount();
   });
 
   it('deletes an authenticated account, clears local account state and enters guest mode', async () => {

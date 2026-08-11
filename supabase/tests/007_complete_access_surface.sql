@@ -128,8 +128,8 @@ select results_eq(
     order by 1
   $$,
   array[
-    'accept_community_rules', 'accept_friend_request', 'begin_local_import', 'block_user',
-    'cancel_shared_study_session',
+    'accept_community_rules', 'accept_friend_request', 'begin_account_deletion',
+    'begin_local_import', 'block_user', 'cancel_shared_study_session',
     'create_shared_goal', 'create_shared_study_session', 'create_study_group',
     'decline_friend_request', 'discard_local_import', 'export_my_data',
     'finalize_local_import', 'find_profile_by_exact_username', 'get_community_rules_acceptance',
@@ -161,7 +161,7 @@ select is(
     join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
   ),
-  57,
+  58,
   'the function inventory includes authenticated and service-role-only RPCs'
 );
 
@@ -172,7 +172,10 @@ select is(
     join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and not pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE')
-      and p.proname not in ('moderate_content_report', 'prepare_account_deletion')
+      and p.proname not in (
+        'begin_account_deletion', 'moderate_content_report',
+        'prepare_account_deletion'
+      )
   ),
   0,
   'authenticated can execute each client RPC'
@@ -184,6 +187,9 @@ select ok(
   )
   and not pg_catalog.has_function_privilege(
     'authenticated', 'public.prepare_account_deletion(uuid)', 'EXECUTE'
+  )
+  and not pg_catalog.has_function_privilege(
+    'authenticated', 'public.begin_account_deletion(uuid)', 'EXECUTE'
   ),
   'administrative moderation and deletion preparation remain service-role-only'
 );

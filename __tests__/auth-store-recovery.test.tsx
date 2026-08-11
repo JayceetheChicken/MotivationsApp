@@ -16,6 +16,7 @@ const mockResetPasswordForEmail = jest.fn();
 const mockStorageGetItem = jest.fn<Promise<string | null>, [string]>();
 const mockStorageSetItem = jest.fn<Promise<void>, [string, string]>();
 const mockStorageRemoveItem = jest.fn<Promise<void>, [string]>();
+const mockCleanupStaleExports = jest.fn();
 
 jest.mock('expo-linking', () => ({
   addEventListener: jest.fn(() => ({ remove: jest.fn() })),
@@ -37,6 +38,10 @@ jest.mock('@/auth/account-deletion', () => ({
 
 jest.mock('@/auth/account-local-cleanup', () => ({
   clearAccountLocalData: jest.fn(() => []),
+}));
+
+jest.mock('@/lib/account-data-export', () => ({
+  cleanupStaleAccountDataExports: () => mockCleanupStaleExports(),
 }));
 
 jest.mock('@/auth/supabase', () => ({
@@ -105,6 +110,7 @@ describe('password recovery with a configured operator domain', () => {
     mockStorageSetItem.mockResolvedValue();
     mockStorageRemoveItem.mockResolvedValue();
     mockResetPasswordForEmail.mockResolvedValue({ error: null });
+    mockCleanupStaleExports.mockReturnValue(undefined);
   });
 
   afterAll(() => {

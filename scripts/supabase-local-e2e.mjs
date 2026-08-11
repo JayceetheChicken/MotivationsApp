@@ -100,6 +100,31 @@ function assertOnlyIds(rows, expectedIds, label) {
   );
 }
 
+function assertObjectTreeOmitsKeys(value, forbiddenKeys, label) {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (const item of value) assertObjectTreeOmitsKeys(item, forbiddenKeys, label);
+    return;
+  }
+  for (const [key, nestedValue] of Object.entries(value)) {
+    assert.equal(forbiddenKeys.has(key), false, `${label} exposed ${key}`);
+    assertObjectTreeOmitsKeys(nestedValue, forbiddenKeys, label);
+  }
+}
+
+function isAccountDeletionFence(value, expectedUserId) {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && value.prepared === true
+    && value.trigger_managed === true
+    && value.storage_fenced === true
+    && value.user_id === expectedUserId
+    && typeof value.started_at === 'string'
+    && Number.isFinite(Date.parse(value.started_at)),
+  );
+}
+
 function avatarFor(rows, userId) {
   return rows.find((row) => row.user_id === userId)?.user?.avatar_url ?? null;
 }
@@ -813,6 +838,18 @@ async function run() {
       'read raw reports',
     );
     const aliceExport = await rpc(alice, 'export_my_data');
+    assert.equal(aliceExport.schema_version, 2);
+    assertObjectTreeOmitsKeys(
+      aliceExport,
+      new Set([
+        'deleted_at',
+        'moderator_reference',
+        'resolution_note',
+        'revision',
+        'sync_version',
+      ]),
+      'data export',
+    );
     assert.equal(aliceExport.reports.length, 1);
     assert.equal('resolution_note' in aliceExport.reports[0], false);
     assert.equal('moderator_reference' in aliceExport.reports[0], false);
@@ -825,19 +862,35 @@ async function run() {
   } catch (error) {
     testFailure = error;
   } finally {
-    if (avatarObjectPaths.size > 0) {
-      try {
-        const { error } = await admin.storage
-          .from(AVATAR_BUCKET)
-          .remove([...avatarObjectPaths]);
-        if (error) cleanupErrors.push(new Error(`remove avatars: ${errorSummary(error)}`));
-      } catch (error) {
-        cleanupErrors.push(new Error(`remove avatars: ${errorSummary(error)}`));
-      }
-    }
-
     for (const userId of createdUserIds.reverse()) {
       try {
+        const { data: fence, error: fenceError } = await admin.rpc(
+          'begin_account_deletion',
+          { p_user_id: userId },
+        );
+        if (fenceError) {
+          cleanupErrors.push(new Error(`fence temporary user: ${errorSummary(fenceError)}`));
+          continue;
+        }
+        if (!isAccountDeletionFence(fence, userId)) {
+          cleanupErrors.push(new Error('fence temporary user: invalid RPC response'));
+          continue;
+        }
+
+        const userAvatarPaths = [...avatarObjectPaths].filter(
+          (path) => path.startsWith(`${userId}/`),
+        );
+        if (userAvatarPaths.length > 0) {
+          const { error: avatarError } = await admin.storage
+            .from(AVATAR_BUCKET)
+            .remove(userAvatarPaths);
+          if (avatarError) {
+            cleanupErrors.push(new Error(`remove avatars: ${errorSummary(avatarError)}`));
+            continue;
+          }
+          for (const path of userAvatarPaths) avatarObjectPaths.delete(path);
+        }
+
         const { error } = await admin.auth.admin.deleteUser(userId);
         if (error) cleanupErrors.push(new Error(`delete temporary user: ${errorSummary(error)}`));
       } catch (error) {

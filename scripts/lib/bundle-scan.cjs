@@ -4,7 +4,15 @@
  * CommonJS so __tests__/release-scripts.test.ts can run the exact scanner the
  * CLI runs, including the embedded-JWT decoding.
  */
-const { closeSync, fstatSync, openSync, readdirSync, readFileSync } = require('node:fs');
+const {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+} = require('node:fs');
 const path = require('node:path');
 
 const releaseConfig = require('../../config/release-config.cjs');
@@ -87,10 +95,20 @@ function scanTextForSecrets(content) {
 function readTextFileOnce(file, maxBytes = MAX_SCANNED_BYTES) {
   let descriptor;
   try {
-    descriptor = openSync(file, 'r');
-    const stats = fstatSync(descriptor);
+    const pathStats = lstatSync(file, { bigint: true });
+    if (pathStats.isSymbolicLink()) {
+      return { ok: false, reason: 'Symbolische Links werden im Export nicht akzeptiert.' };
+    }
+    if (!pathStats.isFile()) {
+      return { ok: false, reason: 'Kein regulaeres File im Export.' };
+    }
+    descriptor = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const stats = fstatSync(descriptor, { bigint: true });
     if (!stats.isFile()) {
       return { ok: false, reason: 'Kein regulaeres File mehr (waehrend des Scans ersetzt?).' };
+    }
+    if (stats.dev !== pathStats.dev || stats.ino !== pathStats.ino) {
+      return { ok: false, reason: 'File wurde waehrend des Scans ersetzt.' };
     }
     if (stats.size > maxBytes) {
       return {
@@ -113,10 +131,26 @@ function readTextFileOnce(file, maxBytes = MAX_SCANNED_BYTES) {
 }
 
 function* walk(directory) {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = readdirSync(directory, { withFileTypes: true });
+  } catch (error) {
+    yield { file: directory, reason: error?.message ?? String(error) };
+    return;
+  }
+
+  for (const entry of entries) {
     const full = path.join(directory, entry.name);
     if (entry.isDirectory()) yield* walk(full);
-    else if (entry.isFile()) yield full;
+    else if (entry.isFile()) yield { file: full };
+    else {
+      yield {
+        file: full,
+        reason: entry.isSymbolicLink()
+          ? 'Symbolische Links werden im Export nicht akzeptiert.'
+          : 'Nicht unterstuetzter Dateityp im Export.',
+      };
+    }
   }
 }
 
@@ -145,8 +179,16 @@ function scanExportDirectory(root, options = {}) {
   /** Every inspected file with its content, so later checks can name the file. */
   const documents = [];
 
-  for (const file of walk(root)) {
-    if (!TEXT_EXTENSIONS.has(path.extname(file).toLowerCase())) {
+  for (const walked of walk(root)) {
+    const { file } = walked;
+    if (walked.reason) {
+      unreadable.push({ file: path.relative(root, file), reason: walked.reason });
+      continue;
+    }
+    if (
+      !TEXT_EXTENSIONS.has(path.extname(file).toLowerCase())
+      && path.basename(file) !== '_headers'
+    ) {
       skipped += 1;
       continue;
     }

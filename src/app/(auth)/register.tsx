@@ -11,6 +11,8 @@ import {
 import {
   displayNameError,
   emailError,
+  MAX_EMAIL_LENGTH,
+  MAX_PASSWORD_BYTES,
   passwordError,
   usernameError,
 } from '@/auth/validation';
@@ -107,6 +109,7 @@ export default function RegisterScreen() {
           autoComplete="email"
           error={errors.email}
           keyboardType="email-address"
+          maxLength={MAX_EMAIL_LENGTH}
           label="E-Mail-Adresse"
           onChangeText={(value) => updateField('email', setEmail, value)}
           placeholder="name@beispiel.de"
@@ -115,6 +118,7 @@ export default function RegisterScreen() {
         <AuthField
           autoCapitalize="none"
           autoComplete="new-password"
+          maxLength={MAX_PASSWORD_BYTES}
           error={errors.password}
           hint="Mindestens 10 Zeichen."
           isPassword
@@ -126,6 +130,7 @@ export default function RegisterScreen() {
         <AuthField
           autoCapitalize="none"
           autoComplete="new-password"
+          maxLength={MAX_PASSWORD_BYTES}
           error={errors.confirmation}
           isPassword
           label="Passwort wiederholen"

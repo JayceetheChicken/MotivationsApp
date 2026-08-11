@@ -36,6 +36,10 @@ if (Platform.OS === 'web') {
       auth: {
         autoRefreshToken: true,
         detectSessionInUrl: false,
+        // Recovery codes are bound to the verifier created on this device.
+        // The implicit flow exposes bearer session tokens in the callback and
+        // permits login-CSRF when somebody forwards their own recovery link.
+        flowType: 'pkce',
         persistSession: true,
         storage: authStorage,
       },

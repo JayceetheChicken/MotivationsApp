@@ -20,6 +20,7 @@ import bundleScan from '../scripts/lib/bundle-scan.cjs';
 import expoConfigCheck from '../scripts/lib/expo-config-check.cjs';
 import nativeLinking from '../scripts/lib/native-linking-check.cjs';
 import publicPages from '../scripts/lib/public-pages.cjs';
+import publicOutput from '../scripts/lib/public-output-root.cjs';
 import recoveryAttestation from '../scripts/lib/recovery-attestation.cjs';
 import sensitiveFiles from '../scripts/lib/sensitive-files.cjs';
 
@@ -58,6 +59,7 @@ type TestManifest = {
     package?: string;
     versionCode?: number;
     allowBackup?: boolean;
+    blockedPermissions?: string[];
     intentFilters: IntentFilter[];
   };
   plugins: unknown[];
@@ -95,6 +97,48 @@ function fingerprint(byte: string): string {
 const FINGERPRINT_A = fingerprint('AA');
 const FINGERPRINT_B = fingerprint('1F');
 
+describe('EAS development-client dependency contract', () => {
+  it('installs the Expo-SDK-matched dev client required by the development profile', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const eas = require('../eas.json') as {
+      build?: { development?: { developmentClient?: boolean } };
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const manifest = require('../package.json') as {
+      dependencies?: Record<string, string>;
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const bundled = require('expo/bundledNativeModules.json') as Record<string, string>;
+
+    expect(eas.build?.development?.developmentClient).toBe(true);
+    expect(manifest.dependencies?.['expo-dev-client']).toBe(bundled['expo-dev-client']);
+  });
+});
+
+describe('release-matrix public output isolation', () => {
+  const root = path.resolve('/repository');
+
+  it('always uses the real public directory', () => {
+    expect(publicOutput.resolvePublicOutputRoot(root, { NODE_ENV: 'test' })).toBe(path.join(root, 'public'));
+  });
+
+  it.each([
+    { NODE_ENV: 'test', LERNZEIT_PUBLIC_OUTPUT_DIR: '.release-gate-matrix-test' },
+    {
+      EAS_BUILD: 'true',
+      EAS_BUILD_PROFILE: 'production',
+      LERNZEIT_RELEASE_GATE: '1',
+      LERNZEIT_RELEASE_MATRIX: '1',
+      LERNZEIT_PUBLIC_OUTPUT_DIR: '.release-gate-matrix-attacker',
+    },
+    { LERNZEIT_RELEASE_MATRIX: '1', LERNZEIT_PUBLIC_OUTPUT_DIR: '../outside' },
+  ])('rejects every environment-selected alternate output path %#', (environment) => {
+    expect(() => publicOutput.resolvePublicOutputRoot(root, environment)).toThrow(
+      'ausschliesslich unter public/',
+    );
+  });
+});
+
 const completeEnvironment: Record<string, string> = {
   // The build profile is part of a complete production environment: it decides
   // the recovery transport and the registered URL scheme.
@@ -122,7 +166,7 @@ const completeEnvironment: Record<string, string> = {
   EXPO_PUBLIC_STATUTORY_RETENTION: 'Keine.',
   EXPO_PUBLIC_TERMS_LIABILITY: 'Es gilt deutsches Recht.',
   EXPO_PUBLIC_LEGAL_EFFECTIVE_DATE: '2026-08-03',
-  EXPO_PUBLIC_SUPABASE_URL: 'https://abcdefghijklmnop.supabase.co',
+  EXPO_PUBLIC_SUPABASE_URL: 'https://abcdefghijklmnopqrst.supabase.co',
   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_AbCdEf1234567890',
 };
 
@@ -266,12 +310,78 @@ describe('classifySupabasePublicKey', () => {
     expect(issue?.detail).toMatch(/service_role/);
   });
 
+  it.each<[string, string, RegExp]>([
+    ['Secret-Key', 'sb_secret_realsecretvalue', /Secret-Key/],
+    ['service_role-JWT', SERVICE_ROLE_JWT, /service_role/],
+  ])('does not let a valid primary key hide a %s fallback', (_label, fallback, expected) => {
+    const issues = releaseConfig.collectReleaseBlockers({
+      ...completeEnvironment,
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: fallback,
+    }) as Issue[];
+    const issue = issues.find((entry) => entry.envVar === 'EXPO_PUBLIC_SUPABASE_ANON_KEY');
+    expect(issue?.detail).toMatch(expected);
+  });
+
   it('accepts a legacy anon JWT in the release gate', () => {
     expect(releaseConfig.collectReleaseBlockers({
       ...completeEnvironment,
       EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: '',
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ANON_JWT,
     })).toEqual([]);
+  });
+
+  it('binds a legacy anon JWT ref claim to the canonical Supabase host', () => {
+    expect(releaseConfig.collectReleaseBlockers({
+      ...completeEnvironment,
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: '',
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: jwtWithPayload({
+        iss: 'supabase',
+        role: 'anon',
+        ref: 'abcdefghijklmnopqrst',
+      }),
+    })).toEqual([]);
+
+    const issues = releaseConfig.collectReleaseBlockers({
+      ...completeEnvironment,
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: '',
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: jwtWithPayload({
+        iss: 'supabase',
+        role: 'anon',
+        ref: 'differentprojectrefx',
+      }),
+    }) as Issue[];
+    expect(issues.find((issue) => issue.envVar === 'EXPO_PUBLIC_SUPABASE_ANON_KEY')?.detail)
+      .toMatch(/ref-Claim.*differentprojectrefx.*abcdefghijklmnopqrst/);
+  });
+
+  it('rejects a mismatched embedded anon fallback behind an opaque publishable key', () => {
+    const issues = releaseConfig.collectReleaseBlockers({
+      ...completeEnvironment,
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: jwtWithPayload({
+        iss: 'supabase',
+        role: 'anon',
+        ref: 'differentprojectrefx',
+      }),
+    }) as Issue[];
+    expect(issues.find((issue) => issue.key === 'supabaseAnonKeyProjectBinding')?.detail)
+      .toMatch(/ref-Claim/);
+  });
+
+  it.each([
+    'https://api.example.org',
+    'https://project.supabase.co',
+    'https://project.supabase.co.evil.test',
+    'https://nested.project.supabase.co',
+    'https://project-ref.supabase.co',
+    'https://project.supabase.co/rest/v1',
+    'https://project.supabase.co:443',
+  ])('blocks a non-canonical Supabase project URL: %s', (url) => {
+    const issues = releaseConfig.collectReleaseBlockers({
+      ...completeEnvironment,
+      EXPO_PUBLIC_SUPABASE_URL: url,
+    }) as Issue[];
+    const issue = issues.find((entry) => entry.envVar === 'EXPO_PUBLIC_SUPABASE_URL');
+    expect(issue?.detail).toMatch(/<project-ref>\.supabase\.co|keinen Pfad|exakt die Form/);
   });
 });
 
@@ -885,6 +995,9 @@ describe('public operator hosts', () => {
 describe('expo config release checks', () => {
   const PRODUCTION_ENVIRONMENT = { ...completeEnvironment, LERNZEIT_RELEASE_GATE: '1' };
   const DEVELOPMENT_ENVIRONMENT = { EAS_BUILD_PROFILE: 'development' };
+  const nonProductionEnvironment = (profile: string) => profile === 'local'
+    ? { EXPO_PUBLIC_BUILD_PROFILE: 'local' }
+    : { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
 
   /**
    * The manifest app.config.js resolves for this environment, rebuilt here so a
@@ -914,6 +1027,10 @@ describe('expo config release checks', () => {
         package: 'de.lernzeit.app',
         versionCode: 1,
         allowBackup: false,
+        blockedPermissions: [
+          'android.permission.READ_EXTERNAL_STORAGE',
+          'android.permission.WRITE_EXTERNAL_STORAGE',
+        ],
         intentFilters,
       },
       plugins: [['expo-build-properties', {
@@ -947,10 +1064,10 @@ describe('expo config release checks', () => {
 
   // Both non-production profiles, separately: preview must not quietly drift
   // into the production shape just because development is covered.
-  it.each(['development', 'preview'])(
+  it.each(['development', 'preview', 'local'])(
     'accepts a %s manifest with the private recovery filter',
     (profile) => {
-      const environment = { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
+      const environment = nonProductionEnvironment(profile);
       const config = manifest(environment);
       expect(expoConfigCheck.findPrivateRecoveryFilter(config.android.intentFilters)).not.toBeNull();
       expect(config.extra.authBuildAttestation).toContain('transport=custom-scheme');
@@ -958,8 +1075,8 @@ describe('expo config release checks', () => {
     },
   );
 
-  it.each(['development', 'preview'])('rejects an App Link in a %s manifest', (profile) => {
-    const environment = { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
+  it.each(['development', 'preview', 'local'])('rejects an App Link in a %s manifest', (profile) => {
+    const environment = nonProductionEnvironment(profile);
     const config = manifest(environment);
     config.android.intentFilters.push({
       action: 'VIEW',
@@ -983,6 +1100,24 @@ describe('expo config release checks', () => {
     config.android.intentFilters.push(PRIVATE_RECOVERY_FILTER);
     const { failures } = expoConfigCheck.collectExpoConfigIssues(config, PRODUCTION_ENVIRONMENT);
     expect(failures.join(' ')).toMatch(/privaten Recovery-Intent-Filter/);
+  });
+
+  it.each([
+    ['fremden HTTPS-Pfad', { scheme: 'https', host: 'tracking.example.org', path: '/open' }],
+    ['fremdes Scheme', { scheme: 'attacker', host: 'callback', path: '/open' }],
+    [
+      'zusaetzliches Datenattribut',
+      { scheme: 'https', host: 'lernzeit.de', path: '/update-password', mimeType: 'text/plain' },
+    ],
+  ])('enumerates and rejects an unapproved production VIEW+BROWSABLE filter for %s', (_label, data) => {
+    const config = manifest(PRODUCTION_ENVIRONMENT);
+    config.android.intentFilters.push({
+      action: 'VIEW',
+      category: ['BROWSABLE', 'DEFAULT'],
+      data: [data],
+    });
+    expect(expoConfigCheck.collectExpoConfigIssues(config, PRODUCTION_ENVIRONMENT).failures.join(' '))
+      .toMatch(/Unerlaubter VIEW\+BROWSABLE.*(?:tracking\.example\.org|attacker|mimeType)/);
   });
 
   it('rejects a development manifest without the private scheme', () => {
@@ -1065,13 +1200,13 @@ describe('expo config release checks', () => {
     expect(JSON.stringify(config)).not.toContain('"lernzeit"');
   });
 
-  it.each(['development', 'preview'])('keeps the lernzeit scheme in a %s manifest', (profile) => {
-    const environment = { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
+  it.each(['development', 'preview', 'local'])('keeps the lernzeit scheme in a %s manifest', (profile) => {
+    const environment = nonProductionEnvironment(profile);
     expect(manifest(environment).scheme).toBe('lernzeit');
   });
 
-  it.each(['development', 'preview'])('rejects a %s manifest without the app scheme', (profile) => {
-    const environment = { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
+  it.each(['development', 'preview', 'local'])('rejects a %s manifest without the app scheme', (profile) => {
+    const environment = nonProductionEnvironment(profile);
     const config = manifest(environment);
     config.scheme = undefined;
     expect(expoConfigCheck.collectExpoConfigIssues(config, environment).failures.join(' '))
@@ -1517,6 +1652,9 @@ describe('generated AndroidManifest.xml', () => {
     EAS_BUILD_PROFILE: 'preview',
     EXPO_PUBLIC_BUILD_PROFILE: 'preview',
   };
+  const LOCAL_ENVIRONMENT = {
+    EXPO_PUBLIC_BUILD_PROFILE: 'local',
+  };
 
   /** Wraps intent filters in the surrounding manifest Expo generates. */
   function manifestXml(intentFilters: string): string {
@@ -1601,6 +1739,7 @@ describe('generated AndroidManifest.xml', () => {
   it.each([
     ['development', DEVELOPMENT_ENVIRONMENT],
     ['preview', PREVIEW_ENVIRONMENT],
+    ['local', LOCAL_ENVIRONMENT],
   ])('accepts the real %s manifest', (_label, environment) => {
     const { failures, summary } = nativeLinking.collectNativeLinkingIssues(
       DEVELOPMENT_MANIFEST,
@@ -1636,7 +1775,7 @@ describe('generated AndroidManifest.xml', () => {
       DEVELOPMENT_ENVIRONMENT,
     );
     expect(failures.join(' ')).toMatch(/fehlt der Intent-Filter/);
-    expect(failures.join(' ')).toMatch(/verifizierte Recovery-App-Link/);
+    expect(failures.join(' ')).toMatch(/kann keinen App Link verifizieren/);
   });
 
   it.each<[string, string, RegExp]>([
@@ -1670,6 +1809,30 @@ describe('generated AndroidManifest.xml', () => {
       ]),
       /verifizierte Recovery-App-Links; erwartet genau einen/,
     ],
+    [
+      'ein fremder browser-routbarer HTTPS-Filter',
+      withExtraFilter(PRODUCTION_MANIFEST, [
+        '      <intent-filter>',
+        '        <action android:name="android.intent.action.VIEW"/>',
+        '        <category android:name="android.intent.category.BROWSABLE"/>',
+        '        <category android:name="android.intent.category.DEFAULT"/>',
+        '        <data android:scheme="https" android:host="tracking.example.org" android:path="/open"/>',
+        '      </intent-filter>',
+      ]),
+      /Unerlaubter VIEW\+BROWSABLE.*tracking\.example\.org/,
+    ],
+    [
+      'ein fremdes browser-routbares Scheme',
+      withExtraFilter(PRODUCTION_MANIFEST, [
+        '      <intent-filter>',
+        '        <action android:name="android.intent.action.VIEW"/>',
+        '        <category android:name="android.intent.category.BROWSABLE"/>',
+        '        <category android:name="android.intent.category.DEFAULT"/>',
+        '        <data android:scheme="attacker" android:host="callback" android:path="/open"/>',
+        '      </intent-filter>',
+      ]),
+      /Unerlaubter VIEW\+BROWSABLE.*attacker/,
+    ],
   ])('rejects a production manifest with %s', (_label, xml, expected) => {
     expect(nativeLinking.collectNativeLinkingIssues(xml, PRODUCTION_ENVIRONMENT).failures.join(' '))
       .toMatch(expected);
@@ -1684,6 +1847,43 @@ describe('generated AndroidManifest.xml', () => {
     ]);
     expect(nativeLinking.collectNativeLinkingIssues(xml, DEVELOPMENT_ENVIRONMENT).failures.join(' '))
       .toMatch(/kann keinen App Link verifizieren/);
+  });
+
+  it('allows debuggable only for a debug-shipping development profile', () => {
+    const debugManifest = DEVELOPMENT_MANIFEST.replace(
+      '<application ',
+      '<application android:debuggable="true" ',
+    );
+    const development = nativeLinking.collectNativeLinkingIssues(
+      debugManifest,
+      DEVELOPMENT_ENVIRONMENT,
+    );
+    expect(development.summary.nativeVariant).toBe('debug');
+    expect(development.failures.join(' ')).not.toMatch(/debuggable/);
+
+    const productionDebuggable = PRODUCTION_MANIFEST.replace(
+      '<application ',
+      '<application android:debuggable="true" ',
+    );
+    const production = nativeLinking.collectNativeLinkingIssues(
+      productionDebuggable,
+      PRODUCTION_ENVIRONMENT,
+    );
+    expect(production.summary.nativeVariant).toBe('release');
+    expect(production.failures.join(' ')).toMatch(/debuggable=true/);
+  });
+
+  it.each([
+    'android.permission.READ_EXTERNAL_STORAGE',
+    'android.permission.WRITE_EXTERNAL_STORAGE',
+  ])('rejects active legacy shared-storage permission %s even with maxSdkVersion', (permission) => {
+    const xml = PRODUCTION_MANIFEST.replace(
+      '<uses-permission android:name="android.permission.INTERNET"/>',
+      `<uses-permission android:name="android.permission.INTERNET"/>\n`
+        + `<uses-permission android:name="${permission}" android:maxSdkVersion="32"/>`,
+    );
+    expect(nativeLinking.collectNativeLinkingIssues(xml, PRODUCTION_ENVIRONMENT).failures.join(' '))
+      .toContain(`Unerwartete aktive Android-Berechtigung: "${permission}".`);
   });
 
   it('refuses a file that is not a manifest', () => {

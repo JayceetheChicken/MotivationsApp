@@ -8,9 +8,10 @@
  *
  * The inventory is read straight from package-lock.json (every entry that is not
  * marked `dev`), which is deterministic, works offline and needs no npm
- * subprocess. For every package the real LICENSE text shipped in node_modules is
- * embedded, because permissive licences such as MIT, BSD and Apache-2.0 all
- * require the copyright notice to travel with the binary.
+ * subprocess. For every package the real LICENSE text shipped in node_modules
+ * or its explicit local lockfile target is embedded, because permissive
+ * licences such as MIT, BSD and Apache-2.0 all require the copyright notice to
+ * travel with the binary.
  */
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -56,6 +57,37 @@ function readPackageManifest(relativePath) {
   }
 }
 
+function resolvePackageSource(location, entry) {
+  if (entry.link !== true) {
+    return {
+      manifestPath: location,
+      resolvedPath: path.join(projectRoot, location),
+      localSource: null,
+    };
+  }
+
+  const localSource = typeof entry.resolved === 'string'
+    ? entry.resolved.replaceAll('\\', '/')
+    : '';
+  const absoluteSource = path.resolve(projectRoot, localSource);
+  const relativeSource = path.relative(projectRoot, absoluteSource).replaceAll('\\', '/');
+  if (
+    !localSource
+    || path.isAbsolute(localSource)
+    || relativeSource === '..'
+    || relativeSource.startsWith('../')
+    || relativeSource !== localSource
+  ) {
+    throw new Error(`${location}: ungueltiges lokales Lockfile-Ziel ${JSON.stringify(entry.resolved)}.`);
+  }
+
+  return {
+    manifestPath: relativeSource,
+    resolvedPath: absoluteSource,
+    localSource: relativeSource,
+  };
+}
+
 /**
  * Every package-lock entry that is reachable without devDependencies, i.e. the
  * exact set `npm ci --omit=dev` would install.
@@ -68,8 +100,24 @@ function collectProductionPackages() {
     if (location === '' || entry.dev === true || entry.extraneous === true) continue;
     if (!location.includes('node_modules/')) continue;
 
-    const name = entry.name ?? location.slice(location.lastIndexOf('node_modules/') + 'node_modules/'.length);
-    const version = entry.version ?? 'unbekannt';
+    const source = resolvePackageSource(location, entry);
+    const sourceManifest = readPackageManifest(source.manifestPath);
+    const lockName = entry.name
+      ?? location.slice(location.lastIndexOf('node_modules/') + 'node_modules/'.length);
+    if (sourceManifest && sourceManifest.name !== lockName) {
+      throw new Error(
+        `${location}: Paketname ${JSON.stringify(sourceManifest.name)} passt nicht zum Lockfile-Namen ${JSON.stringify(lockName)}.`,
+      );
+    }
+    if (entry.link !== true && sourceManifest && sourceManifest.version !== entry.version) {
+      throw new Error(
+        `${location}: installierte Version ${JSON.stringify(sourceManifest.version)} passt nicht zum Lockfile ${JSON.stringify(entry.version)}.`,
+      );
+    }
+    const name = lockName;
+    const version = entry.link === true
+      ? sourceManifest?.version ?? 'unbekannt'
+      : entry.version ?? 'unbekannt';
     const key = `${name}@${version}`;
     if (seen.has(key)) continue;
 
@@ -77,13 +125,15 @@ function collectProductionPackages() {
     // platforms. Reading their local files would make the generated output
     // depend on where it ran, so they are recorded from the lockfile alone.
     const platformSpecific = Boolean(entry.os || entry.cpu);
-    const manifest = platformSpecific ? null : readPackageManifest(location);
+    const manifest = platformSpecific ? null : sourceManifest;
     seen.set(key, {
       name,
       version,
       license: normalizeLicense(entry.license ?? manifest?.license ?? manifest?.licenses),
       homepage: typeof manifest?.homepage === 'string' ? manifest.homepage : null,
-      resolvedPath: platformSpecific ? null : path.join(projectRoot, location),
+      resolvedPath: platformSpecific ? null : source.resolvedPath,
+      localSource: source.localSource,
+      securityFork: manifest?.lernzeitSecurityFork ?? null,
       platformSpecific,
       platforms: platformSpecific
         ? [...(entry.os ?? []), ...(entry.cpu ?? [])].join(', ')
@@ -254,8 +304,9 @@ if (unknown.length > 0) {
 
 lines.push('## Reproduktionspflichtige Copyright-Hinweise');
 lines.push('');
-lines.push('Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in');
-lines.push('`node_modules` und muessen mit der Anwendung ausgeliefert werden.');
+lines.push('Die folgenden Hinweise stammen aus den LICENSE-Dateien der installierten Registry-');
+lines.push('Pakete beziehungsweise der explizit verlinkten lokalen Paketquellen und muessen mit');
+lines.push('der Anwendung ausgeliefert werden.');
 lines.push('');
 
 for (const entry of packages) {
@@ -263,6 +314,20 @@ for (const entry of packages) {
   lines.push('');
   lines.push(`- Lizenz: \`${entry.license}\``);
   if (entry.homepage) lines.push(`- Projektseite: ${entry.homepage}`);
+  if (entry.localSource) {
+    lines.push(`- Bezugsquelle: lokal versioniertes Paket \`${entry.localSource}\``);
+  }
+  if (entry.securityFork) {
+    const upstreamVersion = entry.securityFork.upstreamVersion ?? 'unbekannt';
+    const upstreamGitHead = entry.securityFork.upstreamGitHead ?? 'unbekannt';
+    const upstreamIntegrity = entry.securityFork.upstreamIntegrity ?? 'unbekannt';
+    const advisories = Array.isArray(entry.securityFork.advisories)
+      ? entry.securityFork.advisories.join(', ')
+      : 'nicht angegeben';
+    lines.push(`- Modifizierter Lernzeit-Sicherheitsfork von \`${entry.name}@${upstreamVersion}\`.`);
+    lines.push(`- Upstream-Provenienz: Git-Commit \`${upstreamGitHead}\`, npm-Integrity \`${upstreamIntegrity}\`.`);
+    lines.push(`- Lokal behobene Advisories: ${advisories}.`);
+  }
   if (entry.platformSpecific) {
     lines.push(`- Plattformspezifisch (${entry.platforms}); Lizenztext liegt im Paket unter \`LICENSE\`.`);
   } else if (entry.licenseText) {
@@ -280,9 +345,11 @@ for (const entry of packages) {
 lines.push('## Vollstaendige Lizenztexte');
 lines.push('');
 lines.push('Die ungekuerzten Lizenztexte der oben genannten Pakete liegen in den jeweiligen');
-lines.push('Paketverzeichnissen unter `node_modules/<paket>/LICENSE` und sind ueber die in');
-lines.push('`package-lock.json` festgeschriebenen Versionen und Integrity-Hashes eindeutig');
-lines.push('reproduzierbar. Die haeufigsten Lizenztexte sind hier vollstaendig wiedergegeben.');
+lines.push('Paketverzeichnissen. Registry-Tarballs sind in `package-lock.json` durch URL, Version');
+lines.push('und Integrity-Hash festgeschrieben. Lokale Pakete werden ueber einen expliziten');
+lines.push('Lockfile-Link auf ihren versionierten Repository-Pfad bezogen; ihre Provenienz steht');
+lines.push('zusaetzlich beim jeweiligen Eintrag. Die haeufigsten Lizenztexte sind hier vollstaendig');
+lines.push('wiedergegeben.');
 lines.push('');
 
 const canonicalTexts = new Map();

@@ -28,8 +28,10 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const releaseConfig = require('../config/release-config.cjs');
 const publicPages = require('./lib/public-pages.cjs');
+const publicOutput = require('./lib/public-output-root.cjs');
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const publicRoot = publicOutput.resolvePublicOutputRoot(projectRoot, process.env);
 const EXPECTED_ANDROID_PACKAGE = 'de.lernzeit.app';
 const ACCOUNT_DELETION_PAGE = 'public/account-deletion/index.html';
 const ASSET_LINKS_FILE = 'public/.well-known/assetlinks.json';
@@ -71,7 +73,10 @@ function scanProductionSources() {
   for (const relative of PRODUCTION_SOURCE_FILES) {
     let content;
     try {
-      content = readFileSync(path.join(projectRoot, relative), 'utf8');
+      const absolute = relative.startsWith('public/')
+        ? path.join(publicRoot, relative.slice('public/'.length))
+        : path.join(projectRoot, relative);
+      content = readFileSync(absolute, 'utf8');
     } catch (error) {
       if (error.code === 'ENOENT') continue;
       throw error;
@@ -106,7 +111,10 @@ function scanProductionSources() {
 /** @param {string} relative @returns {string | null} */
 function readOptional(relative) {
   try {
-    return readFileSync(path.join(projectRoot, relative), 'utf8');
+    const absolute = relative.startsWith('public/')
+      ? path.join(publicRoot, relative.slice('public/'.length))
+      : path.join(projectRoot, relative);
+    return readFileSync(absolute, 'utf8');
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     throw error;

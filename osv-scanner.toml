@@ -1,0 +1,14 @@
+[[IgnoredVulns]]
+id = "GHSA-w3rx-r6r6-pgpr"
+ignoreUntil = 2026-11-09
+reason = "image-size has no upstream fix; installed local fork 1.2.1-lernzeit.1 rejects zero/undersized/truncated ICNS entries and is covered by timeout and resolution tests. Remove when upstream publishes a patched release."
+
+[[IgnoredVulns]]
+id = "GHSA-5p2g-fcmc-qvqq"
+ignoreUntil = 2026-11-09
+reason = "image-size has no upstream fix; installed local fork 1.2.1-lernzeit.1 enforces bounded monotonic JXL/HEIF box traversal and is covered by timeout and resolution tests. Remove when upstream publishes a patched release."
+
+[[IgnoredVulns]]
+id = "GHSA-m5qc-5hw7-8vg7"
+ignoreUntil = 2026-11-09
+reason = "The fork is byte-for-byte based on upstream 1.2.1 for this previously fixed advisory; OSV orders the honest local prerelease suffix below 1.2.1. Resolution tests pin every image-size consumer to the reviewed fork. Remove together with the fork."

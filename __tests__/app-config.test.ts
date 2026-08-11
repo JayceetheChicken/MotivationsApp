@@ -29,7 +29,7 @@ type IntentFilter = {
 };
 type BaseConfig = Record<string, unknown> & {
   scheme?: string | string[];
-  android?: { intentFilters?: IntentFilter[]; versionCode?: number };
+  android?: { intentFilters?: IntentFilter[]; versionCode?: number; blockedPermissions?: string[] };
   extra?: Record<string, unknown>;
 };
 type ResolvedConfig = BaseConfig & {
@@ -70,6 +70,12 @@ function resolveConfig(
   }
 }
 
+function nonProductionEnvironment(profile: string): Record<string, string> {
+  return profile === 'local'
+    ? { EXPO_PUBLIC_BUILD_PROFILE: 'local' }
+    : { EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile };
+}
+
 /** Every `data` entry of every intent filter, flattened. */
 function allFilterData(filters: IntentFilter[]): IntentFilterData[] {
   return filters.flatMap((filter) => (Array.isArray(filter.data)
@@ -91,9 +97,38 @@ describe('app.json base', () => {
   it('declares no URL scheme at all', () => {
     expect(appJson.expo.scheme).toBeUndefined();
   });
+
+  it('blocks legacy shared-storage permissions instead of allowing them through maxSdkVersion', () => {
+    const blocked = (appJson.expo.android as { blockedPermissions?: string[] }).blockedPermissions ?? [];
+    expect(blocked).toEqual(expect.arrayContaining([
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+    ]));
+  });
 });
 
 describe('app.config.js in a production build', () => {
+  it('aborts for a Supabase custom domain instead of guessing its trust boundary', () => {
+    expect(() => resolveConfig({
+      ...PRODUCTION_ENVIRONMENT,
+      EXPO_PUBLIC_SUPABASE_URL: 'https://supabase.lernzeit.de',
+    })).toThrow(/<project-ref>\.supabase\.co/);
+  });
+
+  it.each<[string, string, RegExp]>([
+    ['Secret-Key', 'sb_secret_realsecretvalue', /Secret-Key/],
+    [
+      'service_role-JWT',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.c2lnbmF0dXJl',
+      /service_role/,
+    ],
+  ])('aborts before a valid primary key can hide a %s fallback', (_label, fallback, expected) => {
+    expect(() => resolveConfig({
+      ...PRODUCTION_ENVIRONMENT,
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: fallback,
+    })).toThrow(expected);
+  });
+
   it('registers no lernzeit scheme anywhere in the resolved config', () => {
     const config = resolveConfig(PRODUCTION_ENVIRONMENT);
     expect(config.scheme).toBeUndefined();
@@ -127,15 +162,35 @@ describe('app.config.js in a production build', () => {
   });
 });
 
-describe('app.config.js in development and preview builds', () => {
-  it.each(['development', 'preview'])('registers the lernzeit scheme for %s', (profile) => {
-    const config = resolveConfig({ EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile });
+describe('app.config.js in non-production builds', () => {
+  it.each(['development', 'preview', 'local'])(
+    'rejects configured secret or privileged fallback keys in %s before Metro can inline them',
+    (profile) => {
+      for (const [envVar, key, expected] of [
+        ['EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'sb_secret_realsecretvalue', /Secret-Key/],
+        [
+          'EXPO_PUBLIC_SUPABASE_ANON_KEY',
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.c2lnbmF0dXJl',
+          /service_role/,
+        ],
+      ] as const) {
+        expect(() => resolveConfig({
+          ...nonProductionEnvironment(profile),
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_AbCdEf1234567890',
+          [envVar]: key,
+        })).toThrow(expected);
+      }
+    },
+  );
+
+  it.each(['development', 'preview', 'local'])('registers the lernzeit scheme for %s', (profile) => {
+    const config = resolveConfig(nonProductionEnvironment(profile));
     expect(config.scheme).toBe('lernzeit');
     expect(config.extra.buildProfile).toBe(profile);
   });
 
-  it.each(['development', 'preview'])('registers exactly one private recovery filter for %s', (profile) => {
-    const config = resolveConfig({ EAS_BUILD: 'true', EAS_BUILD_PROFILE: profile });
+  it.each(['development', 'preview', 'local'])('registers exactly one private recovery filter for %s', (profile) => {
+    const config = resolveConfig(nonProductionEnvironment(profile));
     const recovery = recoveryFilters(config.android.intentFilters);
     expect(recovery).toHaveLength(1);
     expect(recovery[0].autoVerify).toBeUndefined();
@@ -145,10 +200,9 @@ describe('app.config.js in development and preview builds', () => {
   });
 
   /** A real operator domain must not turn a preview build into an App Link build. */
-  it.each(['development', 'preview'])('keeps the private filter for %s even with a real domain', (profile) => {
+  it.each(['development', 'preview', 'local'])('keeps the private filter for %s even with a real domain', (profile) => {
     const config = resolveConfig({
-      EAS_BUILD: 'true',
-      EAS_BUILD_PROFILE: profile,
+      ...nonProductionEnvironment(profile),
       EXPO_PUBLIC_LEGAL_SITE_URL: 'https://lernzeit.de',
     });
     const recovery = recoveryFilters(config.android.intentFilters);
@@ -168,6 +222,7 @@ describe('unrelated intent filters', () => {
     ['production', PRODUCTION_ENVIRONMENT],
     ['development', { EAS_BUILD: 'true', EAS_BUILD_PROFILE: 'development' }],
     ['preview', { EAS_BUILD: 'true', EAS_BUILD_PROFILE: 'preview' }],
+    ['local', { EXPO_PUBLIC_BUILD_PROFILE: 'local' }],
   ])('survive the %s configuration unchanged', (_label, environment) => {
     const config = resolveConfig(environment, {
       android: { ...(appJson.expo.android as object), intentFilters: [UNRELATED_FILTER] },
@@ -200,6 +255,18 @@ describe('unrelated intent filters', () => {
     expect(failures.join(' ')).toMatch(/keinen Intent-Filter auf dem privaten Scheme/);
   });
 
+  it('preserves but rejects an unapproved production VIEW+BROWSABLE route', () => {
+    const config = resolveConfig(PRODUCTION_ENVIRONMENT, {
+      android: { ...(appJson.expo.android as object), intentFilters: [UNRELATED_FILTER] },
+    });
+    expect(config.android.intentFilters).toContainEqual(UNRELATED_FILTER);
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const expoConfigCheck = require('../scripts/lib/expo-config-check.cjs');
+    expect(expoConfigCheck.collectExpoConfigIssues(config, PRODUCTION_ENVIRONMENT).failures.join(' '))
+      .toMatch(/Unerlaubter VIEW\+BROWSABLE.*share\.lernzeit\.de/);
+  });
+
   it('keeps a non-recovery lernzeit filter in a development build without complaint', () => {
     const shareFilter = {
       action: 'VIEW',
@@ -222,6 +289,7 @@ describe('unrelated intent filters', () => {
   it.each([
     ['production', PRODUCTION_ENVIRONMENT],
     ['development', { EAS_BUILD: 'true', EAS_BUILD_PROFILE: 'development' }],
+    ['local', { EXPO_PUBLIC_BUILD_PROFILE: 'local' }],
   ])('replace a stale recovery filter in the %s base without duplicating it', (_label, environment) => {
     const config = resolveConfig(environment, {
       android: {

@@ -39,8 +39,9 @@ Open-Source-Lizenz gestellt.
 
 ## Reproduktionspflichtige Copyright-Hinweise
 
-Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
-`node_modules` und muessen mit der Anwendung ausgeliefert werden.
+Die folgenden Hinweise stammen aus den LICENSE-Dateien der installierten Registry-
+Pakete beziehungsweise der explizit verlinkten lokalen Paketquellen und muessen mit
+der Anwendung ausgeliefert werden.
 
 ### @adobe/css-tools@4.5.0
 
@@ -3319,9 +3320,13 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 
 > Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors
 
-### image-size@1.2.1
+### image-size@1.2.1+lernzeit.1
 
 - Lizenz: `MIT`
+- Bezugsquelle: lokal versioniertes Paket `vendor/image-size`
+- Modifizierter Lernzeit-Sicherheitsfork von `image-size@1.2.1`.
+- Upstream-Provenienz: Git-Commit `a4178fbb334ddb22d94cb4228ed597c24fd02e10`, npm-Integrity `sha512-rH+46sQJ2dlwfjfhCyNx5thzrv+dtmBIhPHk0zgRUukHzZ/kRueTJXoYYsclBaKcSMBWuGbOFXtioLpzTb5euw==`.
+- Lokal behobene Advisories: GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq.
 - Lizenzdatei im Paket: `LICENSE`
 
 > Copyright © 2013-Present Aditya Yadav, http://netroy.in
@@ -5758,9 +5763,11 @@ Die folgenden Hinweise stammen aus den LICENSE-Dateien der jeweiligen Pakete in
 ## Vollstaendige Lizenztexte
 
 Die ungekuerzten Lizenztexte der oben genannten Pakete liegen in den jeweiligen
-Paketverzeichnissen unter `node_modules/<paket>/LICENSE` und sind ueber die in
-`package-lock.json` festgeschriebenen Versionen und Integrity-Hashes eindeutig
-reproduzierbar. Die haeufigsten Lizenztexte sind hier vollstaendig wiedergegeben.
+Paketverzeichnissen. Registry-Tarballs sind in `package-lock.json` durch URL, Version
+und Integrity-Hash festgeschrieben. Lokale Pakete werden ueber einen expliziten
+Lockfile-Link auf ihren versionierten Repository-Pfad bezogen; ihre Provenienz steht
+zusaetzlich beim jeweiligen Eintrag. Die haeufigsten Lizenztexte sind hier vollstaendig
+wiedergegeben.
 
 ### 0BSD
 

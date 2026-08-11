@@ -78,6 +78,11 @@ supabase secrets set --project-ref <STAGING_REF> \
 | `SUPABASE_SERVICE_ROLE_KEY` | automatisch gesetzt | existiert nur in der Function-Laufzeit |
 | `ALLOWED_BROWSER_ORIGINS` | leer lassen | Der Web-Build bietet keine Online-Anmeldung. Nur setzen, wenn später wirklich ein Browser-Client existiert; dann kommagetrennte, exakte Origins ohne Wildcard. |
 
+Deploy **erst nach** dem erfolgreichen Migration-Push aus Abschnitt 2. Die
+Function verlangt die neue `begin_account_deletion`-RPC; dadurch scheitert ein
+versehentlich vorgezogenes Function-Deployment gegen ein altes Schema sicher,
+bevor Daten gelöscht werden.
+
 Deploy:
 
 ```bash
@@ -88,8 +93,11 @@ supabase functions list --project-ref <STAGING_REF>
 `supabase/config.toml` setzt für diese Function `verify_jwt = false`, weil
 Publishable Keys nicht über den Gateway-JWT-Check laufen. Die Function
 validiert den Nutzer-Token selbst, prüft die feste Bestätigung `DELETE` und
-verlangt ein `iat`-Alter von höchstens fünf Minuten. Vor dem Produktions-Deploy
-ist zu prüfen, dass dieser Wert im Dashboard übereinstimmt.
+verlangt im signierten `amr`-Claim eine Passwortanmeldung derselben UID aus den
+letzten fünf Minuten. Ein routinemäßig erneuerter Access Token mit frischem
+`iat`, aber ohne frische Passwort-AMR, reicht nicht. Vor dem
+Produktions-Deploy ist dieses Verhalten mit einem echten Staging-Konto zu
+prüfen.
 
 ### Rauchtest gegen Staging
 
@@ -103,9 +111,10 @@ Kein Produktionskonto verwenden. Mit einem Wegwerf-Testkonto:
    `avatars/<uid>/`, keine Zeilen mehr in `public.profiles`, übertragene
    Gruppen haben einen neuen `creator_id`.
 
-Fehlerfälle, die ebenfalls zu testen sind: abgelaufener Token (älter als fünf
-Minuten), falsches Passwort, doppelter Aufruf, Aufruf für ein bereits
-gelöschtes Konto, Netzwerkabbruch während des Aufrufs.
+Fehlerfälle, die ebenfalls zu testen sind: frischer Refresh-Token ohne frische
+Passwort-AMR, Passwort-AMR älter als fünf Minuten, falsches Passwort, doppelter
+Aufruf, paralleler Avatar-Upload, mehrseitiger Avatarbestand, Aufruf für ein
+bereits gelöschtes Konto und Netzwerkabbruch während des Aufrufs.
 
 ## 4. Auth-Konfiguration in Staging und Produktion
 
@@ -155,7 +164,11 @@ Zusätzlich greifen die anwendungsseitigen Limits aus
 
 - Bucket `avatars` existiert mit der Policy aus
   `supabase/migrations/20260718000500_avatar_storage.sql` und den Härtungen aus
-  `20260726000200_social_realtime_avatar_hardening.sql`.
+  `20260726000200_social_realtime_avatar_hardening.sql` sowie
+  `20260809000100_final_release_security_hardening.sql`.
+- Der Upload-Trigger begrenzt auf 100 Objekte pro Konto und serialisiert sich
+  mit der Löschsperre. Im Staging den 100. Upload zulassen, den 101. ablehnen
+  und einen Upload während einer begonnenen Kontolöschung ablehnen.
 - Upload-Limit und erlaubte MIME-Typen im Dashboard gegenprüfen.
 - Der Bucket ist lesbar über schwer erratbare Pfade. Das ist in der
   Datenschutzerklärung so beschrieben und muss so bleiben oder dort geändert
