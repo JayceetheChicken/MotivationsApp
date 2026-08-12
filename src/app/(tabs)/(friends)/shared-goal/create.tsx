@@ -19,16 +19,7 @@ import { useAuthStore } from '@/state/auth-store';
 import { useStudyStore } from '@/state/study-store';
 import { useAppTheme } from '@/theme';
 
-function localDateString(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function initialFormValue(reference = new Date()): SharedGoalFormValue {
-  const end = new Date(reference);
-  end.setDate(end.getDate() + 28);
+function initialFormValue(): SharedGoalFormValue {
   return {
     title: '',
     description: '',
@@ -36,8 +27,8 @@ function initialFormValue(reference = new Date()): SharedGoalFormValue {
     targetType: 'duration',
     durationUnit: 'hours',
     cadence: 'weekly',
-    startsOn: localDateString(reference),
-    endsOn: localDateString(end),
+    startsOn: '',
+    endsOn: '',
     sourcePolicy: 'all',
     targetValue: '',
     minimumSessionMinutes: '10',
@@ -70,13 +61,31 @@ function parseDateBoundary(value: string, endOfDay: boolean): Date | null {
     : null;
 }
 
-function periodPreview(startsAt: Date, endsAt: Date): string {
+function formatDate(date: Date): string {
   const formatter = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
   });
-  return `${formatter.format(startsAt)} bis ${formatter.format(endsAt)}`;
+  return formatter.format(date);
+}
+
+function periodPreview(startsAt: Date | null, endsAt: Date | null): string {
+  if (startsAt && endsAt) return `${formatDate(startsAt)} bis ${formatDate(endsAt)}`;
+  if (startsAt) return `Ab ${formatDate(startsAt)}, ohne Enddatum`;
+  if (endsAt) return `Ab Erstellung bis ${formatDate(endsAt)}`;
+  return 'Ab Erstellung, ohne Enddatum';
+}
+
+function periodPreviewFromInput(startsOn: string, endsOn: string): string {
+  const trimmedStart = startsOn.trim();
+  const trimmedEnd = endsOn.trim();
+  const startsAt = trimmedStart ? parseDateBoundary(trimmedStart, false) : null;
+  const endsAt = trimmedEnd ? parseDateBoundary(trimmedEnd, true) : null;
+  if ((trimmedStart && !startsAt) || (trimmedEnd && !endsAt)) {
+    return 'Bitte die eingegebenen Daten prüfen';
+  }
+  return periodPreview(startsAt, endsAt);
 }
 
 export default function CreateSharedGoalScreen() {
@@ -147,8 +156,11 @@ export default function CreateSharedGoalScreen() {
     } = {};
     const parsedTarget = parsePositiveNumber(value.targetValue);
     const parsedMinimum = parsePositiveNumber(value.minimumSessionMinutes);
-    const startsAt = parseDateBoundary(value.startsOn.trim(), false);
-    const endsAt = parseDateBoundary(value.endsOn.trim(), true);
+    const startsOn = value.startsOn.trim();
+    const endsOn = value.endsOn.trim();
+    const startsAt = startsOn ? parseDateBoundary(startsOn, false) : null;
+    const endsAt = endsOn ? parseDateBoundary(endsOn, true) : null;
+    const effectiveStartsAt = startsAt ?? new Date();
 
     if (value.title.trim().length < 3) {
       nextErrors.title = 'Gib einen Titel mit mindestens drei Zeichen ein.';
@@ -164,15 +176,19 @@ export default function CreateSharedGoalScreen() {
     if (value.participantIds.length === 0) {
       nextErrors.participantIds = 'Wähle mindestens einen bestätigten Freund aus.';
     }
-    if (!startsAt) nextErrors.startsOn = 'Gib ein gültiges Startdatum im Format JJJJ-MM-TT ein.';
-    if (!endsAt) nextErrors.endsOn = 'Gib ein gültiges Enddatum im Format JJJJ-MM-TT ein.';
-    if (startsAt && endsAt && endsAt <= startsAt) {
+    if (startsOn && !startsAt) {
+      nextErrors.startsOn = 'Gib ein gültiges Startdatum im Format JJJJ-MM-TT ein.';
+    }
+    if (endsOn && !endsAt) {
+      nextErrors.endsOn = 'Gib ein gültiges Enddatum im Format JJJJ-MM-TT ein.';
+    }
+    if (endsAt && endsAt <= effectiveStartsAt) {
       nextErrors.endsOn = 'Das Enddatum muss nach dem Startdatum liegen.';
     }
 
     setErrors(nextErrors);
     setSubmitError(null);
-    if (Object.keys(nextErrors).length > 0 || parsedTarget === null || !startsAt || !endsAt) return;
+    if (Object.keys(nextErrors).length > 0 || parsedTarget === null) return;
 
     const targetMinutes = value.targetType === 'duration'
       ? Math.round(parsedTarget * (value.durationUnit === 'hours' ? 60 : 1))
@@ -197,8 +213,8 @@ export default function CreateSharedGoalScreen() {
         period: 'custom',
         cadence: value.cadence,
         groupId: group?.id ?? null,
-        startsAt: startsAt.toISOString(),
-        endsAt: endsAt.toISOString(),
+        ...(startsAt ? { startsAt: startsAt.toISOString() } : {}),
+        ...(endsAt ? { endsAt: endsAt.toISOString() } : {}),
       },
     };
 
@@ -238,7 +254,7 @@ export default function CreateSharedGoalScreen() {
   return (
     <Screen maxWidth={920}>
       <SectionHeader
-        description="Lege Laufzeit, Tages- oder Wochenrhythmus und den Zielwert pro Person oder für das Team fest."
+        description="Lege Rhythmus und Zielwert fest. Start- und Enddatum kannst du optional ergänzen."
         eyebrow={group ? group.name : 'Mit Freunden lernen'}
         title="Gemeinsames Lernziel erstellen"
       />
@@ -265,14 +281,11 @@ export default function CreateSharedGoalScreen() {
 
       <AppCard style={styles.periodPreview} variant="subtle">
         <View style={styles.previewCopy}>
-          <Text selectable style={[theme.typography.label, { color: theme.colors.textMuted }]}>Gewählter Zeitraum</Text>
-          <Text selectable style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
-            {parseDateBoundary(value.startsOn, false) && parseDateBoundary(value.endsOn, true)
-              ? periodPreview(
-                  parseDateBoundary(value.startsOn, false) as Date,
-                  parseDateBoundary(value.endsOn, true) as Date,
-                )
-              : 'Bitte Start- und Enddatum prüfen'}
+          <Text selectable style={[theme.typography.label, { color: theme.colors.textMuted }]}>Zeitraum</Text>
+          <Text
+            selectable
+            style={[theme.typography.bodyMedium, { color: theme.colors.text }]}>
+            {periodPreviewFromInput(value.startsOn, value.endsOn)}
           </Text>
         </View>
         <Text selectable style={[theme.typography.caption, { color: theme.colors.textMuted }]}>

@@ -300,6 +300,27 @@ describe('repository domain infrastructure', () => {
     }).status).toBe('completed');
   });
 
+  it('maps shared goals without an end date as active', () => {
+    const goal = mapStudyChallenge({
+      goal: {
+        id: 'shared-open-ended',
+        creator_id: 'account-id',
+        title: 'Ohne Enddatum',
+        target_type: 'duration',
+        target_value: 3600,
+        source_policy: 'all',
+        starts_at: '2026-07-01T00:00:00.000Z',
+        ends_at: null,
+        status: 'active',
+      },
+      details: { description: '', mode: 'per_participant', cadence: 'weekly' },
+      self_participation: { user_id: 'account-id', role: 'creator', status: 'accepted' },
+    });
+
+    expect(goal.endsAt).toBeUndefined();
+    expect(goal.status).toBe('active');
+  });
+
   it('includes self participation for shared-goal invitations without losing authorized profiles', () => {
     const common = {
       goal: {

@@ -106,6 +106,15 @@ function fakeClient() {
   channelObject.on.mockReturnValue(channelObject);
   const channel = jest.fn(() => channelObject);
   const realtimeSetAuth = jest.fn(async () => undefined);
+  const getSession = jest.fn(async () => ({
+    data: {
+      session: {
+        access_token: 'access-token',
+        user: { id: 'account-id' },
+      },
+    },
+    error: null,
+  }));
   const storageUpload = jest.fn(async (path: string, _body?: unknown, _options?: unknown) => ({ data: { path }, error: null as unknown }));
   const storageGetPublicUrl = jest.fn((path: string) => ({
     data: { publicUrl: `https://cdn.test/avatars/${path}` },
@@ -120,6 +129,7 @@ function fakeClient() {
   }));
   return {
     client: {
+      auth: { getSession },
       rpc,
       removeChannel,
       channel,
@@ -136,6 +146,7 @@ function fakeClient() {
     channelObject,
     removeChannel,
     realtimeSetAuth,
+    getSession,
   };
 }
 
@@ -188,6 +199,35 @@ describe('SupabaseStudyRepository RPC contract', () => {
       }),
       p_invitee_ids: ['33333333-3333-4333-8333-333333333333'],
       p_operation_id: '11111111-1111-4111-8111-111111111111',
+    }));
+  });
+
+  it('sends null date boundaries for an open-ended shared goal', async () => {
+    const { client, rpc } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    await repository.social.createSharedGoal({
+      operationId: '41111111-1111-4111-8111-111111111111',
+      inviteeIds: ['33333333-3333-4333-8333-333333333333'],
+      goal: {
+        id: '42222222-2222-4222-8222-222222222222',
+        title: 'Offenes Ziel',
+        description: '',
+        cadence: 'weekly',
+        period: 'custom',
+        type: 'duration',
+        mode: 'shared',
+        targetMinutes: 120,
+        sourcePolicy: 'all',
+      },
+    });
+
+    expect(rpc).toHaveBeenCalledWith('create_shared_goal', expect.objectContaining({
+      p_goal: expect.objectContaining({ starts_at: null, ends_at: null }),
     }));
   });
 
@@ -500,6 +540,35 @@ describe('SupabaseStudyRepository RPC contract', () => {
     expect(storageList).not.toHaveBeenCalled();
   });
 
+  it('does not expose a raw PostgREST schema-cache error when avatar persistence fails', async () => {
+    const { client, rpc } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+    const technicalMessage = 'Could not find the function public.set_my_avatar(p_object_path) in the schema cache';
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'PGRST202', message: technicalMessage },
+    });
+
+    try {
+      await expect(repository.social.setMyAvatar(
+        'account-id/profile/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg',
+      )).rejects.toMatchObject({
+        message: 'Das Profilbild konnte serverseitig nicht gespeichert werden.',
+      });
+      expect(errorLog).toHaveBeenCalledWith(
+        '[avatar] set_my_avatar fehlgeschlagen',
+        expect.objectContaining({ message: technicalMessage }),
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
   it('subscribes to the authenticated private social inbox and refetches after reconnect', async () => {
     const {
       client,
@@ -517,6 +586,10 @@ describe('SupabaseStudyRepository RPC contract', () => {
     const cleanup = await repository.subscribeSocialUpdates({ onInvalidated });
 
     expect(realtimeSetAuth).toHaveBeenCalledTimes(1);
+    expect(realtimeSetAuth).toHaveBeenCalledWith('access-token');
+    expect(realtimeSetAuth.mock.invocationCallOrder[0]).toBeLessThan(
+      channel.mock.invocationCallOrder[0],
+    );
     expect(channel).toHaveBeenCalledWith('social:user:account-id', {
       config: { private: true },
     });
@@ -535,6 +608,147 @@ describe('SupabaseStudyRepository RPC contract', () => {
 
     await cleanup();
     expect(removeChannel).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads auth and replaces a MissingPartition channel exactly once before degrading', async () => {
+    jest.useFakeTimers();
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const {
+        client,
+        channel,
+        channelObject,
+        getSession,
+        realtimeSetAuth,
+        removeChannel,
+      } = fakeClient();
+      const repository = createSupabaseStudyRepository({
+        client,
+        accountId: 'account-id',
+        storage: new MemoryKeyValueStorage(),
+      });
+      const onError = jest.fn();
+      const cleanup = await repository.subscribeSocialUpdates({
+        onInvalidated: jest.fn(),
+        onError,
+      });
+      const initialStatus = channelObject.subscribe.mock.calls[0]?.[0] as (
+        status: string,
+        error?: Error,
+      ) => void;
+
+      initialStatus(
+        'CHANNEL_ERROR',
+        new Error('MissingPartition: Realtime was unable to find the expected messages partition'),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(removeChannel).toHaveBeenCalledTimes(1);
+      expect(channel).toHaveBeenCalledTimes(1);
+      expect(onError).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(600);
+      expect(getSession).toHaveBeenCalledTimes(2);
+      expect(realtimeSetAuth).toHaveBeenNthCalledWith(2, 'access-token');
+      expect(channel).toHaveBeenCalledTimes(2);
+
+      const retryStatus = channelObject.subscribe.mock.calls[1]?.[0] as (
+        status: string,
+        error?: Error,
+      ) => void;
+      retryStatus('CLOSED', new Error('socket closed'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(channel).toHaveBeenCalledTimes(2);
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+        message: 'Der Live-Status ist momentan nicht verfügbar. Die Freundesfunktionen können weiterhin verwendet werden.',
+      }));
+      expect(onError.mock.calls[0]?.[0].message).not.toMatch(/MissingPartition|socket closed/);
+
+      await cleanup();
+    } finally {
+      warning.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('replaces an existing social topic before a rerender can create a duplicate channel', async () => {
+    const { client, channel, removeChannel } = fakeClient();
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    const firstCleanup = await repository.subscribeSocialUpdates({ onInvalidated: jest.fn() });
+    const secondCleanup = await repository.subscribeSocialUpdates({ onInvalidated: jest.fn() });
+
+    expect(channel).toHaveBeenCalledTimes(2);
+    expect(removeChannel).toHaveBeenCalledTimes(1);
+    await firstCleanup();
+    expect(removeChannel).toHaveBeenCalledTimes(1);
+    await secondCleanup();
+    expect(removeChannel).toHaveBeenCalledTimes(2);
+  });
+
+  it('authenticates the private shared-goal channel before subscribing', async () => {
+    const {
+      client,
+      rpc,
+      channel,
+      realtimeSetAuth,
+    } = fakeClient();
+    rpc.mockResolvedValueOnce({
+      data: {
+        goal_id: 'goal-id',
+        type: 'duration',
+        mode: 'per_participant',
+        target: 60,
+        participants: [],
+      },
+      error: null,
+    });
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+
+    const cleanup = await repository.subscribeSharedGoalProgress('goal-id', {
+      onProgress: jest.fn(),
+    });
+
+    expect(realtimeSetAuth).toHaveBeenCalledWith('access-token');
+    expect(realtimeSetAuth.mock.invocationCallOrder[0]).toBeLessThan(
+      channel.mock.invocationCallOrder[0],
+    );
+    expect(channel).toHaveBeenCalledWith('shared-goal:goal-id', {
+      config: { private: true },
+    });
+    await cleanup();
+  });
+
+  it('removes every active private channel when the account repository is disposed on logout', async () => {
+    const { client, rpc, removeChannel } = fakeClient();
+    rpc.mockResolvedValueOnce({
+      data: {
+        goal_id: 'goal-id', type: 'duration', mode: 'per_participant', target: 60,
+        participants: [],
+      },
+      error: null,
+    });
+    const repository = createSupabaseStudyRepository({
+      client,
+      accountId: 'account-id',
+      storage: new MemoryKeyValueStorage(),
+    });
+    await repository.subscribeSocialUpdates({ onInvalidated: jest.fn() });
+    await repository.subscribeSharedGoalProgress('goal-id', { onProgress: jest.fn() });
+
+    await repository.dispose();
+    expect(removeChannel).toHaveBeenCalledTimes(2);
+    await repository.dispose();
+    expect(removeChannel).toHaveBeenCalledTimes(2);
   });
 
   it('reports a missing bucket or policy distinctly from a rejected upload', async () => {

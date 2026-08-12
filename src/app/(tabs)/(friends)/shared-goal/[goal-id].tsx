@@ -97,16 +97,19 @@ function mapParticipantProgress(
 
 function formatGoalPeriod(challenge: StudyChallenge): string {
   const startsAt = new Date(challenge.startsAt);
-  const endsAt = new Date(challenge.endsAt);
-  if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+  const endsAt = challenge.endsAt ? new Date(challenge.endsAt) : null;
+  if (!Number.isFinite(startsAt.getTime())) {
     return 'Fester Zeitraum';
   }
 
   const formatter = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit',
     month: '2-digit',
-    year: startsAt.getFullYear() === endsAt.getFullYear() ? undefined : 'numeric',
+    year: !endsAt || startsAt.getFullYear() !== endsAt.getFullYear() ? 'numeric' : undefined,
   });
+  if (!endsAt || !Number.isFinite(endsAt.getTime())) {
+    return `Seit ${formatter.format(startsAt)} · ohne Enddatum`;
+  }
   return `${formatter.format(startsAt)}–${formatter.format(endsAt)}`;
 }
 

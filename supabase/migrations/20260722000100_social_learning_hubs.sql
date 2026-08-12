@@ -160,21 +160,16 @@ before update on public.shared_study_session_participants
 for each row execute function private.touch_social_revision();
 
 alter table public.shared_goal_details
-  add column cadence text,
-  add column group_id uuid references public.study_groups(id) on delete cascade;
-
-update public.shared_goal_details
-set cadence = case when period = 'day' then 'daily' else 'weekly' end
-where cadence is null;
-
-alter table public.shared_goal_details
-  alter column cadence set default 'weekly',
-  alter column cadence set not null,
+  add column cadence text not null default 'weekly',
+  add column group_id uuid references public.study_groups(id) on delete cascade,
   add constraint shared_goal_details_cadence check (cadence in ('daily', 'weekly'));
 
 create index shared_goal_details_group_idx
 on public.shared_goal_details(group_id)
 where group_id is not null;
+
+update public.shared_goal_details
+set cadence = case when period = 'day' then 'daily' else 'weekly' end;
 
 alter table public.learning_presence enable row level security;
 alter table public.study_groups enable row level security;
