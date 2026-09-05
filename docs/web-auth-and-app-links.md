@@ -207,3 +207,17 @@ adb shell am start -a android.intent.action.VIEW -d "https://<DOMAIN>/update-pas
 ```
 
 Keine echte Recovery-URL oder Tokens in Testprotokolle kopieren.
+
+## Gehärtete Entwicklungsbuilds
+
+Alle vier Profile werden sowohl vor als auch nach dem Gradle-Manifest-Merge
+geprüft. `expo-dev-client.addGeneratedScheme` ist deaktiviert, damit Expo kein
+zusätzliches Scheme in den exakten Recovery-Filter einfügt. Das konfigurierte
+`lernzeit`-Scheme bleibt für Development/Preview erhalten.
+
+`config/with-android-security.cjs` setzt auch in `debug` und `debugOptimized`
+Klartextverkehr auf `false`, entfernt Overlay-/Multicast-Berechtigungen und
+macht zusätzliche Dev-Launcher-/Compose-Activities nicht exportiert. Die
+Prüfung hat hierfür keine Ausnahmen. Metro muss über einen HTTPS-Tunnel mit
+gültigem Zertifikat erreichbar sein; HTTP im lokalen Netz ist gesperrt.
+Der normale App-Launcher bleibt exportiert und nutzbar.

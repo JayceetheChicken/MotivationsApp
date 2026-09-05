@@ -161,3 +161,32 @@ Unverändert, weil bereits aktuell beziehungsweise ohne Node-Runtime:
 Die minimalen Workflow-Berechtigungen (`permissions: contents: read`, erweitert
 nur dort, wo CodeQL `security-events: write` braucht) und
 `persist-credentials: false` bei jedem Checkout bleiben unverändert.
+
+## Update für PR #5 am 5. September 2026
+
+Die zuvor grüne Baseline war durch neu veröffentlichte Advisories veraltet.
+Der neue Lockfile-Stand ersetzt `@xmldom/xmldom` durch 0.8.15/0.9.12,
+`browserslist` durch 4.28.9 und `nanoid` durch 3.3.18. Expo bleibt auf SDK 57;
+seine Pakete sind mit `expo install --fix` auf die aktuell geforderten
+Patchversionen angeglichen, einschließlich React Native/Jest-Preset 0.86.3.
+Die alten Expo-Doctor-Ausnahmen für expo-image und expo-sharing sind entfernt.
+
+`decode-uri-component` verwendet die gepatchte Upstream-Implementierung 0.5.0
+als nachvollziehbare CommonJS-Distribution für den CJS-Konsumenten
+query-string 7; siehe `vendor/decode-uri-component/SECURITY_FORK.md`.
+Ein reiner ESM-Versionsoverride würde den tatsächlich verwendeten Aufruf
+brechen. Der Parser wird deshalb zusätzlich durch query-string selbst und
+mit bösartig fehlerhafter Prozentkodierung unter einem Prozesstimeout getestet.
+
+OSV prüft nun auch bei PRs den kompletten Abhängigkeitsbaum, nicht nur neu
+hinzugekommene Befunde. Es wurde keine neue Advisory-Ausnahme hinzugefügt.
+Die vorhandenen zeitlich begrenzten image-size-Ausnahmen bezeichnen bereits
+im lokalen Fork behobene Fehler; dessen Regressionstests bleiben aktiv.
+
+Upstream-Nachweise:
+
+- https://github.com/advisories/GHSA-6gmq-8vp8-gcm6
+- https://github.com/advisories/GHSA-c83g-rgw3-j3cx
+- https://github.com/advisories/GHSA-73wf-gq98-2v4g
+- https://github.com/advisories/GHSA-2v37-7h3g-55p8
+- https://github.com/advisories/GHSA-vcc3-ghjq-m6fr

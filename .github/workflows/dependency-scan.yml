@@ -15,27 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  scan-pr:
-    name: Reject newly introduced vulnerable dependencies
-    if: github.event_name == 'pull_request'
-    permissions:
-      actions: read
-      contents: read
-      # Required by the pinned reusable workflow; SARIF upload stays disabled.
-      security-events: write
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
-    with:
-      scan-args: |-
-        --config=./osv-scanner.toml
-        --include-git-root
-        --recursive
-        ./
-      fail-on-vuln: true
-      upload-sarif: false
-
   scan-branch:
     name: Scan the complete dependency tree
-    if: github.event_name != 'pull_request'
     permissions:
       actions: read
       contents: read

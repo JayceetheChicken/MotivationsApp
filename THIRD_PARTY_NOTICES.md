@@ -12,7 +12,7 @@ Open-Source-Lizenz gestellt.
 
 ## Zusammenfassung
 
-- Erfasste Pakete: **771**
+- Erfasste Pakete: **774**
 - Verschiedene Lizenzausdruecke: **16**
 - Copyleft-Lizenzen mit Verbot fuer verlinkte Artefakte: **0**
 - Lizenzen ohne Freigabe in der Allowlist: **0**
@@ -20,10 +20,10 @@ Open-Source-Lizenz gestellt.
 
 | Lizenz | Pakete |
 | --- | ---: |
-| `MIT` | 658 |
+| `MIT` | 662 |
 | `ISC` | 36 |
 | `BSD-3-Clause` | 20 |
-| `Apache-2.0` | 14 |
+| `Apache-2.0` | 13 |
 | `BSD-2-Clause` | 13 |
 | `MPL-2.0` | 12 |
 | `BlueOak-1.0.0` | 6 |
@@ -42,14 +42,6 @@ Open-Source-Lizenz gestellt.
 Die folgenden Hinweise stammen aus den LICENSE-Dateien der installierten Registry-
 Pakete beziehungsweise der explizit verlinkten lokalen Paketquellen und muessen mit
 der Anwendung ausgeliefert werden.
-
-### @adobe/css-tools@4.5.0
-
-- Lizenz: `MIT`
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (c) 2012 TJ Holowaychuk <tj@vision-media.ca>
-> Copyright (c) 2022 Jean-Philippe Zolesio <holblin@gmail.com>
 
 ### @babel/code-frame@7.29.7
 
@@ -621,7 +613,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2014-present Sebastian McKenzie and other contributors
 
-### @babel/plugin-transform-regenerator@7.29.7
+### @babel/plugin-transform-regenerator@7.29.8
 
 - Lizenz: `MIT`
 - Projektseite: https://babel.dev/docs/en/next/babel-plugin-transform-regenerator
@@ -727,7 +719,7 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) 2018-present NAVER Corp.
 > Copyright (C) 2011-2017 by Jorik Tangelder (Eight Media)
 
-### @expo-google-fonts/material-symbols@0.4.42
+### @expo-google-fonts/material-symbols@0.4.45
 
 - Lizenz: `MIT AND Apache-2.0`
 - Projektseite: https://github.com/expo/google-fonts/tree/master/font-packages/material-symbols#readme
@@ -735,7 +727,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Expo
 
-### @expo/cli@57.0.14
+### @expo/cli@57.0.22
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/cli
@@ -751,7 +743,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020-present 650 Industries, Inc. (aka Expo)
 
-### @expo/config@57.0.7
+### @expo/config@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/config#readme
@@ -759,7 +751,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/config-plugins@57.0.7
+### @expo/config-plugins@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/guides/config-plugins/
@@ -797,7 +789,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/env@2.4.2
+### @expo/env@2.4.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/env#readme
@@ -813,7 +805,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/fingerprint@0.20.7
+### @expo/fingerprint@0.20.12
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/fingerprint#readme
@@ -821,7 +813,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/image-utils@0.11.4
+### @expo/image-utils@0.11.5
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/%40expo/image-utils#readme
@@ -829,7 +821,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/inline-modules@0.1.5
+### @expo/inline-modules@0.1.7
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -844,7 +836,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/local-build-cache-provider@57.0.6
+### @expo/local-build-cache-provider@57.0.8
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/local-build-cache-provider#readme
@@ -852,7 +844,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/log-box@57.0.2
+### @expo/log-box@57.0.4
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/log-box
@@ -860,7 +852,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/metro@56.0.0
+### @expo/metro@56.0.2
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -868,7 +860,7 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/metro-config@57.0.8
+### @expo/metro-config@57.0.12
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/metro-config#readme
@@ -876,7 +868,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/metro-file-map@57.0.1
+### @expo/metro-file-map@57.0.2
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/metro-file-map#readme
@@ -884,7 +876,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/metro-runtime@57.0.9
+### @expo/metro-runtime@57.0.15
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/metro-runtime
@@ -916,7 +908,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/prebuild-config@57.0.11
+### @expo/prebuild-config@57.0.15
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/prebuild-config#readme
@@ -924,7 +916,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/require-utils@57.0.4
+### @expo/require-utils@57.0.5
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/require-utils#readme
@@ -932,7 +924,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2025-present 650 Industries, Inc. (aka Expo)
 
-### @expo/router-server@57.0.5
+### @expo/router-server@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/routing/introduction/
@@ -969,7 +961,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015 Joran Dirk Greef
 
-### @expo/ui@57.0.10
+### @expo/ui@57.0.16
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/ui/
@@ -1372,76 +1364,76 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present, Facebook, Inc.
 
-### @react-native/assets-registry@0.86.2
+### @react-native/assets-registry@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/assets#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/babel-plugin-codegen@0.86.2
+### @react-native/babel-plugin-codegen@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/babel-plugin-codegen#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/babel-preset@0.86.2
+### @react-native/babel-preset@0.86.3
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/codegen@0.86.2
+### @react-native/codegen@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/react-native-codegen#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/community-cli-plugin@0.86.2
+### @react-native/community-cli-plugin@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/community-cli-plugin#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/debugger-frontend@0.86.2
+### @react-native/debugger-frontend@0.86.3
 
 - Lizenz: `BSD-3-Clause`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/debugger-frontend#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/debugger-shell@0.86.2
+### @react-native/debugger-shell@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/debugger-shell#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/dev-middleware@0.86.2
+### @react-native/dev-middleware@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/dev-middleware#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/gradle-plugin@0.86.2
+### @react-native/gradle-plugin@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/gradle-plugin#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/jest-preset@0.86.2
+### @react-native/jest-preset@0.86.3
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/js-polyfills@0.86.2
+### @react-native/js-polyfills@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/polyfills#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/metro-babel-transformer@0.86.2
+### @react-native/metro-babel-transformer@0.86.3
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/metro-config@0.86.2
+### @react-native/metro-config@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/metro-config#readme
@@ -1453,13 +1445,13 @@ der Anwendung ausgeliefert werden.
 - Projektseite: https://github.com/facebook/react-native/tree/HEAD/packages/normalize-color#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/normalize-colors@0.86.2
+### @react-native/normalize-colors@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/normalize-color#readme
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @react-native/virtualized-lists@0.86.2
+### @react-native/virtualized-lists@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/react/react-native/tree/HEAD/packages/virtualized-lists#readme
@@ -1550,22 +1542,6 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Supabase
 
-### @testing-library/dom@10.4.1
-
-- Lizenz: `MIT`
-- Projektseite: https://github.com/testing-library/dom-testing-library#readme
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (c) 2017 Kent C. Dodds
-
-### @testing-library/jest-dom@6.9.1
-
-- Lizenz: `MIT`
-- Projektseite: https://github.com/testing-library/jest-dom#readme
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (c) 2017 Kent C. Dodds
-
 ### @testing-library/react-native@14.0.1
 
 - Lizenz: `MIT`
@@ -1573,22 +1549,6 @@ der Anwendung ausgeliefert werden.
 - Lizenzdatei im Paket: `LICENSE`
 
 > Copyright (c) 2018 Callstack and Rally Health
-
-### @testing-library/user-event@14.6.1
-
-- Lizenz: `MIT`
-- Projektseite: https://github.com/testing-library/user-event#readme
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (c) 2020 Giorgio Polvara
-
-### @types/aria-query@5.0.4
-
-- Lizenz: `MIT`
-- Projektseite: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/aria-query
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (c) Microsoft Corporation.
 
 ### @types/babel__core@7.20.5
 
@@ -1727,7 +1687,7 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) 2021, Andrea Giammarchi, @WebReflection
 > copyright notice and this permission notice appear in all copies.
 
-### @xmldom/xmldom@0.8.13
+### @xmldom/xmldom@0.8.15
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/xmldom/xmldom
@@ -1736,7 +1696,7 @@ der Anwendung ausgeliefert werden.
 > Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors
 > Copyright 2012 - 2017 @jindw <jindw@xidea.org> and other contributors, as listed in: https://github.com/jindw/xmldom/graphs/contributors
 
-### @xmldom/xmldom@0.9.10
+### @xmldom/xmldom@0.9.12
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/xmldom/xmldom
@@ -1784,7 +1744,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>
 
-### agent-cli-detector@0.1.5
+### agent-cli-detector@0.1.7
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/agent-cli-detector#readme
@@ -1880,17 +1840,6 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2017 Anton Korzunov
 
-### aria-query@5.3.0
-
-- Lizenz: `Apache-2.0`
-- Projektseite: https://github.com/A11yance/aria-query#readme
-- Lizenzdatei im Paket: `LICENSE`
-
-> copyright notice that is included in or attached to the work
-> copyright license to reproduce, prepare Derivative Works of,
-> (c) You must retain, in the Source form of any Derivative Works
-> Copyright 2020 A11yance
-
 ### asap@2.0.6
 
 - Lizenz: `MIT`
@@ -1982,7 +1931,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Nicolò Ribaudo and other contributors
 
-### babel-preset-expo@57.0.6
+### babel-preset-expo@57.0.10
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/babel-preset-expo#readme
@@ -2019,7 +1968,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2014 Jameson Little
 
-### baseline-browser-mapping@2.10.42
+### baseline-browser-mapping@2.11.21
 
 - Lizenz: `Apache-2.0`
 - Lizenzdatei im Paket: `LICENSE.txt`
@@ -2077,7 +2026,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2014-present, Jon Schlinkert.
 
-### browserslist@4.28.5
+### browserslist@4.28.9
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -2135,7 +2084,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
-### caniuse-lite@1.0.30001803
+### caniuse-lite@1.0.30001810
 
 - Lizenz: `CC-BY-4.0`
 - Lizenzdatei im Paket: `LICENSE`
@@ -2424,14 +2373,6 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Felix Böhm
 
-### css.escape@1.5.1
-
-- Lizenz: `MIT`
-- Projektseite: https://mths.be/cssescape
-- Lizenzdatei im Paket: `LICENSE-MIT.txt`
-
-> Copyright Mathias Bynens <https://mathiasbynens.be/>
-
 ### csstype@3.2.3
 
 - Lizenz: `MIT`
@@ -2461,9 +2402,10 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) 2014-2017 TJ Holowaychuk <tj@vision-media.ca>
 > Copyright (c) 2018-2021 Josh Junon
 
-### decode-uri-component@0.2.2
+### decode-uri-component@0.5.0+lernzeit.cjs.1
 
 - Lizenz: `MIT`
+- Bezugsquelle: lokal versioniertes Paket `vendor/decode-uri-component`
 - Lizenzdatei im Paket: `license`
 
 > Copyright (c) 2017, Sam Verschueren <sam.verschueren@gmail.com> (github.com/SamVerschueren)
@@ -2497,13 +2439,6 @@ der Anwendung ausgeliefert werden.
 - Lizenzdatei im Paket: `LICENSE`
 
 > Copyright (c) 2014-2018 Douglas Christopher Wilson
-
-### dequal@2.0.3
-
-- Lizenz: `MIT`
-- Lizenzdatei im Paket: `license`
-
-> Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
 
 ### destroy@1.2.0
 
@@ -2553,20 +2488,6 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) Phil Pluckthun,
 > Copyright (c) 650 Industries, Inc. (aka Expo),
 
-### dom-accessibility-api@0.5.16
-
-- Lizenz: `MIT`
-- Lizenzdatei im Paket: `LICENSE.md`
-
-> Copyright (c) 2020 Sebastian Silbermann
-
-### dom-accessibility-api@0.6.3
-
-- Lizenz: `MIT`
-- Lizenzdatei im Paket: `LICENSE.md`
-
-> Copyright (c) 2020 Sebastian Silbermann
-
 ### dom-serializer@2.0.0
 
 - Lizenz: `MIT`
@@ -2602,7 +2523,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2014 Jonathan Ong me@jongleberry.com
 
-### electron-to-chromium@1.5.389
+### electron-to-chromium@1.5.422
 
 - Lizenz: `ISC`
 - Lizenzdatei im Paket: `LICENSE`
@@ -2750,7 +2671,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### expo@57.0.12
+### expo@57.0.20
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo
@@ -2758,7 +2679,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-asset@57.0.10
+### expo-asset@57.0.16
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/asset/
@@ -2766,7 +2687,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-build-properties@57.0.10
+### expo-build-properties@57.0.17
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/build-properties
@@ -2774,7 +2695,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-constants@57.0.10
+### expo-constants@57.0.17
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/constants/
@@ -2782,7 +2703,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-crypto@57.0.1
+### expo-crypto@57.0.2
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/crypto/
@@ -2790,7 +2711,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-dev-client@57.0.11
+### expo-dev-client@57.0.18
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/dev-client/
@@ -2798,7 +2719,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-dev-launcher@57.0.11
+### expo-dev-launcher@57.0.19
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev
@@ -2806,7 +2727,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-dev-menu@57.0.11
+### expo-dev-menu@57.0.18
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev
@@ -2830,7 +2751,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-file-system@57.0.2
+### expo-file-system@57.0.6
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/filesystem/
@@ -2838,7 +2759,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-font@57.0.1
+### expo-font@57.0.3
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/font/
@@ -2854,7 +2775,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-image@57.0.1
+### expo-image@57.0.4
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/image/
@@ -2870,7 +2791,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-image-manipulator@57.0.9
+### expo-image-manipulator@57.0.16
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/imagemanipulator/
@@ -2878,7 +2799,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-image-picker@57.0.9
+### expo-image-picker@57.0.16
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/imagepicker/
@@ -2902,7 +2823,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-linking@57.0.5
+### expo-linking@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/linking
@@ -2918,7 +2839,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-autolinking@57.0.9
+### expo-modules-autolinking@57.0.12
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-autolinking#readme
@@ -2926,7 +2847,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-core@57.0.10
+### expo-modules-core@57.0.16
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-core
@@ -2934,7 +2855,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-jsi@57.0.4
+### expo-modules-jsi@57.0.8
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-jsi
@@ -2942,13 +2863,13 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-router@57.0.12
+### expo-router@57.0.19
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/routing/introduction/
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### expo-secure-store@57.0.1
+### expo-secure-store@57.0.3
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/securestore/
@@ -2956,7 +2877,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-server@57.0.2
+### expo-server@57.0.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-server#readme
@@ -2964,7 +2885,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-sharing@57.0.8
+### expo-sharing@57.0.18
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/sharing/
@@ -2972,7 +2893,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-splash-screen@57.0.6
+### expo-splash-screen@57.0.8
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/splash-screen/
@@ -2980,7 +2901,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-sqlite@57.0.1
+### expo-sqlite@57.0.2
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/sqlite/
@@ -3004,7 +2925,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-system-ui@57.0.2
+### expo-system-ui@57.0.3
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/system-ui
@@ -3263,7 +3184,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Jordan Harband and contributors
 
-### hermes-compiler@250829098.0.16
+### hermes-compiler@250829098.0.17
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
@@ -3983,14 +3904,6 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) Isaac Z. Schlueter and Contributors
 > copyright notice and this permission notice appear in all copies.
 
-### lz-string@1.5.0
-
-- Lizenz: `MIT`
-- Projektseite: http://pieroxy.net/blog/pages/lz-string/index.html
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (c) 2013 pieroxy
-
 ### make-dir@4.0.0
 
 - Lizenz: `MIT`
@@ -4049,7 +3962,17 @@ der Anwendung ausgeliefert werden.
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
+### metro@0.84.5
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
 ### metro-babel-transformer@0.84.4
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
+### metro-babel-transformer@0.84.5
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
@@ -4059,7 +3982,17 @@ der Anwendung ausgeliefert werden.
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
+### metro-cache@0.84.5
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
 ### metro-cache-key@0.84.4
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
+### metro-cache-key@0.84.5
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
@@ -4069,7 +4002,17 @@ der Anwendung ausgeliefert werden.
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
+### metro-config@0.84.5
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
 ### metro-core@0.84.4
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
+### metro-core@0.84.5
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
@@ -4079,7 +4022,17 @@ der Anwendung ausgeliefert werden.
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
+### metro-file-map@0.84.5
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
 ### metro-minify-terser@0.84.4
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
+### metro-minify-terser@0.84.5
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
@@ -4089,7 +4042,17 @@ der Anwendung ausgeliefert werden.
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
+### metro-resolver@0.84.5
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
 ### metro-runtime@0.84.4
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
+### metro-runtime@0.84.5
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
@@ -4099,7 +4062,17 @@ der Anwendung ausgeliefert werden.
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
+### metro-source-map@0.84.5
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
 ### metro-symbolicate@0.84.4
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
+### metro-symbolicate@0.84.5
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
@@ -4109,7 +4082,17 @@ der Anwendung ausgeliefert werden.
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
+### metro-transform-plugins@0.84.5
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
 ### metro-transform-worker@0.84.4
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
+### metro-transform-worker@0.84.5
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
@@ -4225,7 +4208,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Vercel, Inc.
 
-### multitars@1.0.1
+### multitars@1.0.2
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE.md`
@@ -4233,7 +4216,7 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) Phil Pluckthun,
 > Copyright (c) 650 Industries, Inc. (aka Expo),
 
-### nanoid@3.3.17
+### nanoid@3.3.18
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -4298,7 +4281,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2014 Robert Kieffer
 
-### node-releases@2.0.51
+### node-releases@2.0.54
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -4345,6 +4328,11 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) 2016 Andres Suarez
 
 ### ob1@0.84.4
+
+- Lizenz: `MIT`
+- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+
+### ob1@0.84.5
 
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
@@ -4554,7 +4542,7 @@ der Anwendung ausgeliefert werden.
 - Lizenzdatei im Paket: `LICENSE`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### postcss@8.5.26
+### postcss@8.5.28
 
 - Lizenz: `MIT`
 - Projektseite: https://postcss.org/
@@ -4570,13 +4558,6 @@ der Anwendung ausgeliefert werden.
 - Lizenzdatei im Paket: `LICENSE`
 
 > Copyright (c) Bogdan Chadkin <trysound@yandex.ru>
-
-### pretty-format@27.5.1
-
-- Lizenz: `MIT`
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (c) Facebook, Inc. and its affiliates.
 
 ### pretty-format@29.7.0
 
@@ -4712,14 +4693,6 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Facebook, Inc. and its affiliates.
 
-### react-is@17.0.2
-
-- Lizenz: `MIT`
-- Projektseite: https://reactjs.org/
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (c) Facebook, Inc. and its affiliates.
-
 ### react-is@18.3.1
 
 - Lizenz: `MIT`
@@ -4736,7 +4709,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### react-native@0.86.2
+### react-native@0.86.3
 
 - Lizenz: `MIT`
 - Projektseite: https://reactnative.dev/
@@ -4744,7 +4717,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### react-native-drawer-layout@4.2.9
+### react-native-drawer-layout@4.2.10
 
 - Lizenz: `MIT`
 - Projektseite: https://reactnavigation.org/docs/drawer-layout/
@@ -4972,6 +4945,13 @@ der Anwendung ausgeliefert werden.
 - Lizenzdatei im Paket: `LICENSE`
 
 > Copyright (c) Feross Aboukhadijeh
+
+### sandbox-cli-detector@0.2.0
+
+- Lizenz: `MIT`
+- Lizenzdatei im Paket: `LICENSE`
+
+> Copyright (c) 2026 David Mokos
 
 ### sax@1.6.0
 
@@ -5528,12 +5508,12 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
 
-### update-browserslist-db@1.2.3
+### update-browserslist-db@1.3.2
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
 
-> Copyright 2022 Andrey Sitnik <andrey@sitnik.ru> and other contributors
+> Copyright 2022 Andrey Sitnik <andrey@sitnik.es> and other contributors
 > COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 
 ### use-callback-ref@1.3.3
@@ -5847,210 +5827,210 @@ OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### Apache-2.0
 
-Wortlaut aus `aria-query@5.3.0`:
+Wortlaut aus `baseline-browser-mapping@2.11.21`:
 
 ```text
 Apache License
-Version 2.0, January 2004
-http://www.apache.org/licenses/
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
 
-TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
 
-1. Definitions.
+   1. Definitions.
 
-"License" shall mean the terms and conditions for use, reproduction,
-and distribution as defined by Sections 1 through 9 of this document.
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
 
-"Licensor" shall mean the copyright owner or entity authorized by
-the copyright owner that is granting the License.
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
 
-"Legal Entity" shall mean the union of the acting entity and all
-other entities that control, are controlled by, or are under common
-control with that entity. For the purposes of this definition,
-"control" means (i) the power, direct or indirect, to cause the
-direction or management of such entity, whether by contract or
-otherwise, or (ii) ownership of fifty percent (50%) or more of the
-outstanding shares, or (iii) beneficial ownership of such entity.
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
 
-"You" (or "Your") shall mean an individual or Legal Entity
-exercising permissions granted by this License.
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
 
-"Source" form shall mean the preferred form for making modifications,
-including but not limited to software source code, documentation
-source, and configuration files.
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
 
-"Object" form shall mean any form resulting from mechanical
-transformation or translation of a Source form, including but
-not limited to compiled object code, generated documentation,
-and conversions to other media types.
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
 
-"Work" shall mean the work of authorship, whether in Source or
-Object form, made available under the License, as indicated by a
-copyright notice that is included in or attached to the work
-(an example is provided in the Appendix below).
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
 
-"Derivative Works" shall mean any work, whether in Source or Object
-form, that is based on (or derived from) the Work and for which the
-editorial revisions, annotations, elaborations, or other modifications
-represent, as a whole, an original work of authorship. For the purposes
-of this License, Derivative Works shall not include works that remain
-separable from, or merely link (or bind by name) to the interfaces of,
-the Work and Derivative Works thereof.
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
 
-"Contribution" shall mean any work of authorship, including
-the original version of the Work and any modifications or additions
-to that Work or Derivative Works thereof, that is intentionally
-submitted to Licensor for inclusion in the Work by the copyright owner
-or by an individual or Legal Entity authorized to submit on behalf of
-the copyright owner. For the purposes of this definition, "submitted"
-means any form of electronic, verbal, or written communication sent
-to the Licensor or its representatives, including but not limited to
-communication on electronic mailing lists, source code control systems,
-and issue tracking systems that are managed by, or on behalf of, the
-Licensor for the purpose of discussing and improving the Work, but
-excluding communication that is conspicuously marked or otherwise
-designated in writing by the copyright owner as "Not a Contribution."
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
 
-"Contributor" shall mean Licensor and any individual or Legal Entity
-on behalf of whom a Contribution has been received by Licensor and
-subsequently incorporated within the Work.
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
 
-2. Grant of Copyright License. Subject to the terms and conditions of
-this License, each Contributor hereby grants to You a perpetual,
-worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-copyright license to reproduce, prepare Derivative Works of,
-publicly display, publicly perform, sublicense, and distribute the
-Work and such Derivative Works in Source or Object form.
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
 
-3. Grant of Patent License. Subject to the terms and conditions of
-this License, each Contributor hereby grants to You a perpetual,
-worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-(except as stated in this section) patent license to make, have made,
-use, offer to sell, sell, import, and otherwise transfer the Work,
-where such license applies only to those patent claims licensable
-by such Contributor that are necessarily infringed by their
-Contribution(s) alone or by combination of their Contribution(s)
-with the Work to which such Contribution(s) was submitted. If You
-institute patent litigation against any entity (including a
-cross-claim or counterclaim in a lawsuit) alleging that the Work
-or a Contribution incorporated within the Work constitutes direct
-or contributory patent infringement, then any patent licenses
-granted to You under this License for that Work shall terminate
-as of the date such litigation is filed.
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
 
-4. Redistribution. You may reproduce and distribute copies of the
-Work or Derivative Works thereof in any medium, with or without
-modifications, and in Source or Object form, provided that You
-meet the following conditions:
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
 
-(a) You must give any other recipients of the Work or
-Derivative Works a copy of this License; and
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
 
-(b) You must cause any modified files to carry prominent notices
-stating that You changed the files; and
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
 
-(c) You must retain, in the Source form of any Derivative Works
-that You distribute, all copyright, patent, trademark, and
-attribution notices from the Source form of the Work,
-excluding those notices that do not pertain to any part of
-the Derivative Works; and
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
 
-(d) If the Work includes a "NOTICE" text file as part of its
-distribution, then any Derivative Works that You distribute must
-include a readable copy of the attribution notices contained
-within such NOTICE file, excluding those notices that do not
-pertain to any part of the Derivative Works, in at least one
-of the following places: within a NOTICE text file distributed
-as part of the Derivative Works; within the Source form or
-documentation, if provided along with the Derivative Works; or,
-within a display generated by the Derivative Works, if and
-wherever such third-party notices normally appear. The contents
-of the NOTICE file are for informational purposes only and
-do not modify the License. You may add Your own attribution
-notices within Derivative Works that You distribute, alongside
-or as an addendum to the NOTICE text from the Work, provided
-that such additional attribution notices cannot be construed
-as modifying the License.
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
 
-You may add Your own copyright statement to Your modifications and
-may provide additional or different license terms and conditions
-for use, reproduction, or distribution of Your modifications, or
-for any such Derivative Works as a whole, provided Your use,
-reproduction, and distribution of the Work otherwise complies with
-the conditions stated in this License.
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
 
-5. Submission of Contributions. Unless You explicitly state otherwise,
-any Contribution intentionally submitted for inclusion in the Work
-by You to the Licensor shall be under the terms and conditions of
-this License, without any additional terms or conditions.
-Notwithstanding the above, nothing herein shall supersede or modify
-the terms of any separate license agreement you may have executed
-with Licensor regarding such Contributions.
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
 
-6. Trademarks. This License does not grant permission to use the trade
-names, trademarks, service marks, or product names of the Licensor,
-except as required for reasonable and customary use in describing the
-origin of the Work and reproducing the content of the NOTICE file.
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
 
-7. Disclaimer of Warranty. Unless required by applicable law or
-agreed to in writing, Licensor provides the Work (and each
-Contributor provides its Contributions) on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-implied, including, without limitation, any warranties or conditions
-of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-PARTICULAR PURPOSE. You are solely responsible for determining the
-appropriateness of using or redistributing the Work and assume any
-risks associated with Your exercise of permissions under this License.
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
 
-8. Limitation of Liability. In no event and under no legal theory,
-whether in tort (including negligence), contract, or otherwise,
-unless required by applicable law (such as deliberate and grossly
-negligent acts) or agreed to in writing, shall any Contributor be
-liable to You for damages, including any direct, indirect, special,
-incidental, or consequential damages of any character arising as a
-result of this License or out of the use or inability to use the
-Work (including but not limited to damages for loss of goodwill,
-work stoppage, computer failure or malfunction, or any and all
-other commercial damages or losses), even if such Contributor
-has been advised of the possibility of such damages.
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
 
-9. Accepting Warranty or Additional Liability. While redistributing
-the Work or Derivative Works thereof, You may choose to offer,
-and charge a fee for, acceptance of support, warranty, indemnity,
-or other liability obligations and/or rights consistent with this
-License. However, in accepting such obligations, You may act only
-on Your own behalf and on Your sole responsibility, not on behalf
-of any other Contributor, and only if You agree to indemnify,
-defend, and hold each Contributor harmless for any liability
-incurred by, or claims asserted against, such Contributor by reason
-of your accepting any such warranty or additional liability.
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
 
-END OF TERMS AND CONDITIONS
+   END OF TERMS AND CONDITIONS
 
-APPENDIX: How to apply the Apache License to your work.
+   APPENDIX: How to apply the Apache License to your work.
 
-To apply the Apache License to your work, attach the following
-boilerplate notice, with the fields enclosed by brackets "{}"
-replaced with your own identifying information. (Don't include
-the brackets!)  The text should be enclosed in the appropriate
-comment syntax for the file format. We also recommend that a
-file or class name and description of purpose be included on the
-same "printed page" as the copyright notice for easier
-identification within third-party archives.
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
 
-Copyright 2020 A11yance
+   Copyright [yyyy] [name of copyright owner]
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-http://www.apache.org/licenses/LICENSE-2.0
+       http://www.apache.org/licenses/LICENSE-2.0
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 ```
 
 ### BlueOak-1.0.0
@@ -6179,7 +6159,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### CC-BY-4.0
 
-Wortlaut aus `caniuse-lite@1.0.30001803`:
+Wortlaut aus `caniuse-lite@1.0.30001810`:
 
 ```text
 Attribution 4.0 International
@@ -6717,19 +6697,31 @@ IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### MIT
 
-Wortlaut aus `@adobe/css-tools@4.5.0`:
+Wortlaut aus `@babel/code-frame@7.29.7`:
 
 ```text
-(The MIT License)
+MIT License
 
-Copyright (c) 2012 TJ Holowaychuk <tj@vision-media.ca>
-Copyright (c) 2022 Jean-Philippe Zolesio <holblin@gmail.com>
+Copyright (c) 2014-present Sebastian McKenzie and other contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the 'Software'), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
 
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### MPL-2.0

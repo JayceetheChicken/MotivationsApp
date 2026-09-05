@@ -580,12 +580,15 @@ select throws_ok(
 );
 reset role;
 
+-- Observe the side effect in a new statement snapshot. A CTE and its sibling
+-- EXISTS share the snapshot taken before the volatile RPC inserts the fence.
+create temporary table deletion_fence_result as
+select public.begin_account_deletion(
+  'd9111111-1111-4111-8111-111111111111'
+) value;
+
 select ok(
-  (with result as (
-    select public.begin_account_deletion(
-      'd9111111-1111-4111-8111-111111111111'
-    ) value
-  )
+  (
   select value ->> 'prepared' = 'true'
     and value ->> 'trigger_managed' = 'true'
     and value ->> 'storage_fenced' = 'true'
@@ -593,7 +596,7 @@ select ok(
       select 1 from private.account_deletion_intents intent
       where intent.user_id = 'd9111111-1111-4111-8111-111111111111'
     )
-  from result),
+  from pg_temp.deletion_fence_result),
   'begin_account_deletion establishes the persistent Storage fence'
 );
 

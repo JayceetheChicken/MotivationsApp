@@ -1994,6 +1994,20 @@ describe('generated AndroidManifest.xml', () => {
     expect(stripped).not.toContain('<!--');
   });
 
+  it('does not attribute MainActivity filters to a preceding self-closing activity', () => {
+    const xml = DEVELOPMENT_MANIFEST.replace(
+      '<activity android:name=".MainActivity"',
+      '<activity android:name="internal.DebugActivity" android:exported="false"/>\n<activity android:name=".MainActivity"',
+    );
+    expect(xml).toContain('internal.DebugActivity');
+    expect(nativeLinking.collectNativeLinkingIssues(xml, DEVELOPMENT_ENVIRONMENT).failures).toEqual([]);
+    expect(nativeLinking.collectNativeLinkingIssues(
+      xml.replace('android:launchMode="singleTask" android:exported="true"',
+        'android:launchMode="singleTask" android:exported="false"'),
+      DEVELOPMENT_ENVIRONMENT,
+    ).failures.join(' ')).toMatch(/exportierten MainActivity/);
+  });
+
   it('reads a pathPrefix or pathPattern as the declared path', () => {
     expect(nativeLinking.pathOf({ pathPrefix: '/update-password' })).toBe('/update-password');
     expect(nativeLinking.pathOf({ pathPattern: '/update-password' })).toBe('/update-password');

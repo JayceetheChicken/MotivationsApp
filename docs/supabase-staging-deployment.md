@@ -45,13 +45,15 @@ Alle vier Schritte müssen fehlerfrei sein. Genau diese Schritte laufen auch in
 
 ```bash
 supabase link --project-ref <STAGING_REF>
-supabase db diff --linked --schema public,private   # muss leer sein
+supabase db diff --linked --schema public,private   # gegen geplante Migrationen prüfen
 supabase db push --linked --dry-run                 # zeigt genau die geplanten Migrationen
 supabase db push --linked
 ```
 
-`db diff` darf **vor** dem Push nichts ausgeben. Eine Ausgabe bedeutet, dass am
-Staging-Projekt manuell etwas geändert wurde; das ist zuerst zu klären.
+Vor dem ersten Push sind Unterschiede durch noch nicht angewandte Migrationen
+erwartet. Den Diff gegen die geplanten Migrationen prüfen und zusätzliche,
+unerklärte Dashboard-Änderungen klären. Erst nach dem Push muss der Schema-Diff
+leer sein.
 
 Nach dem Push:
 
@@ -124,14 +126,14 @@ konfiguriert ausschließlich den lokalen Stack.
 | Einstellung | Sollwert |
 | --- | --- |
 | Site URL | `https://<betreiber-domain>` |
-| Redirect-Allowlist | genau `lernzeit://auth/update-password?type=recovery` und `https://<betreiber-domain>/update-password?type=recovery`. Keine Wildcards, kein `*`. |
+| Redirect-Allowlist | Produktion: ausschließlich `https://<betreiber-domain>/update-password?type=recovery`. Das private `lernzeit://auth/update-password?type=recovery` nur im getrennten Staging-Projekt für Development/Preview erlauben. Keine Wildcards. |
 | E-Mail-Bestätigung | **aktiviert** („Confirm email“). Lokal ist sie aus, damit Tests ohne SMTP laufen. |
 | Secure email change | aktiviert (doppelte Bestätigung) |
 | Minimale Passwortlänge | mindestens 10, passend zu `supabase/config.toml` |
 | Leaked-password-Schutz | aktiviert |
 | JWT-Gültigkeit | 3600 Sekunden |
 | Refresh-Token-Rotation | aktiviert, Reuse-Interval 10 Sekunden |
-| CAPTCHA | hCaptcha oder Turnstile für Sign-up, Sign-in und Password-Recovery aktivieren |
+| Bot-Schutz | Die unten genannten serverseitigen Auth- und Versandlimits konfigurieren und testen. Der native Client implementiert derzeit keinen CAPTCHA-Token-Flow; eine reine Dashboard-Aktivierung würde Anmeldung und Recovery blockieren. CAPTCHA erfordert eine separate, getestete Client-Integration. |
 | Anonyme Anmeldungen | deaktiviert |
 | Aktivierte Provider | nur E-Mail/Passwort |
 
@@ -143,8 +145,10 @@ Produktion vorgesehen. Vor dem Release ein eigenes SMTP hinterlegen:
 - Absenderadresse auf der Betreiberdomain, mit SPF, DKIM und DMARC.
 - Nach der Umstellung Zustellung von Registrierungsbestätigung,
   Passwort-Reset und E-Mail-Änderung real testen (auch Spam-Ordner).
-- Die Reset-Vorlage muss auf `lernzeit://auth/update-password?type=recovery`
-  beziehungsweise die HTTPS-Variante zeigen.
+- Die Reset-Vorlage muss Supabases einmaligen Bestätigungslink verwenden und
+  dessen validierten Redirect beibehalten. Den Verifikationsschritt nicht durch
+  einen direkten Link auf die App ersetzen. Produktion verwendet ausschließlich
+  die HTTPS-Variante; PKCE verlangt das Gerät, das den Reset angefordert hat.
 
 ### Rate Limits
 
@@ -192,7 +196,7 @@ Erst wenn Staging vollständig grün ist:
 
 ```bash
 supabase link --project-ref <PROD_REF>
-supabase db diff --linked --schema public,private   # muss leer sein
+supabase db diff --linked --schema public,private   # gegen geplante Migrationen prüfen
 supabase db push --linked --dry-run
 supabase db push --linked
 supabase functions deploy delete-account --project-ref <PROD_REF>

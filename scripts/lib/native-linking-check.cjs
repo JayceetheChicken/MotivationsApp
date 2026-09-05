@@ -21,7 +21,7 @@ const SELF_CLOSING_INTENT_FILTER = /<intent-filter\b([^>]*)\/>/gi;
 const DATA_PATTERN = /<data\b([^>]*?)\/?>/gi;
 const ACTION_PATTERN = /<action\b([^>]*?)\/?>/gi;
 const CATEGORY_PATTERN = /<category\b([^>]*?)\/?>/gi;
-const COMPONENT_PATTERN = /<(activity-alias|activity|service|receiver|provider)(?=[\s/>])([^>]*)>([\s\S]*?)<\/\1>/gi;
+const COMPONENT_PATTERN = /<(activity-alias|activity|service|receiver|provider)(?=[\s/>])([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/gi;
 const ATTRIBUTE_PATTERN = /([a-zA-Z_][\w:.-]*)\s*=\s*"([^"]*)"/g;
 const EXPECTED_ANDROID_PACKAGE = 'de.lernzeit.app';
 const EXPECTED_MAIN_ACTIVITIES = new Set(['.MainActivity', `${EXPECTED_ANDROID_PACKAGE}.MainActivity`]);
@@ -150,6 +150,8 @@ function parseIntentFilters(xml) {
       exported: attributes.exported ?? '',
       permission: attributes.permission ?? '',
     };
+    // A self-closing component has no children. Consume it separately so its
+    // name/exported flag can never be attributed to the next activity's links.
     filters.push(...filtersInComponent(componentMatch[3] ?? '', component));
     componentMatch = componentScanner.exec(text);
   }
