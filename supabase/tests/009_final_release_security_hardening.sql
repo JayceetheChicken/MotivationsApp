@@ -409,9 +409,10 @@ where blocker_id = 'd9111111-1111-4111-8111-111111111111'
   and blocked_id = 'd9222222-2222-4222-8222-222222222222';
 
 insert into public.learning_presence(
-  user_id, state, active_since, last_study_at, last_seen_at, expires_at
+  user_id, device_id, state, active_since, last_study_at, last_seen_at, expires_at
 ) values (
   'd9222222-2222-4222-8222-222222222222',
+  'd9333333-3333-4333-8333-333333333333',
   'learning',
   clock_timestamp() - interval '5 minutes',
   clock_timestamp() - interval '1 minute',

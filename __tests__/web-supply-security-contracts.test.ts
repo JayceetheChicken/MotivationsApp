@@ -55,6 +55,21 @@ describe('hosted web security policy', () => {
     ]).join(' ')).toMatch(/Inline-Skript.*fehlt/);
   });
 
+  it('inventories script end tags with browser-tolerated whitespace and trailing data', () => {
+    const script = 'globalThis.compromised=true;';
+    const html = `<script>${script}</script\t\n data-extra="ignored">`;
+    expect(exportCsp.executableInlineScripts(html)).toEqual([script]);
+  });
+
+  it('does not treat commented script markup as executable', () => {
+    expect(exportCsp.executableInlineScripts('<!-- <script>alert(1)</script> -->')).toEqual([]);
+  });
+
+  it('inventories an unclosed inline script through end of file', () => {
+    expect(exportCsp.executableInlineScripts('<script>globalThis.open=true;'))
+      .toEqual(['globalThis.open=true;']);
+  });
+
   it('allows same-origin Expo scripts globally and overrides the deletion page to scriptless', () => {
     const rules = parseHeaderRules(readFileSync(path.join(projectRoot, 'public', '_headers'), 'utf8'));
     const appPolicy = rules.get('/*')?.get('Content-Security-Policy');

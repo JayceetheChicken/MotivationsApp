@@ -75,14 +75,84 @@ function metaPolicies(html) {
   return policies;
 }
 
+function isHtmlTagBoundary(character) {
+  return character === undefined || /[\t\n\f\r />]/.test(character);
+}
+
+function tagEnd(html, start) {
+  let quote = null;
+  for (let index = start; index < html.length; index += 1) {
+    const character = html[index];
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Finds the raw-text end tag using HTML tag-name boundaries rather than a
+ * filtering regexp. Browsers terminate a script at malformed spellings such as
+ * `</script\t data-extra>` too; overlooking those bytes would let an executable
+ * inline script escape the CSP hash inventory.
+ */
+function scriptEnd(html, lowerHtml, start) {
+  let cursor = start;
+  for (;;) {
+    const candidate = lowerHtml.indexOf('</script', cursor);
+    // An unclosed script consumes the remaining document as raw text. Inventory
+    // those bytes too instead of silently treating malformed HTML as scriptless.
+    if (candidate === -1) return { contentEnd: html.length, tagEnd: html.length };
+    const afterName = candidate + '</script'.length;
+    if (!isHtmlTagBoundary(lowerHtml[afterName])) {
+      cursor = afterName;
+      continue;
+    }
+    const end = html.indexOf('>', afterName);
+    return end === -1 ? { contentEnd: candidate, tagEnd: html.length } : {
+      contentEnd: candidate,
+      tagEnd: end + 1,
+    };
+  }
+}
+
 function executableInlineScripts(html) {
   const scripts = [];
-  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
-    const attributes = parseAttributes(`<script ${match[1]}>`);
-    if (attributes.has('src')) continue;
+  const lowerHtml = html.toLowerCase();
+  let cursor = 0;
+  while (cursor < html.length) {
+    const markup = html.indexOf('<', cursor);
+    if (markup === -1) break;
+    if (lowerHtml.startsWith('<!--', markup)) {
+      const commentEnd = lowerHtml.indexOf('-->', markup + 4);
+      cursor = commentEnd === -1 ? html.length : commentEnd + 3;
+      continue;
+    }
+    if (
+      !lowerHtml.startsWith('<script', markup)
+      || !isHtmlTagBoundary(lowerHtml[markup + '<script'.length])
+    ) {
+      cursor = markup + 1;
+      continue;
+    }
+
+    const openingEnd = tagEnd(html, markup + '<script'.length);
+    if (openingEnd === -1) break;
+    const attributes = parseAttributes(html.slice(markup, openingEnd + 1));
+    const end = scriptEnd(html, lowerHtml, openingEnd + 1);
+    if (!end) break;
     const type = attributes.get('type')?.trim().toLowerCase();
-    if (type && !['text/javascript', 'application/javascript', 'module'].includes(type)) continue;
-    scripts.push(match[2]);
+    if (
+      !attributes.has('src')
+      && (!type || ['text/javascript', 'application/javascript', 'module'].includes(type))
+    ) {
+      scripts.push(html.slice(openingEnd + 1, end.contentEnd));
+    }
+    cursor = end.tagEnd;
   }
   return scripts;
 }

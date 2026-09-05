@@ -122,17 +122,20 @@ describe('release-matrix public output isolation', () => {
     expect(publicOutput.resolvePublicOutputRoot(root, { NODE_ENV: 'test' })).toBe(path.join(root, 'public'));
   });
 
-  it.each([
+  const forbiddenOutputEnvironments: NodeJS.ProcessEnv[] = [
     { NODE_ENV: 'test', LERNZEIT_PUBLIC_OUTPUT_DIR: '.release-gate-matrix-test' },
     {
+      NODE_ENV: 'test',
       EAS_BUILD: 'true',
       EAS_BUILD_PROFILE: 'production',
       LERNZEIT_RELEASE_GATE: '1',
       LERNZEIT_RELEASE_MATRIX: '1',
       LERNZEIT_PUBLIC_OUTPUT_DIR: '.release-gate-matrix-attacker',
     },
-    { LERNZEIT_RELEASE_MATRIX: '1', LERNZEIT_PUBLIC_OUTPUT_DIR: '../outside' },
-  ])('rejects every environment-selected alternate output path %#', (environment) => {
+    { NODE_ENV: 'test', LERNZEIT_RELEASE_MATRIX: '1', LERNZEIT_PUBLIC_OUTPUT_DIR: '../outside' },
+  ];
+
+  it.each(forbiddenOutputEnvironments)('rejects every environment-selected alternate output path %#', (environment) => {
     expect(() => publicOutput.resolvePublicOutputRoot(root, environment)).toThrow(
       'ausschliesslich unter public/',
     );
@@ -1707,6 +1710,17 @@ describe('generated AndroidManifest.xml', () => {
     '      </intent-filter>',
   ].join('\n'));
 
+  /** Verbatim prebuild shape after expo-dev-client adds its launcher scheme. */
+  const MERGED_DEVELOPMENT_MANIFEST = manifestXml([
+    '      <intent-filter data-generated="true">',
+    '        <action android:name="android.intent.action.VIEW"/>',
+    '        <data android:scheme="lernzeit" android:host="auth" android:path="/update-password"/>',
+    '        <data android:scheme="exp+lernzeit"/>',
+    '        <category android:name="android.intent.category.BROWSABLE"/>',
+    '        <category android:name="android.intent.category.DEFAULT"/>',
+    '      </intent-filter>',
+  ].join('\n'));
+
   /** An extra intent filter appended just before the activity closes. */
   function withExtraFilter(xml: string, lines: readonly string[]): string {
     return xml.replace('    </activity>', `${lines.join('\n')}\n    </activity>`);
@@ -1755,6 +1769,36 @@ describe('generated AndroidManifest.xml', () => {
     expect(DEVELOPMENT_MANIFEST).toContain('android:host="auth"');
     expect(DEVELOPMENT_MANIFEST).toContain('android:path="/update-password"');
     expect(DEVELOPMENT_MANIFEST).not.toContain('android:autoVerify="true"');
+  });
+
+  it.each([
+    ['development', DEVELOPMENT_ENVIRONMENT],
+    ['preview', PREVIEW_ENVIRONMENT],
+    ['local', LOCAL_ENVIRONMENT],
+  ])('rejects an Expo launcher scheme injected into the recovery filter for %s', (_label, environment) => {
+    const { failures, summary } = nativeLinking.collectNativeLinkingIssues(
+      MERGED_DEVELOPMENT_MANIFEST,
+      environment,
+    );
+    expect(failures.join(' ')).toMatch(/private Recovery-Filter ist nicht exakt/);
+    expect(summary.customSchemeEntries).toBe(1);
+    expect(summary.privateRecoveryFilters).toBe(1);
+  });
+
+  it('rejects any third data declaration in the merged private recovery filter', () => {
+    const widened = MERGED_DEVELOPMENT_MANIFEST.replace(
+      '        <category android:name="android.intent.category.BROWSABLE"/>',
+      '        <data android:scheme="https" android:host="angreifer.de"/>\n'
+        + '        <category android:name="android.intent.category.BROWSABLE"/>',
+    );
+    expect(nativeLinking.collectNativeLinkingIssues(widened, DEVELOPMENT_ENVIRONMENT).failures.join(' '))
+      .toMatch(/private Recovery-Filter ist nicht exakt/);
+  });
+
+  it('rejects a second private-scheme declaration instead of confusing it with the dev-client launcher', () => {
+    const widened = MERGED_DEVELOPMENT_MANIFEST.replace('exp+lernzeit', 'lernzeit');
+    expect(nativeLinking.collectNativeLinkingIssues(widened, DEVELOPMENT_ENVIRONMENT).failures.join(' '))
+      .toMatch(/private Recovery-Filter ist nicht exakt/);
   });
 
   // Each profile's manifest must fail the *other* profile's rules. A checker
@@ -1873,6 +1917,35 @@ describe('generated AndroidManifest.xml', () => {
     expect(production.failures.join(' ')).toMatch(/debuggable=true/);
   });
 
+  it('rejects cleartext, overlay permissions and exported dev-client activities even in debug profiles', () => {
+    const debugManifest = DEVELOPMENT_MANIFEST
+      .replace(
+        'android:usesCleartextTraffic="false"',
+        'android:usesCleartextTraffic="true"',
+      )
+      .replace(
+        '<uses-permission android:name="android.permission.INTERNET"/>',
+        '<uses-permission android:name="android.permission.INTERNET"/>\n'
+          + '<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>\n'
+          + '<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>',
+      )
+      .replace(
+        '    </activity>',
+        '    </activity>\n'
+          + '    <activity android:name="expo.modules.devlauncher.launcher.DevLauncherActivity" android:exported="true"/>\n'
+          + '    <activity android:name="expo.modules.devlauncher.compose.AuthActivity" android:exported="true"/>\n'
+          + '    <activity android:name="androidx.compose.ui.tooling.PreviewActivity" android:exported="true"/>',
+      );
+
+    const failures = nativeLinking.collectNativeLinkingIssues(debugManifest, DEVELOPMENT_ENVIRONMENT).failures.join(' ');
+    expect(failures).toMatch(/usesCleartextTraffic/);
+    expect(failures).toMatch(/SYSTEM_ALERT_WINDOW/);
+    expect(failures).toMatch(/CHANGE_WIFI_MULTICAST_STATE/);
+    expect(failures).toMatch(/DevLauncherActivity/);
+    expect(nativeLinking.collectNativeLinkingIssues(debugManifest, PRODUCTION_ENVIRONMENT).failures.join(' '))
+      .toMatch(/usesCleartextTraffic|SYSTEM_ALERT_WINDOW|DevLauncherActivity/);
+  });
+
   it.each([
     'android.permission.READ_EXTERNAL_STORAGE',
     'android.permission.WRITE_EXTERNAL_STORAGE',
@@ -1912,6 +1985,13 @@ describe('generated AndroidManifest.xml', () => {
     ]);
     expect(nativeLinking.attributesOf('android:host="a&amp;b" android:path="/x"'))
       .toEqual({ host: 'a&b', path: '/x' });
+  });
+
+  it('removes adjacent and malformed nested comment markers without leaving active XML', () => {
+    const source = '<!-- outer <!-- nested --><manifest/><!-- second -->';
+    const stripped = nativeLinking.withoutXmlComments(source);
+    expect(stripped).toBe('<manifest/>');
+    expect(stripped).not.toContain('<!--');
   });
 
   it('reads a pathPrefix or pathPattern as the declared path', () => {

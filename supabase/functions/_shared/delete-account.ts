@@ -34,10 +34,10 @@ export const MAX_DELETE_REAUTH_AGE_SECONDS = 5 * 60;
 
 export function isExplicitUserNotFoundError(error: unknown): boolean {
   return Boolean(
-    error
-    && typeof error === "object"
-    && "code" in error
-    && (error as { code?: unknown }).code === "user_not_found",
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "user_not_found",
   );
 }
 

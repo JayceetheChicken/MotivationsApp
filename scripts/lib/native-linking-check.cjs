@@ -69,7 +69,21 @@ function decodeXmlEntities(value) {
 
 /** Remove comments before regex parsing so commented-out XML cannot satisfy a release check. */
 function withoutXmlComments(xml) {
-  return String(xml ?? '').replace(/<!--[\s\S]*?-->/g, '');
+  const source = String(xml ?? '');
+  const fragments = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const commentStart = source.indexOf('<!--', cursor);
+    if (commentStart === -1) {
+      fragments.push(source.slice(cursor));
+      break;
+    }
+    fragments.push(source.slice(cursor, commentStart));
+    const commentEnd = source.indexOf('-->', commentStart + 4);
+    if (commentEnd === -1) break;
+    cursor = commentEnd + 3;
+  }
+  return fragments.join('');
 }
 
 /** @param {string} body @param {RegExp} expression */

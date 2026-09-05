@@ -113,6 +113,19 @@ describe('npm install-script policy', () => {
     expect(installPolicy.appliesToPlatform(resolver, 'win32', 'x64')).toBe(true);
   });
 
+  it('runs the vetted npm rebuild through the Windows command shim', () => {
+    const resolver = installPolicy.VETTED_INSTALL_SCRIPTS[1];
+
+    expect(installPolicy.npmRebuildInvocation(resolver, 'win32', 'cmd.exe')).toEqual({
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', 'npm.cmd', ...installPolicy.npmRebuildArguments(resolver)],
+    });
+    expect(installPolicy.npmRebuildInvocation(resolver, 'linux')).toEqual({
+      command: 'npm',
+      args: installPolicy.npmRebuildArguments(resolver),
+    });
+  });
+
   it('rejects a changed extracted lifecycle command before rebuilding', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'lernzeit-install-policy-'));
     try {

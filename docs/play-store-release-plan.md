@@ -1,13 +1,14 @@
 # Google-Play-Release-Plan für Lernzeit
 
-Stand: 31. Juli 2026
+Stand: 12. August 2026
 
 ## Ziel und Abgrenzung
 
 Dieser Plan fasst die Android-Veröffentlichung nach dem abschließenden
 Security-, Datenschutz- und Release-Hardening zusammen. Das bestehende
-UI-Design wurde nur für Kontolöschung und rechtliche Seiten erweitert. Es wurde
-kein Build erzeugt oder hochgeladen und keine Veröffentlichung ausgelöst.
+UI-Design wurde nur für Kontolöschung und rechtliche Seiten erweitert. Ein
+lokales, mit dem Debug-Keystore signiertes Release-AAB wurde zur technischen
+Validierung erzeugt; es wurde nichts hochgeladen oder veröffentlicht.
 
 ## 1. Release-Konfiguration: Ist-Stand
 
@@ -16,15 +17,15 @@ kein Build erzeugt oder hochgeladen und keine Veröffentlichung ausgelöst.
 | App-Name | `Lernzeit` in `app.json` | Technisch gesetzt. Vor dem Anlegen der Play-App endgültig bestätigen. Store-Titel darf höchstens 30 Zeichen haben. |
 | Android-Paketname | `de.lernzeit.app` | Technisch gültig. Vor dem ersten AAB-Upload endgültig bestätigen; der Paketname ist danach dauerhaft an die Play-App gebunden. |
 | Sichtbare Version | `1.0.0` | Für den Erst-Release plausibel. Nur ändern, wenn bewusst eine andere öffentliche Startversion gewünscht ist. |
-| Android `versionCode` | Nicht lokal in `app.json` gesetzt | `eas.json` verwendet jetzt `appVersionSource: "remote"` und `autoIncrement: true`. EAS initialisiert den ersten Remote-Wert bei fehlendem lokalen Wert mit `1` und erhöht ihn bei weiteren Production-Builds. Vor dem ersten Build im EAS-Dashboard oder mit `eas build:version:get -p android` kontrollieren. |
-| Allgemeines App-Icon | `assets/images/icon.png`, 1024 × 1024 | Technisch eingebunden, visuell aber ein Expo-Platzhalter. Vor Veröffentlichung durch ein endgültiges Lernzeit-Icon ersetzen. Für den Store zusätzlich eine 512 × 512 PNG-Datei mit höchstens 1 MB bereitstellen. |
-| Adaptive Icon | Vordergrund, Hintergrund und Monochrom-Asset sind eingebunden | Technisch vollständig, visuell ebenfalls Expo-/Template-Material. Alle drei Ebenen vor dem Release durch die endgültige Lernzeit-Marke ersetzen und auf runden, squircle- und monochromen Masken prüfen. |
-| Splashscreen | `expo-splash-screen` mit Hintergrund `#B44D2B` | Technisch gültiger einfarbiger Splashscreen ohne Bild. Das ungenutzte Expo-Template-`splash-icon.png` wurde entfernt. Vor Release bewusst bestätigen oder durch ein finales Lernzeit-Splashkonzept ersetzen. |
+| Android `versionCode` | Lokal `1` in `app.json` | `eas.json` verwendet `appVersionSource: "remote"` und `autoIncrement: true`. Der lokale Wert ist der sichere Ausgangswert; EAS verwaltet und erhöht den produktiven Remote-Wert. Vor dem ersten Build mit `eas build:version:get -p android` kontrollieren. |
+| Allgemeines App-Icon | `assets/images/icon.png`, 1024 × 1024 | Das reproduzierbar erzeugte Lernzeit-Uhrmotiv ist technisch eingebunden. Vor Veröffentlichung ist nur noch die Produktfreigabe nötig; für den Store zusätzlich eine 512 × 512 PNG-Datei mit höchstens 1 MB bereitstellen. |
+| Adaptive Icon | Vordergrund, Hintergrund und Monochrom-Asset sind eingebunden | Die Lernzeit-Markenassets sind technisch vollständig. Vor dem Release das Ergebnis auf runden, Squircle- und Monochrom-Masken im Play-Workflow visuell freigeben. |
+| Splashscreen | Lernzeit-Splashmotiv auf `#B44D2B` | `assets/images/splash-icon.png` ist mit 220 px Breite und `contain` konfiguriert. Technisch gültig; vor Release noch produktseitig freigeben. |
 | Production-Profil | `eas.json` wurde ergänzt | Erzeugt explizit ein Android App Bundle, verwaltet `versionCode` remote und konfiguriert Submit nur für `internal` mit Status `draft`. |
 | EAS-Projektverknüpfung | Kein `extra.eas.projectId` in `app.json` | Vor dem ersten Cloud-Build mit `npx eas-cli@latest init` beziehungsweise `eas init` verknüpfen. Dies wurde nicht ausgeführt. |
 | Production-Umgebung | Supabase-Werte liegen lokal in einer ignorierten `.env.local` | Die Werte werden so nicht verlässlich in den EAS-Cloud-Build übernommen. `EXPO_PUBLIC_SUPABASE_URL` und der Publishable-/Anon-Key müssen im EAS-Environment `production` hinterlegt werden. Keine geheimen Service-Role-Keys in die App übernehmen. |
 | Android-/Play-Kompatibilität | Expo SDK 57, React Native 0.86 | Expo SDK 57 kompiliert und zielt auf API 36 und unterstützt Android 7+. Damit ist die ab 31. August 2026 geltende Target-API-36-Anforderung abgedeckt. 64-Bit- und 16-KB-Page-Size-Kompatibilität müssen nach Erstellung am finalen AAB beziehungsweise in der Play Console bestätigt werden. |
-| AAB | Noch nicht erstellt | Das Production-Profil erzeugt `.aab`. Der Build-Befehl ist vorbereitet, wurde aber nicht ausgeführt. |
+| AAB | Lokaler Release-Build erfolgreich validiert | Das Production-Profil erzeugt `.aab`; Compile, vier Android-ABIs und gemergtes Manifest wurden lokal geprüft. Der veröffentlichbare Kandidat muss anschließend mit den finalen EAS-/Play-Credentials erstellt werden. |
 
 Offizielle Referenzen: [Expo SDK 57 / Android API-Level](https://docs.expo.dev/versions/latest/), [EAS-App-Versionen](https://docs.expo.dev/build-reference/app-versions/), [EAS-Android-AAB](https://docs.expo.dev/build-reference/apk/), [Google-Play-Target-API](https://support.google.com/googleplay/android-developer/answer/11926878?hl=de), [16-KB-Page-Size](https://developer.android.com/guide/practices/page-sizes?hl=de).
 
@@ -59,8 +60,8 @@ Wichtig: `eas submit` lädt tatsächlich zu Google Play hoch. Erst ausführen, w
 1. `Lernzeit` als endgültigen App-/Store-Namen bestätigen.
 2. `de.lernzeit.app` endgültig bestätigen und sicherstellen, dass der Paketname noch nicht anderweitig in Google Play verwendet wird.
 3. Version `1.0.0` als Erstversion bestätigen.
-4. Endgültige Lernzeit-Icons erstellen und die vorhandenen Expo-Platzhalter ersetzen.
-5. Festlegen, ob der Splashscreen bewusst nur die Farbe `#B44D2B` zeigen soll.
+4. Vorhandene Lernzeit-Icons, Adaptive-Icon-Masken und Store-Icon produktseitig freigeben.
+5. Vorhandenes Lernzeit-Splashmotiv auf `#B44D2B` produktseitig freigeben.
 6. Datenschutzerklärung unter einer öffentlichen HTTPS-URL veröffentlichen.
 7. Den im Repository vollständig implementierten In-App-Löschweg und `/konto-loeschen` nach Function-Deployment end-to-end testen; die externe Seite unter einer stabilen öffentlichen HTTPS-URL hosten und in der Play Console eintragen.
 8. Dauerhaft nutzbaren Demo-Zugang für Google anlegen; idealerweise mit vorbereiteten Lerninhalten, Freundschaft, Gruppe, gemeinsamem Ziel und gemeinsamer Session.
@@ -181,7 +182,7 @@ Dieser Schritt ist zwingend für neue persönliche Konten; bei älteren persönl
 
 - App-Name, Slug, Paketname und sichtbare Version sind in `app.json` gesetzt.
 - Expo SDK 57 / React Native 0.86 zielt auf Android API 36.
-- Allgemeines Icon, Adaptive-Icon-Ebenen und Splash-Hintergrund sind technisch konfiguriert.
+- Allgemeines Icon, Adaptive-Icon-Ebenen und Splashmotiv sind als reproduzierbare Lernzeit-Markenassets technisch konfiguriert.
 - Ein Production-Profil für AAB und automatisch eindeutige `versionCode`s ist in `eas.json` vorhanden.
 - EAS Submit ist bewusst auf internen Draft-Upload begrenzt.
 - Entwürfe für Store-Texte und Versionshinweise liegen in `docs/` vor.
@@ -189,10 +190,9 @@ Dieser Schritt ist zwingend für neue persönliche Konten; bei älteren persönl
 ## 5. Was noch fehlt
 
 - Endgültige Bestätigung von Name, Paketname und Version.
-- Finale Lernzeit-Icons statt der Expo-Platzhalter.
-- Entscheidung über den farbigen Splashscreen.
+- Produktfreigabe der Lernzeit-Icons, Masken, des Store-Icons und des Splashscreens.
 - EAS-Projektverknüpfung und Production-Environment-Variablen.
-- Production-AAB; `expo-doctor` bestand im Hardening 20/20 Checks.
+- Mit finalen EAS-/Play-Credentials signiertes Production-AAB; der lokale Release-Build und `expo-doctor` (20/20 Checks) sind grün.
 - Play-Developer-Konto und vollständig angelegte Play-App.
 - Support-E-Mail, veröffentlichte Datenschutzerklärung und externe Kontolöschseite.
 - Deployment und End-to-End-Test der implementierten Edge Function `delete-account`.
@@ -206,7 +206,7 @@ Dieser Schritt ist zwingend für neue persönliche Konten; bei älteren persönl
 
 1. **Kontolöschung:** In-App-UI, Edge Function, serverseitige Löschmigration und statische Seite sind im Repository implementiert, aber die Function ist nicht deployed und die Seite nicht öffentlich gehostet.
 2. **Datenschutz:** Die deutsche Entwurfsseite ist vorbereitet, enthält aber Pflichtplatzhalter, ist nicht rechtlich freigegeben und nicht öffentlich gehostet.
-3. **Branding:** Die aktuellen App- und Adaptive-Icon-Dateien zeigen Expo-/Template-Material und sind nicht als finale Lernzeit-Marke geeignet.
+3. **Branding:** Die Lernzeit-Markenassets sind technisch eingebunden, benötigen aber noch Produktfreigabe und das separate 512-×-512-Store-Icon.
 4. **Reviewer-Zugang:** Für kontogebundene Social-Funktionen fehlen dauerhaft gültige Demo-Zugangsdaten.
 5. **EAS Cloud:** Projekt-ID und Production-Environment fehlen; dadurch kann der Cloud-Build unvollständig konfiguriert sein.
 6. **Persönliches Entwicklerkonto:** Bei einem neuen Konto erzwingen 12 Tester über 14 durchgehende Tage eine Mindestwartezeit vor dem Produktionsantrag.

@@ -78,16 +78,18 @@ function parsePasswordRecoveryCapability(
   if (!rawValue) return null;
   try {
     const candidate = JSON.parse(rawValue) as Partial<PasswordRecoveryCapability>;
+    const createdAt = candidate.createdAtEpochSeconds;
+    const expiresAt = candidate.expiresAtEpochSeconds;
     if (
       candidate.schemaVersion !== 1
       || candidate.userId !== session.user.id
       || typeof candidate.linkFingerprint !== 'string'
       || !/^pkce:[0-9a-f]{8}:[1-9][0-9]{0,5}$/.test(candidate.linkFingerprint)
-      || !Number.isSafeInteger(candidate.createdAtEpochSeconds)
-      || !Number.isSafeInteger(candidate.expiresAtEpochSeconds)
+      || typeof createdAt !== 'number'
+      || !Number.isSafeInteger(createdAt)
+      || typeof expiresAt !== 'number'
+      || !Number.isSafeInteger(expiresAt)
     ) return null;
-    const createdAt = candidate.createdAtEpochSeconds;
-    const expiresAt = candidate.expiresAtEpochSeconds;
     if (
       createdAt > nowEpochSeconds + 60
       || nowEpochSeconds > expiresAt
@@ -95,7 +97,13 @@ function parsePasswordRecoveryCapability(
       || expiresAt - createdAt > PASSWORD_RECOVERY_CAPABILITY_MAX_AGE_SECONDS
       || (typeof session.expires_at === 'number' && expiresAt > session.expires_at)
     ) return null;
-    return candidate as PasswordRecoveryCapability;
+    return {
+      schemaVersion: 1,
+      userId: candidate.userId,
+      linkFingerprint: candidate.linkFingerprint,
+      createdAtEpochSeconds: createdAt,
+      expiresAtEpochSeconds: expiresAt,
+    };
   } catch {
     return null;
   }

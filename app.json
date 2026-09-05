@@ -38,6 +38,8 @@
     },
     "plugins": [
       "expo-router",
+      ["expo-dev-client", { "addGeneratedScheme": false }],
+      "./config/with-android-security.cjs",
       [
         "expo-build-properties",
         {

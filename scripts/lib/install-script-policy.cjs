@@ -328,6 +328,23 @@ function npmRebuildArguments(entry) {
   ]);
 }
 
+function npmRebuildInvocation(
+  entry,
+  platform = process.platform,
+  windowsCommandShell = process.env.ComSpec || 'cmd.exe',
+) {
+  const rebuildArguments = npmRebuildArguments(entry);
+  // Windows cannot execute a .cmd shim directly through spawnSync. Invoke the
+  // OS command processor explicitly without `shell: true`; every argument after
+  // npm.cmd still comes from the immutable, fully validated allowlist above.
+  return platform === 'win32'
+    ? {
+      command: windowsCommandShell,
+      args: ['/d', '/s', '/c', 'npm.cmd', ...rebuildArguments],
+    }
+    : { command: 'npm', args: rebuildArguments };
+}
+
 function rebuildVettedPackages(projectRoot, options = {}) {
   const lockResult = validateProjectPolicy(projectRoot, options);
   if (lockResult.errors.length > 0) return { errors: lockResult.errors, rebuilt: [] };
@@ -335,10 +352,12 @@ function rebuildVettedPackages(projectRoot, options = {}) {
   const installedResult = validateInstalledPackages(projectRoot, options);
   if (installedResult.errors.length > 0) return { errors: installedResult.errors, rebuilt: [] };
 
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const platform = options.platform ?? process.platform;
+  const run = options.spawnSync ?? spawnSync;
   const rebuilt = [];
   for (const entry of installedResult.applicable) {
-    const result = spawnSync(npmCommand, npmRebuildArguments(entry), {
+    const invocation = npmRebuildInvocation(entry, platform);
+    const result = run(invocation.command, invocation.args, {
       cwd: projectRoot,
       env: {
         ...process.env,
@@ -367,6 +386,7 @@ module.exports = {
   lifecycleHooks,
   loadAndValidateLockfile,
   npmRebuildArguments,
+  npmRebuildInvocation,
   rebuildVettedPackages,
   validateInstalledPackages,
   validateLockfile,

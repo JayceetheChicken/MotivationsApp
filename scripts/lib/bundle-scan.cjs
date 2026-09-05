@@ -79,11 +79,12 @@ function scanTextForSecrets(content) {
  * Reads a file through exactly one descriptor, so the bytes that are inspected
  * are provably the bytes whose metadata was checked.
  *
- * Checking a path with statSync and then reading the same path again is a
- * time-of-check/time-of-use race (CodeQL js/file-system-race): between the two
- * calls the path can be replaced by a different file, a symlink or a directory,
- * and the scan would then report on something it never inspected. openSync once,
- * fstatSync that descriptor, read that descriptor, close it in `finally`.
+ * Checking a path before opening it is a time-of-check/time-of-use race
+ * (CodeQL js/file-system-race): between the two calls the path can be replaced.
+ * Open first, then compare the descriptor with the path metadata. All bytes are
+ * read from that one descriptor, so a later rename cannot change what is
+ * inspected. O_NOFOLLOW rejects symlinks where the platform supports it; the
+ * post-open lstat check provides the same fail-closed result elsewhere.
  *
  * A file that is too large to inspect is a failure, not a skip: reporting
  * "no secrets found" for bytes that were never read would be a lie.
@@ -95,17 +96,17 @@ function scanTextForSecrets(content) {
 function readTextFileOnce(file, maxBytes = MAX_SCANNED_BYTES) {
   let descriptor;
   try {
+    descriptor = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const stats = fstatSync(descriptor, { bigint: true });
+    if (!stats.isFile()) {
+      return { ok: false, reason: 'Kein regulaeres File mehr (waehrend des Scans ersetzt?).' };
+    }
     const pathStats = lstatSync(file, { bigint: true });
     if (pathStats.isSymbolicLink()) {
       return { ok: false, reason: 'Symbolische Links werden im Export nicht akzeptiert.' };
     }
     if (!pathStats.isFile()) {
       return { ok: false, reason: 'Kein regulaeres File im Export.' };
-    }
-    descriptor = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    const stats = fstatSync(descriptor, { bigint: true });
-    if (!stats.isFile()) {
-      return { ok: false, reason: 'Kein regulaeres File mehr (waehrend des Scans ersetzt?).' };
     }
     if (stats.dev !== pathStats.dev || stats.ino !== pathStats.ino) {
       return { ok: false, reason: 'File wurde waehrend des Scans ersetzt.' };

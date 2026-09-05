@@ -106,7 +106,12 @@ function fakeClient() {
   channelObject.on.mockReturnValue(channelObject);
   const channel = jest.fn(() => channelObject);
   const realtimeSetAuth = jest.fn(async () => undefined);
-  const getSession = jest.fn(async () => ({
+  const getSession = jest.fn(async (): Promise<{
+    data: {
+      session: { access_token: string; user: { id: string } } | null;
+    };
+    error: { message: string } | null;
+  }> => ({
     data: {
       session: {
         access_token: 'access-token',
