@@ -85,7 +85,15 @@ const EXPECTED_REDIRECT = 'https://lernzeit.de/update-password?type=recovery';
 
 // A production build: the profile decides the transport, and the manifest
 // attestation has to agree with the bundle before recovery is enabled at all.
+//
+// Both halves of the profile pair are pinned. resolveBuildProfile() rejects a
+// build whose embedded profile contradicts its build profile, so setting only
+// EXPO_PUBLIC_BUILD_PROFILE would let an ambient EAS_BUILD_PROFILE from the
+// surrounding job (the APK workflow exports "preview") make the profile
+// unresolvable and silently disable recovery.
+const PREVIOUS_EAS_BUILD_PROFILE = process.env.EAS_BUILD_PROFILE;
 process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+process.env.EAS_BUILD_PROFILE = 'production';
 process.env.EXPO_PUBLIC_LEGAL_SITE_URL = OPERATOR_DOMAIN;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -117,6 +125,10 @@ describe('password recovery with a configured operator domain', () => {
     jest.restoreAllMocks();
     delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
     delete process.env.EXPO_PUBLIC_BUILD_PROFILE;
+    // --runInBand shares one process across test files, so restore rather than
+    // delete: another file may depend on the ambient value.
+    if (PREVIOUS_EAS_BUILD_PROFILE === undefined) delete process.env.EAS_BUILD_PROFILE;
+    else process.env.EAS_BUILD_PROFILE = PREVIOUS_EAS_BUILD_PROFILE;
   });
 
   it('derives the verified HTTPS App Link', () => {
