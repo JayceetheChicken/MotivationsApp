@@ -94,7 +94,8 @@ function goalPeriodLabel(goal: StudyChallenge): string {
   return goal.cadence === 'daily' ? 'Täglich' : 'Wöchentlich';
 }
 
-function remainingLabel(endsAt: string, now: number): string | undefined {
+function remainingLabel(endsAt: string | undefined, now: number): string | undefined {
+  if (!endsAt) return undefined;
   const remainingMs = Date.parse(endsAt) - now;
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) return undefined;
   const hours = Math.ceil(remainingMs / 3_600_000);
@@ -123,7 +124,20 @@ function activityTimestamp(value: string | null): number {
 }
 
 function presenceRank(overview: FriendPresenceProjection): number {
-  return overview.presenceStatus === 'learning' ? 0 : overview.presenceStatus === 'online' ? 1 : 2;
+  return overview.presenceStatus === 'learning'
+    ? 0
+    : overview.presenceStatus === 'paused'
+      ? 1
+      : overview.presenceStatus === 'online'
+        ? 2
+        : 3;
+}
+
+function isRawRealtimeBackendError(message: string | null): boolean {
+  return Boolean(message && (
+    /MissingPartition|expected messages partition/i.test(message)
+    || /Unauthorized.*Channel topic|permissions to read from this Channel/i.test(message)
+  ));
 }
 
 export function FriendsPageContent() {
@@ -134,6 +148,7 @@ export function FriendsPageContent() {
     data,
     socialLoading,
     socialError,
+    socialRealtimeUnavailable,
     friendConnections,
     friendOverviews,
     sharedStudySessions,
@@ -153,6 +168,8 @@ export function FriendsPageContent() {
   const [removingConnectionId, setRemovingConnectionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const searchGeneration = useRef(0);
+  const realtimeBackendError = isRawRealtimeBackendError(socialError);
+  const visibleSocialError = realtimeBackendError ? null : socialError;
 
   useFocusEffect(useCallback(() => {
     if (auth.activeMode !== 'supabase') return;
@@ -405,15 +422,25 @@ export function FriendsPageContent() {
         </View>
       </AppCard>
 
-      {(actionError || (searchStatus !== 'error' && socialError)) ? (
+      {(actionError || (searchStatus !== 'error' && visibleSocialError)) ? (
         <AppCard padding="sm" variant="outlined">
           <Text
             accessibilityRole="alert"
             selectable
             style={[theme.typography.bodyMedium, { color: theme.colors.danger }]}>
-            {actionError ?? socialError}
+            {actionError ?? visibleSocialError}
           </Text>
         </AppCard>
+      ) : null}
+
+      {(socialRealtimeUnavailable || realtimeBackendError) ? (
+        <Text
+          accessibilityRole="alert"
+          selectable
+          style={[theme.typography.caption, { color: theme.colors.textMuted }]}
+          testID="social-realtime-unavailable">
+          Der Live-Status ist momentan nicht verfügbar. Die Freundesfunktionen können weiterhin verwendet werden.
+        </Text>
       ) : null}
 
       {requests.length > 0 ? (

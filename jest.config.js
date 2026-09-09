@@ -5,6 +5,13 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   setupFiles: ['<rootDir>/jest.setup.js'],
+  // Ignored scratch directories can hold extracted tarballs whose package.json
+  // collides with a real dependency in Jest's Haste map and fails the run.
+  modulePathIgnorePatterns: ['<rootDir>/.tmp/'],
+  // Screen tests render the full navigation and store tree. The first render in
+  // a suite also pays for the module graph, which exceeds Jest's 5 s default on
+  // a loaded CI runner. The tests themselves do no waiting.
+  testTimeout: 20_000,
   transformIgnorePatterns: [
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|expo-router|react-navigation|@react-navigation/.*|react-native-svg)',
   ],

@@ -1,6 +1,6 @@
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   AuthField,
@@ -11,13 +11,15 @@ import {
 import {
   displayNameError,
   emailError,
+  MAX_EMAIL_LENGTH,
+  MAX_PASSWORD_BYTES,
   passwordError,
   usernameError,
 } from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
 import { useAuthStore } from '@/state/auth-store';
 
-type RegisterField = 'displayName' | 'username' | 'email' | 'password' | 'confirmation';
+type RegisterField = 'displayName' | 'username' | 'email' | 'password' | 'confirmation' | 'rules';
 type RegisterErrors = Partial<Record<RegisterField, string>>;
 
 export default function RegisterScreen() {
@@ -35,6 +37,7 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
+  const [rulesAccepted, setRulesAccepted] = useState(false);
   const [errors, setErrors] = useState<RegisterErrors>({});
 
   const updateField = (
@@ -54,11 +57,18 @@ export default function RegisterScreen() {
       email: emailError(email),
       password: passwordError(password, true),
       confirmation: confirmation !== password ? 'Die Passwörter stimmen nicht überein.' : undefined,
+      rules: rulesAccepted ? undefined : 'Bitte stimme den Nutzungsbedingungen und Community-Regeln ausdrücklich zu.',
     };
     setErrors(nextErrors);
     if (Object.values(nextErrors).some(Boolean)) return;
 
-    const result = await signUp({ displayName, username, email, password });
+    const result = await signUp({
+      displayName,
+      username,
+      email,
+      password,
+      communityRulesAccepted: rulesAccepted,
+    });
     if (result.ok && result.sessionCreated) router.replace('/');
   };
 
@@ -99,6 +109,7 @@ export default function RegisterScreen() {
           autoComplete="email"
           error={errors.email}
           keyboardType="email-address"
+          maxLength={MAX_EMAIL_LENGTH}
           label="E-Mail-Adresse"
           onChangeText={(value) => updateField('email', setEmail, value)}
           placeholder="name@beispiel.de"
@@ -107,8 +118,9 @@ export default function RegisterScreen() {
         <AuthField
           autoCapitalize="none"
           autoComplete="new-password"
+          maxLength={MAX_PASSWORD_BYTES}
           error={errors.password}
-          hint="Mindestens 8 Zeichen."
+          hint="Mindestens 10 Zeichen."
           isPassword
           label="Passwort"
           onChangeText={(value) => updateField('password', setPassword, value)}
@@ -118,6 +130,7 @@ export default function RegisterScreen() {
         <AuthField
           autoCapitalize="none"
           autoComplete="new-password"
+          maxLength={MAX_PASSWORD_BYTES}
           error={errors.confirmation}
           isPassword
           label="Passwort wiederholen"
@@ -127,6 +140,28 @@ export default function RegisterScreen() {
           returnKeyType="done"
           value={confirmation}
         />
+
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: rulesAccepted }}
+          onPress={() => {
+            setRulesAccepted((current) => !current);
+            if (errors.rules) setErrors((current) => ({ ...current, rules: undefined }));
+          }}
+          style={styles.checkboxRow}>
+          <View style={[styles.checkbox, rulesAccepted && styles.checkboxChecked]}>
+            <Text style={styles.checkboxMark}>{rulesAccepted ? '✓' : ''}</Text>
+          </View>
+          <Text style={styles.checkboxText}>
+            Ich stimme den Nutzungsbedingungen und Community-Regeln in der Version 02.08.2026 zu.
+          </Text>
+        </Pressable>
+        {errors.rules ? <Text accessibilityRole="alert" style={styles.error}>{errors.rules}</Text> : null}
+        <View style={styles.legalLinks}>
+          <AuthTextLink label="Nutzungsbedingungen lesen" onPress={() => router.push('/nutzungsbedingungen' as Href)} />
+          <AuthTextLink label="Community-Regeln lesen" onPress={() => router.push('/community-regeln' as Href)} />
+          <AuthTextLink label="Datenschutzerklärung lesen" onPress={() => router.push('/datenschutz' as Href)} />
+        </View>
 
         <AppButton
           disabled={!configuration.isConfigured || pendingAction !== null}
@@ -155,4 +190,11 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 12,
   },
+  checkboxRow: { width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  checkbox: { width: 24, height: 24, borderWidth: 1, borderColor: '#7A321F', borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  checkboxChecked: { backgroundColor: '#7A321F' },
+  checkboxMark: { color: '#FFFFFF', fontSize: 16, lineHeight: 20, fontWeight: '700' },
+  checkboxText: { flex: 1, color: '#382A21', fontSize: 14, lineHeight: 20 },
+  error: { color: '#9F2D20', fontSize: 13, lineHeight: 18 },
+  legalLinks: { width: '100%', gap: 8 },
 });

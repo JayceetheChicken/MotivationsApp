@@ -15,7 +15,10 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/auth/supabase';
 import { createInitialData, subjectColorPalette } from '@/data/initial-data';
 import { createLocalStudyRepository } from '@/data/repositories/local-study-repository';
-import { asRepositoryError } from '@/data/repositories/repository-error';
+import {
+  asRepositoryError,
+  StudyRepositoryError,
+} from '@/data/repositories/repository-error';
 import {
   type CreateSharedGoalInput,
   type CreateSharedStudySessionInput,
@@ -24,17 +27,21 @@ import {
   type LocalImportReport,
   type SharedStudySessionParticipantAction,
   type SocialInvalidationKind,
+  type SubmitContentReportInput,
   type SyncStatus,
   type StudyRepository,
 } from '@/data/repositories/study-repository';
 import { createSupabaseStudyRepository } from '@/data/repositories/supabase-study-repository';
 import { useNetworkStatus } from '@/hooks/use-network-status';
+import { safeDebug } from '@/lib/safe-logger';
 import '@/lib/local-storage';
 import { isValidGradeDate } from '@/lib/grades';
 import {
   avatarObjectPathFromUrl,
   avatarUrlReferencesObjectPath,
+  cleanupTemporaryAvatarUri,
   prepareAvatarUpload,
+  reencodeAvatarForUpload,
 } from '@/lib/avatar-upload';
 import { getGoalSubjectId, getGoalTitle } from '@/lib/goals';
 import {
@@ -56,10 +63,14 @@ import {
   resumeActiveTimer,
 } from '@/lib/timer';
 import type {
+  AccountDataExport,
   AccountStudyUser,
   ActiveTimer,
+  BlockedProfile,
   ChallengeMode,
   ChallengeParticipant,
+  CommunityRulesAcceptance,
+  ContentReportReceipt,
   FriendOverview,
   FriendSearchResult,
   FriendshipConnection,
@@ -91,6 +102,9 @@ const IMPORT_DECISION_KEY_PREFIX = 'lernzeit.study-import.v2';
 const SHARED_SESSION_ACTION_OUTBOX_PREFIX = 'lernzeit.shared-session-actions.v1';
 const DEVICE_FINGERPRINT_KEY = 'lernzeit.device-fingerprint.v1';
 const CURRENT_SCHEMA_VERSION = 3;
+const MAX_PERSISTED_STUDY_STATE_BYTES = 8 * 1024 * 1024;
+const MAX_SHARED_SESSION_ACTIONS = 100;
+const MAX_SHARED_SESSION_ACTION_BYTES = 64 * 1024;
 const LOCAL_USER_ID = 'local-user';
 
 const LEGACY_SEEDED_SESSION_IDS = new Set([
@@ -189,6 +203,13 @@ function enqueueSharedSessionAction(
   ) {
     return [...current];
   }
+  if (current.length >= MAX_SHARED_SESSION_ACTIONS) {
+    throw new StudyRepositoryError(
+      'invalid_data',
+      'Die Offline-Warteschlange für gemeinsame Sessions ist voll.',
+      { retryable: false },
+    );
+  }
   return [...current, pending];
 }
 
@@ -196,8 +217,9 @@ function readSharedSessionActionOutbox(storageKey: string): PendingSharedSession
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
+    if (raw.length > MAX_SHARED_SESSION_ACTION_BYTES) return [];
     const value: unknown = JSON.parse(raw);
-    if (!Array.isArray(value)) return [];
+    if (!Array.isArray(value) || value.length > MAX_SHARED_SESSION_ACTIONS) return [];
     return value.reduce<PendingSharedSessionAction[]>((actions, entry) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return actions;
       const record = entry as Record<string, unknown>;
@@ -205,6 +227,7 @@ function readSharedSessionActionOutbox(storageKey: string): PendingSharedSession
       const action = record.action;
       if (
         !sessionId
+        || sessionId.length > 200
         || typeof action !== 'string'
         || !SHARED_SESSION_PARTICIPANT_ACTIONS.includes(
           action as SharedStudySessionParticipantAction,
@@ -228,7 +251,12 @@ function writeSharedSessionActionOutbox(
 ): void {
   try {
     if (actions.length === 0) localStorage.removeItem(storageKey);
-    else localStorage.setItem(storageKey, JSON.stringify(actions));
+    else {
+      const serialized = JSON.stringify(actions);
+      if (serialized.length <= MAX_SHARED_SESSION_ACTION_BYTES) {
+        localStorage.setItem(storageKey, serialized);
+      }
+    }
   } catch {
     // The in-memory queue remains active when persistent storage is unavailable.
   }
@@ -313,6 +341,8 @@ export interface AvatarUploadAsset {
   mimeType?: string | null;
   fileName?: string | null;
   fileSize?: number | null;
+  width?: number | null;
+  height?: number | null;
 }
 
 export interface FinishTimerOptions {
@@ -336,12 +366,15 @@ export interface StudyStoreValue extends StudyState {
   retrySync: () => Promise<void>;
   socialLoading: boolean;
   socialError: string | null;
+  socialRealtimeUnavailable: boolean;
   friendConnections: readonly FriendshipConnection[];
   friendOverviews: readonly FriendOverview[];
   studyGroups: readonly StudyGroup[];
   sharedStudySessions: readonly SharedStudySession[];
   sharedGoalProgressById: Readonly<Record<string, SharedGoalProgress>>;
   sharingPreferences: StudySharingPreferences | null;
+  blockedProfiles: readonly BlockedProfile[];
+  communityRulesAcceptance: CommunityRulesAcceptance | null;
   refreshSocial: (options?: { silent?: boolean }) => Promise<void>;
   updateAccountProfile: (profile: AccountProfileUpdate) => Promise<AccountStudyUser | null>;
   replaceAccountAvatar: (asset: AvatarUploadAsset) => Promise<AccountStudyUser | null>;
@@ -350,6 +383,14 @@ export interface StudyStoreValue extends StudyState {
   acceptFriendRequest: (friendshipId: string) => Promise<void>;
   declineFriendRequest: (friendshipId: string) => Promise<void>;
   removeFriendship: (friendshipId: string) => Promise<void>;
+  blockUser: (userId: string) => Promise<void>;
+  unblockUser: (userId: string) => Promise<void>;
+  submitContentReport: (input: SubmitContentReportInput) => Promise<ContentReportReceipt>;
+  acceptCommunityRules: () => Promise<CommunityRulesAcceptance>;
+  exportAccountData: () => Promise<AccountDataExport>;
+  saveSharingPreferences: (
+    preferences: Omit<StudySharingPreferences, 'revision' | 'updatedAt'>,
+  ) => Promise<StudySharingPreferences>;
   getFriendOverview: (friendId: string) => Promise<FriendOverview | null>;
   createSharedGoal: (input: CreateSharedGoalInput) => Promise<StudyChallenge>;
   respondSharedGoalInvitation: (
@@ -1209,7 +1250,7 @@ function parseChallenge(value: unknown): StudyChallenge | null {
     !isString(value.title) ||
     !isString(value.description) ||
     !isIsoDate(value.startsAt) ||
-    !isIsoDate(value.endsAt) ||
+    (value.endsAt !== undefined && value.endsAt !== null && !isIsoDate(value.endsAt)) ||
     (value.sourcePolicy !== 'all' && value.sourcePolicy !== 'timer_only') ||
     (value.status !== 'upcoming' && value.status !== 'active' && value.status !== 'completed') ||
     (value.target.mode !== 'shared' && value.target.mode !== 'per_participant')
@@ -1268,7 +1309,7 @@ function parseChallenge(value: unknown): StudyChallenge | null {
     target,
     sourcePolicy: value.sourcePolicy,
     startsAt: value.startsAt,
-    endsAt: value.endsAt,
+    endsAt: isIsoDate(value.endsAt) ? value.endsAt : undefined,
     status: value.status,
     participants,
   };
@@ -1407,6 +1448,8 @@ interface StudyStoreProviderProps extends PropsWithChildren {
   importStorageScope?: string;
   /** Authenticated owner used to rebind imported device records. */
   accountUserId?: string;
+  /** Current session token; changing it replaces and re-authenticates private channels. */
+  accountAccessToken?: string;
 }
 
 function scopedStorageKey(storageScope: string): string {
@@ -1421,6 +1464,7 @@ function readStoredState(storageScope: string): {
   const raw = localStorage.getItem(scopedStorageKey(storageScope))
     ?? (storageScope === 'local' ? localStorage.getItem(LEGACY_STORAGE_KEY) : null);
   if (!raw) return { raw: null, state: null };
+  if (raw.length > MAX_PERSISTED_STUDY_STATE_BYTES) return { raw, state: null };
 
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -1558,6 +1602,7 @@ const INITIAL_SYNC_STATUS: Readonly<SyncStatus> = {
 };
 
 export function StudyStoreProvider({
+  accountAccessToken,
   accountUserId,
   children,
   importStorageScope,
@@ -1573,6 +1618,7 @@ export function StudyStoreProvider({
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(INITIAL_SYNC_STATUS);
   const [socialLoading, setSocialLoading] = useState(false);
   const [socialError, setSocialError] = useState<string | null>(null);
+  const [socialRealtimeUnavailable, setSocialRealtimeUnavailable] = useState(false);
   const [avatarMaintenanceError, setAvatarMaintenanceError] = useState<string | null>(null);
   const [friendConnections, setFriendConnections] = useState<readonly FriendshipConnection[]>([]);
   const [friendOverviews, setFriendOverviews] = useState<readonly FriendOverview[]>([]);
@@ -1582,6 +1628,8 @@ export function StudyStoreProvider({
     Record<string, SharedGoalProgress>
   >>({});
   const [sharingPreferences, setSharingPreferences] = useState<StudySharingPreferences | null>(null);
+  const [blockedProfiles, setBlockedProfiles] = useState<readonly BlockedProfile[]>([]);
+  const [communityRulesAcceptance, setCommunityRulesAcceptance] = useState<CommunityRulesAcceptance | null>(null);
   const [appState, setAppState] = useState<AppStateStatus>(
     AppState.currentState === 'background' || AppState.currentState === 'inactive'
       ? AppState.currentState
@@ -1634,7 +1682,7 @@ export function StudyStoreProvider({
     ? `${IMPORT_DECISION_KEY_PREFIX}.${accountUserId}`
     : null;
   const repository = useMemo<StudyRepository>(() => {
-    if (accountUserId && supabase) {
+    if (accountAccessToken && accountUserId && supabase) {
       return createSupabaseStudyRepository({
         accountId: accountUserId,
         cacheSnapshotKey: storageKey,
@@ -1650,7 +1698,7 @@ export function StudyStoreProvider({
       storageScope,
       storeSchemaVersion: CURRENT_SCHEMA_VERSION,
     });
-  }, [accountUserId, storageKey, storageScope]);
+  }, [accountAccessToken, accountUserId, storageKey, storageScope]);
 
   useEffect(() => {
     stateRef.current = state;
@@ -1741,7 +1789,7 @@ export function StudyStoreProvider({
     } finally {
       if (mounted) {
         setHydrated(true);
-        console.log('[BOOT] Study store hydrated');
+        safeDebug('[BOOT] Lernspeicher wiederhergestellt.');
       }
     }
     };
@@ -1760,7 +1808,10 @@ export function StudyStoreProvider({
       ...state,
     };
     try {
-      localStorage.setItem(storageKey, JSON.stringify(payload));
+      const serialized = JSON.stringify(payload);
+      if (serialized.length <= MAX_PERSISTED_STUDY_STATE_BYTES) {
+        localStorage.setItem(storageKey, serialized);
+      }
       if (storageScope === 'local') localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // In-memory usage remains available when storage is temporarily unavailable.
@@ -1876,6 +1927,8 @@ export function StudyStoreProvider({
         goalProgressResult,
         groupsResult,
         sharedSessionsResult,
+        blockedProfilesResult,
+        communityRulesResult,
       ] = await Promise.allSettled([
         repository.social.getMyProfile(),
         repository.social.getSharingPreferences(),
@@ -1885,6 +1938,12 @@ export function StudyStoreProvider({
         repository.social.listSharedGoalProgress(),
         repository.social.listStudyGroups(),
         repository.social.listSharedStudySessions(),
+        typeof repository.social.listBlockedProfiles === 'function'
+          ? repository.social.listBlockedProfiles()
+          : Promise.resolve([]),
+        typeof repository.social.getCommunityRulesAcceptance === 'function'
+          ? repository.social.getCommunityRulesAcceptance()
+          : Promise.resolve(null),
       ] as const);
       if (generation !== socialRefreshGenerationRef.current) return;
 
@@ -1915,6 +1974,10 @@ export function StudyStoreProvider({
         ));
       }
       if (groupsResult.status === 'fulfilled') setStudyGroups(groupsResult.value);
+      if (blockedProfilesResult.status === 'fulfilled') setBlockedProfiles(blockedProfilesResult.value);
+      if (communityRulesResult.status === 'fulfilled') {
+        setCommunityRulesAcceptance(communityRulesResult.value);
+      }
       if (
         sharedSessionsResult.status === 'fulfilled'
         && sharedSessionGeneration === sharedSessionRefreshGenerationRef.current
@@ -1935,6 +1998,13 @@ export function StudyStoreProvider({
               shareManualStats: currentPrivacy.shareManualMinutes,
               shareGoalProgress: currentPrivacy.shareGoalProgress,
               shareStreak: currentPrivacy.shareStreak,
+              shareCurrentlyLearning: false,
+              sharePauseStatus: false,
+              shareLastActiveAt: false,
+              shareTodayActivity: false,
+              shareWeeklyMinutes: false,
+              shareAvatar: false,
+              discoverableByUsername: false,
               revision: 1,
               updatedAt: new Date().toISOString(),
             };
@@ -1950,6 +2020,8 @@ export function StudyStoreProvider({
         goalProgressResult,
         groupsResult,
         sharedSessionsResult,
+        blockedProfilesResult,
+        communityRulesResult,
       ].find((result) => result.status === 'rejected');
       setSocialError(firstFailure?.status === 'rejected'
         ? asRepositoryError(firstFailure.reason).message
@@ -2291,10 +2363,15 @@ export function StudyStoreProvider({
     }
     const outbox = sharedSessionActionOutboxRef.current;
     if (!outbox || outbox.storageKey !== sharedSessionActionStorageKey) return;
-    outbox.actions = enqueueSharedSessionAction(outbox.actions, {
-      sessionId: cleanSessionId,
-      action,
-    });
+    try {
+      outbox.actions = enqueueSharedSessionAction(outbox.actions, {
+        sessionId: cleanSessionId,
+        action,
+      });
+    } catch (error) {
+      setSocialError(asRepositoryError(error).message);
+      return;
+    }
     writeSharedSessionActionOutbox(sharedSessionActionStorageKey, outbox.actions);
     if (hydrated && online) void drainSharedSessionActionOutbox();
   }, [
@@ -2351,12 +2428,16 @@ export function StudyStoreProvider({
     };
     void repository.subscribeSocialUpdates({
       onInvalidated: invalidate,
-      onError: (error) => setSocialError(error.message),
+      onError: () => setSocialRealtimeUnavailable(true),
+      onSubscribed: () => setSocialRealtimeUnavailable(false),
     }, controller.signal).then((nextCleanup) => {
       if (controller.signal.aborted) void nextCleanup();
       else cleanup = nextCleanup;
     }).catch((error: unknown) => {
-      if (!controller.signal.aborted) setSocialError(asRepositoryError(error).message);
+      const normalized = asRepositoryError(error);
+      if (!controller.signal.aborted && normalized.code !== 'cancelled') {
+        setSocialRealtimeUnavailable(true);
+      }
     });
     return () => {
       controller.abort();
@@ -2868,12 +2949,15 @@ export function StudyStoreProvider({
       retrySync,
       socialLoading,
       socialError: socialError ?? avatarMaintenanceError,
+      socialRealtimeUnavailable,
       friendConnections,
       friendOverviews,
       studyGroups,
       sharedStudySessions,
       sharedGoalProgressById,
       sharingPreferences,
+      blockedProfiles,
+      communityRulesAcceptance,
       refreshSocial,
       updateAccountProfile: async (profile) => {
         if (repository.mode !== 'supabase') return null;
@@ -2893,6 +2977,13 @@ export function StudyStoreProvider({
         );
         const latestState = stateRef.current;
         const sharing: StudySharingPreferences = {
+          shareCurrentlyLearning: sharingPreferences?.shareCurrentlyLearning ?? false,
+          sharePauseStatus: sharingPreferences?.sharePauseStatus ?? false,
+          shareLastActiveAt: sharingPreferences?.shareLastActiveAt ?? false,
+          shareTodayActivity: sharingPreferences?.shareTodayActivity ?? false,
+          shareWeeklyMinutes: sharingPreferences?.shareWeeklyMinutes ?? false,
+          shareAvatar: sharingPreferences?.shareAvatar ?? false,
+          discoverableByUsername: sharingPreferences?.discoverableByUsername ?? false,
           shareTimerStats: latestState.privacy.shareAutomaticMinutes,
           shareManualStats: latestState.privacy.shareManualMinutes,
           shareGoalProgress: latestState.privacy.shareGoalProgress,
@@ -2912,7 +3003,14 @@ export function StudyStoreProvider({
               'Das Online-Profil ist noch nicht geladen. Bitte versuche es gleich erneut.',
             );
           }
-          const { body, contentType, fileExtension } = await prepareAvatarUpload(asset);
+          const reencodedAsset = await reencodeAvatarForUpload(asset);
+          let prepared: Awaited<ReturnType<typeof prepareAvatarUpload>>;
+          try {
+            prepared = await prepareAvatarUpload(reencodedAsset);
+          } finally {
+            if (reencodedAsset.uri !== asset.uri) cleanupTemporaryAvatarUri(reencodedAsset.uri);
+          }
+          const { body, contentType, fileExtension } = prepared;
           const uploaded = await repository.social.uploadAvatar({
             userId,
             objectId: randomUUID(),
@@ -2960,6 +3058,13 @@ export function StudyStoreProvider({
         });
         const latestState = stateRef.current;
         const sharing: StudySharingPreferences = {
+          shareCurrentlyLearning: sharingPreferences?.shareCurrentlyLearning ?? false,
+          sharePauseStatus: sharingPreferences?.sharePauseStatus ?? false,
+          shareLastActiveAt: sharingPreferences?.shareLastActiveAt ?? false,
+          shareTodayActivity: sharingPreferences?.shareTodayActivity ?? false,
+          shareWeeklyMinutes: sharingPreferences?.shareWeeklyMinutes ?? false,
+          shareAvatar: sharingPreferences?.shareAvatar ?? false,
+          discoverableByUsername: sharingPreferences?.discoverableByUsername ?? false,
           shareTimerStats: latestState.privacy.shareAutomaticMinutes,
           shareManualStats: latestState.privacy.shareManualMinutes,
           shareGoalProgress: latestState.privacy.shareGoalProgress,
@@ -3001,6 +3106,55 @@ export function StudyStoreProvider({
       removeFriendship: async (friendshipId) => {
         await runSocialOperation(() => repository.social.removeFriendship(friendshipId));
         await refreshSocial();
+      },
+      blockUser: async (userId) => {
+        await runSocialOperation(() => repository.social.blockUser(userId));
+        await refreshSocial();
+      },
+      unblockUser: async (userId) => {
+        await runSocialOperation(() => repository.social.unblockUser(userId));
+        await refreshSocial();
+      },
+      submitContentReport: (input) => runSocialOperation(
+        () => repository.social.submitContentReport(input),
+      ),
+      acceptCommunityRules: async () => {
+        const accepted = await runSocialOperation(
+          () => repository.social.acceptCommunityRules('2026-08-02'),
+        );
+        setCommunityRulesAcceptance(accepted);
+        return accepted;
+      },
+      exportAccountData: () => runSocialOperation(
+        () => repository.social.exportMyData(),
+      ),
+      saveSharingPreferences: async (preferences) => {
+        if (repository.mode !== 'supabase' || !sharingPreferences) {
+          throw new StudyRepositoryError(
+            'unavailable',
+            'Die Datenschutzfreigaben sind noch nicht verfügbar.',
+          );
+        }
+        const updated = await runSocialOperation(
+          () => repository.social.updateSharingPreferences({
+            shareTimerStats: preferences.shareTimerStats,
+            shareManualStats: preferences.shareManualStats,
+            shareGoalProgress: preferences.shareGoalProgress,
+            shareStreak: preferences.shareStreak,
+            shareCurrentlyLearning: preferences.shareCurrentlyLearning ?? false,
+            sharePauseStatus: preferences.sharePauseStatus ?? false,
+            shareLastActiveAt: preferences.shareLastActiveAt ?? false,
+            shareTodayActivity: preferences.shareTodayActivity ?? false,
+            shareWeeklyMinutes: preferences.shareWeeklyMinutes ?? false,
+            shareAvatar: preferences.shareAvatar ?? false,
+            discoverableByUsername: preferences.discoverableByUsername ?? false,
+            expectedRevision: sharingPreferences.revision,
+          }),
+        );
+        setSharingPreferences(updated);
+        const profile = stateRef.current.data.currentUser;
+        if (profile) applyAccountProfile(profile, updated);
+        return updated;
       },
       getFriendOverview: getFriendOverviewCommand,
       createSharedGoal: async (input) => {
@@ -3150,6 +3304,13 @@ export function StudyStoreProvider({
           return;
         }
         const next = {
+          shareCurrentlyLearning: sharingPreferences.shareCurrentlyLearning ?? false,
+          sharePauseStatus: sharingPreferences.sharePauseStatus ?? false,
+          shareLastActiveAt: sharingPreferences.shareLastActiveAt ?? false,
+          shareTodayActivity: sharingPreferences.shareTodayActivity ?? false,
+          shareWeeklyMinutes: sharingPreferences.shareWeeklyMinutes ?? false,
+          shareAvatar: sharingPreferences.shareAvatar ?? false,
+          discoverableByUsername: sharingPreferences.discoverableByUsername ?? false,
           shareTimerStats: key === 'shareAutomaticMinutes'
             ? enabled
             : state.privacy.shareAutomaticMinutes,
@@ -3180,6 +3341,8 @@ export function StudyStoreProvider({
     accountUserId,
     applyAccountProfile,
     avatarMaintenanceError,
+    blockedProfiles,
+    communityRulesAcceptance,
     friendConnections,
     friendOverviews,
     studyGroups,
@@ -3208,6 +3371,7 @@ export function StudyStoreProvider({
     runSocialOperation,
     sharingPreferences,
     socialError,
+    socialRealtimeUnavailable,
     socialLoading,
     state,
     storageKey,

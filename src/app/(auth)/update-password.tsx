@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AuthField, AuthNotice, AuthScaffold, AuthTextLink } from '@/auth/auth-ui';
-import { passwordError } from '@/auth/validation';
+import { MAX_PASSWORD_BYTES, passwordError } from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
 import { useAuthStore } from '@/state/auth-store';
 
@@ -25,9 +25,10 @@ export default function UpdatePasswordScreen() {
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [errors, setErrors] = useState<PasswordErrors>({});
-  const canUpdate = configuration.isConfigured && Boolean(user);
+  const canUpdate = configuration.isConfigured && Boolean(user) && passwordRecoveryPending;
 
   const submit = async () => {
+    if (!canUpdate || pendingAction !== null) return;
     const nextErrors: PasswordErrors = {
       password: passwordError(password, true),
       confirmation: password !== confirmation ? 'Die Passwörter stimmen nicht überein.' : undefined,
@@ -59,8 +60,9 @@ export default function UpdatePasswordScreen() {
         <AuthField
           autoCapitalize="none"
           autoComplete="new-password"
+          maxLength={MAX_PASSWORD_BYTES}
           error={errors.password}
-          hint="Mindestens 8 Zeichen."
+          hint="Mindestens 10 Zeichen."
           isPassword
           label="Neues Passwort"
           onChangeText={(value) => {
@@ -68,12 +70,13 @@ export default function UpdatePasswordScreen() {
             if (errors.password) setErrors((current) => ({ ...current, password: undefined }));
             if (error || notice) clearFeedback();
           }}
-          placeholder="Mindestens 8 Zeichen"
+          placeholder="Mindestens 10 Zeichen"
           value={password}
         />
         <AuthField
           autoCapitalize="none"
           autoComplete="new-password"
+          maxLength={MAX_PASSWORD_BYTES}
           error={errors.confirmation}
           isPassword
           label="Passwort bestätigen"

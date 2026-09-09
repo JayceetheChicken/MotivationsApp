@@ -2,6 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 import { withTimeout } from '@/lib/with-timeout';
+import { safeWarning } from '@/lib/safe-logger';
 
 export interface AsyncKeyValueStorage {
   getItem: (key: string) => Promise<string | null>;
@@ -19,11 +20,9 @@ const secureStoreOptions: SecureStore.SecureStoreOptions = {
   keychainService: 'lernzeit.auth',
 };
 
-function getWebStorage(): Storage | null {
-  return typeof globalThis.localStorage === 'undefined'
-    ? null
-    : globalThis.localStorage;
-}
+// Web sessions are memory-only. Persisting Supabase tokens in localStorage
+// would expose them to any script executing in the origin.
+const webSessionStorage = new Map<string, string>();
 
 function chunkMetaKey(key: string): string {
   return `${key}.__chunks`;
@@ -95,14 +94,13 @@ async function setNativeItem(key: string, value: string): Promise<void> {
 }
 
 async function removeNativeItem(key: string): Promise<void> {
-  const chunkCount = parseChunkCount(
-    await SecureStore.getItemAsync(chunkMetaKey(key), secureStoreOptions),
-  ) ?? 0;
-
+  // Always sweep the bounded namespace. A crash can leave chunks behind before
+  // their metadata is written, and corrupt metadata must not make token
+  // fragments survive logout or account deletion.
   await Promise.all([
     SecureStore.deleteItemAsync(key, secureStoreOptions),
     SecureStore.deleteItemAsync(chunkMetaKey(key), secureStoreOptions),
-    ...Array.from({ length: chunkCount }, (_, index) =>
+    ...Array.from({ length: MAX_CHUNKS }, (_, index) =>
       SecureStore.deleteItemAsync(chunkKey(key, index), secureStoreOptions),
     ),
   ]);
@@ -111,19 +109,19 @@ async function removeNativeItem(key: string): Promise<void> {
 export const authStorage: AsyncKeyValueStorage = {
   async getItem(key) {
     if (Platform.OS === 'web') {
-      return getWebStorage()?.getItem(key) ?? null;
+      return webSessionStorage.get(key) ?? null;
     }
 
     try {
       return await withTimeout(getNativeItem(key), READ_TIMEOUT_MS, `SecureStore-Lesezugriff „${key}“`);
-    } catch (error) {
-      console.warn('SecureStore-Lesezugriff fehlgeschlagen – Wert wird als leer behandelt.', error);
+    } catch {
+      safeWarning('SecureStore-Lesezugriff fehlgeschlagen; der Wert wird verworfen.');
       return null;
     }
   },
   async setItem(key, value) {
     if (Platform.OS === 'web') {
-      getWebStorage()?.setItem(key, value);
+      webSessionStorage.set(key, value);
       return;
     }
 
@@ -131,7 +129,7 @@ export const authStorage: AsyncKeyValueStorage = {
   },
   async removeItem(key) {
     if (Platform.OS === 'web') {
-      getWebStorage()?.removeItem(key);
+      webSessionStorage.delete(key);
       return;
     }
 

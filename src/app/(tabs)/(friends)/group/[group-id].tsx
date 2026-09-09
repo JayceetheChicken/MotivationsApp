@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -325,6 +325,11 @@ export default function StudyGroupDetailsScreen() {
           {group.creatorId !== data.currentUser?.id ? (
             <AppButton label="Lerngruppe verlassen" loading={action === 'leave'} onPress={confirmLeave} variant="ghost" />
           ) : null}
+          <AppButton
+            label="Gruppe oder Gruppenbild melden"
+            onPress={() => router.push(`/report-content?kind=group&entityId=${encodeURIComponent(group.id)}&label=${encodeURIComponent(group.name)}` as Href)}
+            variant="outline"
+          />
         </>
       ) : null}
     </Screen>

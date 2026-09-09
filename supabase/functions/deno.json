@@ -1,0 +1,19 @@
+{
+  "$schema": "https://deno.land/x/deno/cli/schemas/config-file.v1.json",
+  "//": "Isolates the Edge Function workspace from the Expo app. Without this, Deno discovers the root package.json, switches to node_modules resolution and fails because the app dependencies are not installed for Deno.",
+  "nodeModulesDir": "auto",
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  },
+  "fmt": {
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false
+  },
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.111.0"
+  }
+}

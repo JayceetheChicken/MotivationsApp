@@ -9,6 +9,7 @@ import { formatSocialRelativeTime } from './format-social-relative-time';
 
 const PRESENCE_LABELS: Readonly<Record<FriendPresenceStatus, string>> = {
   learning: 'Lernt gerade',
+  paused: 'Lernpause',
   online: 'Online',
   offline: 'Offline',
 };
@@ -39,8 +40,12 @@ export function resolveFriendPresenceStatus(
   const nowMs = now instanceof Date ? now.getTime() : now;
   const currentExpiry = validExpiry(overview.presenceExpiresAt);
   const onlineExpiry = validExpiry(overview.onlineExpiresAt);
-  if (overview.presenceStatus === 'learning' && currentExpiry !== null && currentExpiry > nowMs) {
-    return 'learning';
+  if (
+    (overview.presenceStatus === 'learning' || overview.presenceStatus === 'paused')
+    && currentExpiry !== null
+    && currentExpiry > nowMs
+  ) {
+    return overview.presenceStatus;
   }
   if (onlineExpiry !== null) return onlineExpiry > nowMs ? 'online' : 'offline';
   if (currentExpiry !== null) return currentExpiry > nowMs ? overview.presenceStatus : 'offline';
@@ -59,6 +64,8 @@ export function FriendPresenceRow({
   const activityLabel = relative ? `Zuletzt aktiv ${relative}` : 'Zuletzt aktiv nicht verfügbar';
   const badgeColors = status === 'learning'
     ? { background: theme.colors.successMuted, foreground: theme.colors.success }
+    : status === 'paused'
+      ? { background: theme.colors.warningMuted, foreground: theme.colors.warning }
     : status === 'online'
       ? { background: theme.colors.accentTurquoiseMuted, foreground: theme.colors.accentTurquoise }
       : { background: theme.colors.surfaceMuted, foreground: theme.colors.textMuted };

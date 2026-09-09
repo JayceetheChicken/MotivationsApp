@@ -79,6 +79,9 @@ insert into auth.users(
   '{"username":"avataruser","display_name":"Avatar User"}', now(), now()
 );
 
+insert into public.community_rule_acceptances(user_id, version)
+values ('55555555-5555-4555-8555-555555555555', '2026-08-02');
+
 -- Seed one foreign canonical object and one legacy own object as the database
 -- owner. The authenticated test user may see/delete only their own legacy row.
 insert into storage.objects(bucket_id, name, metadata)

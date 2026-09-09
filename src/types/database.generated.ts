@@ -39,6 +39,13 @@ export type Database = {
         share_manual_stats: boolean;
         share_goal_progress: boolean;
         share_streak: boolean;
+        share_currently_learning: boolean;
+        share_pause_status: boolean;
+        share_last_active_at: boolean;
+        share_today_activity: boolean;
+        share_weekly_minutes: boolean;
+        share_avatar: boolean;
+        discoverable_by_username: boolean;
         revision: number;
         sync_version: number;
         created_at: string;
@@ -240,6 +247,31 @@ export type Database = {
         created_at: string;
         updated_at: string;
       }>;
+      user_blocks: TableDefinition<{
+        blocker_id: string;
+        blocked_id: string;
+        created_at: string;
+      }>;
+      community_rule_acceptances: TableDefinition<{
+        user_id: string;
+        version: string;
+        accepted_at: string;
+      }>;
+      content_reports: TableDefinition<{
+        id: string;
+        reporter_id: string;
+        entity_type: 'profile' | 'profile_name' | 'profile_image' | 'group' | 'group_name' | 'group_image' | 'shared_goal' | 'shared_session';
+        entity_id: string;
+        reason: 'harassment' | 'hate' | 'sexual_content' | 'violence' | 'spam' | 'impersonation' | 'privacy' | 'other';
+        description: string | null;
+        status: 'open' | 'reviewing' | 'resolved' | 'rejected';
+        moderation_action: 'none' | 'hide' | 'remove';
+        resolution_note: string | null;
+        moderator_reference: string | null;
+        created_at: string;
+        updated_at: string;
+        moderated_at: string | null;
+      }>;
     };
     Views: { [_ in never]: never };
     Functions: {
@@ -257,7 +289,20 @@ export type Database = {
         Returns: Json;
       };
       update_privacy_settings: {
-        Args: { p_share_timer_stats: boolean; p_share_manual_stats: boolean; p_share_goal_progress: boolean; p_share_streak: boolean; p_expected_revision: number };
+        Args: {
+          p_share_timer_stats: boolean;
+          p_share_manual_stats: boolean;
+          p_share_goal_progress: boolean;
+          p_share_streak: boolean;
+          p_share_currently_learning: boolean;
+          p_share_pause_status: boolean;
+          p_share_last_active_at: boolean;
+          p_share_today_activity: boolean;
+          p_share_weekly_minutes: boolean;
+          p_share_avatar: boolean;
+          p_discoverable_by_username: boolean;
+          p_expected_revision: number;
+        };
         Returns: Json;
       };
       find_profile_by_exact_username: {
@@ -284,6 +329,27 @@ export type Database = {
       decline_friend_request: { Args: { p_friendship_id: string }; Returns: Json };
       remove_friendship: { Args: { p_friendship_id: string }; Returns: Json };
       list_friend_connections: { Args: Record<PropertyKey, never>; Returns: Json };
+      block_user: { Args: { p_user_id: string }; Returns: Json };
+      unblock_user: { Args: { p_user_id: string }; Returns: Json };
+      list_my_blocked_profiles: { Args: Record<PropertyKey, never>; Returns: Json };
+      submit_content_report: {
+        Args: { p_entity_type: string; p_entity_id: string; p_reason: string; p_description?: string | null };
+        Returns: Json;
+      };
+      get_community_rules_acceptance: { Args: Record<PropertyKey, never>; Returns: Json };
+      accept_community_rules: { Args: { p_version: string }; Returns: Json };
+      export_my_data: { Args: Record<PropertyKey, never>; Returns: Json };
+      moderate_content_report: {
+        Args: {
+          p_report_id: string;
+          p_status: 'reviewing' | 'resolved' | 'rejected';
+          p_action: 'none' | 'hide' | 'remove';
+          p_resolution_note?: string | null;
+          p_moderator_reference?: string | null;
+        };
+        Returns: Json;
+      };
+      prepare_account_deletion: { Args: { p_user_id: string }; Returns: Json };
       get_friend_overview: { Args: { p_friend_id: string }; Returns: Json };
       list_friend_overviews: { Args: Record<PropertyKey, never>; Returns: Json };
       create_shared_goal: { Args: { p_goal: Json; p_invitee_ids: string[]; p_operation_id: string }; Returns: Json };

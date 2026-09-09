@@ -13,6 +13,7 @@ import {
 import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 import { StudyStoreProvider, useStudyStore } from '@/state/study-store';
 import { appTheme, type AppTheme } from '@/theme';
+import { safeDebug } from '@/lib/safe-logger';
 
 export const unstable_settings = { anchor: ROOT_NAVIGATION_ANCHOR };
 
@@ -72,11 +73,12 @@ function AccountStudyBridge() {
 }
 
 function ScopedStudyStore({ children }: PropsWithChildren) {
-  const { activeMode, user } = useAuthStore();
+  const { activeMode, session, user } = useAuthStore();
   const storage = getStudyStorageConfiguration(activeMode, user?.id);
 
   return (
     <StudyStoreProvider
+      accountAccessToken={session?.access_token}
       accountUserId={storage.accountUserId}
       importStorageScope={storage.importStorageScope}
       key={storage.storageScope}
@@ -101,7 +103,7 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
   }, [auth.passwordRecoveryPending, onPasswordUpdateRoute, study.hydrated]);
 
   useEffect(() => {
-    if (study.hydrated) console.log('[BOOT] App navigation ready');
+    if (study.hydrated) safeDebug('[BOOT] App-Navigation bereit.');
   }, [study.hydrated]);
 
   useEffect(() => {
@@ -200,6 +202,12 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
             ),
           }}
         />
+        <Stack.Screen name="datenschutz" options={{ title: 'Datenschutz' }} />
+        <Stack.Screen name="konto-loeschen" options={{ title: 'Konto löschen' }} />
+        <Stack.Screen name="nutzungsbedingungen" options={{ title: 'Nutzungsbedingungen' }} />
+        <Stack.Screen name="community-regeln" options={{ title: 'Community-Regeln' }} />
+        <Stack.Screen name="impressum" options={{ title: 'Impressum' }} />
+        <Stack.Screen name="report-content" options={{ presentation: 'modal', title: 'Inhalt melden' }} />
         <Stack.Screen
           name="import-local-data"
           options={{

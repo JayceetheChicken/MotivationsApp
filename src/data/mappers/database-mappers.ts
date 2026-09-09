@@ -1,8 +1,12 @@
 import type { StudyStateSnapshot } from '@/lib/study-state-transfer';
 import type {
+  AccountDataExport,
   AccountStudyUser,
+  BlockedProfile,
   ChallengeParticipant,
   ChallengeParticipantProgress,
+  CommunityRulesAcceptance,
+  ContentReportReceipt,
   FriendOverview,
   FriendSearchResult,
   FriendshipConnection,
@@ -130,6 +134,13 @@ export function mapSharingPreferences(value: unknown): StudySharingPreferences {
     shareManualStats: booleanValue(nested, false, 'share_manual_stats', 'shareManualStats'),
     shareGoalProgress: booleanValue(nested, false, 'share_goal_progress', 'shareGoalProgress'),
     shareStreak: booleanValue(nested, false, 'share_streak', 'shareStreak'),
+    shareCurrentlyLearning: booleanValue(nested, false, 'share_currently_learning', 'shareCurrentlyLearning'),
+    sharePauseStatus: booleanValue(nested, false, 'share_pause_status', 'sharePauseStatus'),
+    shareLastActiveAt: booleanValue(nested, false, 'share_last_active_at', 'shareLastActiveAt'),
+    shareTodayActivity: booleanValue(nested, false, 'share_today_activity', 'shareTodayActivity'),
+    shareWeeklyMinutes: booleanValue(nested, false, 'share_weekly_minutes', 'shareWeeklyMinutes'),
+    shareAvatar: booleanValue(nested, false, 'share_avatar', 'shareAvatar'),
+    discoverableByUsername: booleanValue(nested, false, 'discoverable_by_username', 'discoverableByUsername'),
     revision: finiteNumber(nested, 0, 'revision'),
     updatedAt: optionalString(nested, 'updated_at', 'updatedAt') ?? new Date(0).toISOString(),
   };
@@ -389,6 +400,8 @@ export function mapFriendOverview(value: unknown): FriendOverview {
   const presenceStatus = rawPresenceStatus === 'learning' || legacyLearningStatus === 'learning'
     || legacyLearningStatus === 'learning_now'
     ? 'learning'
+    : rawPresenceStatus === 'paused'
+      ? 'paused'
     : rawPresenceStatus === 'online'
       ? 'online'
       : 'offline';
@@ -408,10 +421,43 @@ export function mapFriendOverview(value: unknown): FriendOverview {
     lastActiveAt: optionalString(summary, 'last_active_at', 'lastActiveAt', 'last_seen_at', 'lastSeenAt'),
     presenceExpiresAt: clientAlignedExpiry(presenceExpiresAt, serverObservedAt),
     onlineExpiresAt: clientAlignedExpiry(onlineExpiresAt, serverObservedAt),
+    todayMinutes: nullableMetric(summary, 'today_minutes', 'todayMinutes'),
+    weekMinutes: nullableMetric(summary, 'week_minutes', 'weekMinutes'),
+    streakDays: nullableMetric(summary, 'streak_days', 'streakDays'),
     sharedGoalIds: stringList(valueOf(row, 'shared_goal_ids', 'sharedGoalIds')),
     sharedSessionIds: stringList(valueOf(row, 'shared_session_ids', 'sharedSessionIds')),
     groupIds: stringList(valueOf(row, 'group_ids', 'groupIds', 'shared_group_ids', 'sharedGroupIds')),
   };
+}
+
+export function mapBlockedProfile(value: unknown): BlockedProfile {
+  const row = record(value, 'Blockiertes Profil');
+  return {
+    user: mapBasicUser(optionalRecord(valueOf(row, 'user', 'profile')) ?? row),
+    blockedAt: requiredString(row, 'Blockiertes Profil', 'blocked_at', 'blockedAt'),
+  };
+}
+
+export function mapCommunityRulesAcceptance(value: unknown): CommunityRulesAcceptance {
+  const row = record(value, 'Community-Zustimmung');
+  return {
+    accepted: booleanValue(row, false, 'accepted'),
+    version: requiredString(row, 'Community-Zustimmung', 'version'),
+    acceptedAt: optionalString(row, 'accepted_at', 'acceptedAt'),
+  };
+}
+
+export function mapContentReportReceipt(value: unknown): ContentReportReceipt {
+  const row = record(value, 'Meldungsbestätigung');
+  return {
+    id: requiredString(row, 'Meldungsbestätigung', 'id'),
+    status: 'open',
+    createdAt: requiredString(row, 'Meldungsbestätigung', 'created_at', 'createdAt'),
+  };
+}
+
+export function mapAccountDataExport(value: unknown): AccountDataExport {
+  return record(value, 'Datenexport');
 }
 
 function mapStudyGroupMember(value: unknown): StudyGroupMember {
@@ -633,11 +679,11 @@ export function mapStudyChallenge(value: unknown): StudyChallenge {
     period === 'day' ? 'daily' : 'weekly',
   );
   const startsAt = requiredString(goal, 'Gemeinsames Lernziel', 'starts_at', 'startsAt');
-  const endsAt = requiredString(goal, 'Gemeinsames Lernziel', 'ends_at', 'endsAt');
+  const endsAt = optionalString(goal, 'ends_at', 'endsAt') ?? undefined;
   const rawStatus = optionalString(goal, 'status');
   const challengeStatus = rawStatus === 'completed' || rawStatus === 'archived'
     ? 'completed'
-    : Date.parse(endsAt) <= Date.now()
+    : endsAt && Date.parse(endsAt) <= Date.now()
       ? 'completed'
       : Date.parse(startsAt) > Date.now()
         ? 'upcoming'
@@ -749,7 +795,7 @@ export function mapSharedGoalProgress(value: unknown): SharedGoalProgress {
     mode,
     sourcePolicy: statusValue(valueOf(row, 'source_policy', 'sourcePolicy'), ['all', 'timer_only'] as const, 'all'),
     startsAt: optionalString(row, 'starts_at', 'startsAt') ?? '',
-    endsAt: optionalString(row, 'ends_at', 'endsAt') ?? '',
+    endsAt: optionalString(row, 'ends_at', 'endsAt') ?? undefined,
     revision: finiteNumber(row, 0, 'revision'),
     participants,
     team: mappedTeam,

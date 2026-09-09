@@ -8,7 +8,12 @@ import {
   AuthScaffold,
   AuthTextLink,
 } from '@/auth/auth-ui';
-import { emailError, passwordError } from '@/auth/validation';
+import {
+  emailError,
+  MAX_EMAIL_LENGTH,
+  MAX_PASSWORD_BYTES,
+  passwordError,
+} from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
 import { useAuthStore } from '@/state/auth-store';
 
@@ -58,6 +63,7 @@ export default function LoginScreen() {
           autoComplete="email"
           error={errors.email}
           keyboardType="email-address"
+          maxLength={MAX_EMAIL_LENGTH}
           label="E-Mail-Adresse"
           onChangeText={(value) => {
             setEmail(value);
@@ -71,6 +77,7 @@ export default function LoginScreen() {
         <AuthField
           autoCapitalize="none"
           autoComplete="current-password"
+          maxLength={MAX_PASSWORD_BYTES}
           error={errors.password}
           isPassword
           label="Passwort"

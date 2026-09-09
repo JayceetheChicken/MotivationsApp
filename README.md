@@ -2,6 +2,16 @@
 
 Lernzeit ist eine responsive Expo-/Android-App für persönliche Lernziele, zuverlässig gemessene Fokus-Sessions und motivierendes gemeinsames Lernen im privaten Freundeskreis. Der Erststart ist vollständig leer: Es gibt keine Beispielkonten, Fächer, Sessions, Ziele, Freunde oder Challenges.
 
+## Lizenzstatus
+
+Für den eigenen Lernzeit-Anwendungscode ist derzeit keine allgemeine
+Open-Source-Lizenz erteilt. Die frühere Expo-Template-`LICENSE` wurde entfernt,
+weil sie fälschlich wie eine Lizenz für das Gesamtprojekt wirkte. Rechtlich
+erforderliche Hinweise für Expo-/Template- und Drittbestandteile bleiben in
+[`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) erhalten. Der
+Repository-Inhaber muss die gewünschte Lizenzierung und die derzeit öffentliche
+GitHub-Sichtbarkeit ausdrücklich bestätigen.
+
 ## Funktionen
 
 - Timer-Sessions mit Fachauswahl, Pause, Fortsetzen und Wiederherstellung
@@ -40,7 +50,7 @@ Einwilligung in die Cloud übernommen.
 
 ## Supabase konfigurieren
 
-Kopiere `.env.example` nach `.env` und trage die öffentlichen Projektwerte ein:
+Kopiere `.env.example` nach `.env.local` und trage die öffentlichen Projektwerte ein:
 
 ```dotenv
 EXPO_PUBLIC_SUPABASE_URL=https://dein-projekt.supabase.co
@@ -53,6 +63,33 @@ Fallback unterstützt. Ein Service-Role-Key gehört niemals in die App.
 Anschließend Expo neu starten. Ohne beide Werte bleiben nur die freiwilligen
 Cloud-Kontoaktionen deaktiviert; der Gastmodus und lokale Profile funktionieren
 vollständig weiter. Social-Funktionen sind ausschließlich mit einem Supabase-Konto verfügbar.
+
+## Betreiberangaben und Release-Gate
+
+Alle rechtlich verpflichtenden Betreiberangaben sind in
+[`config/operator-fields.json`](./config/operator-fields.json) beschrieben und
+werden ausschließlich über `EXPO_PUBLIC_*`-Variablen gesetzt.
+
+```bash
+npm run release:report   # zeigt jedes Feld und seinen aktuellen Zustand
+npm run release:gate     # erzwingt exakt das, was ein Production-Build prueft
+npm run release:pages    # erzeugt Kontoloeschseite und assetlinks.json
+```
+
+Entwicklungsbuilds laufen mit klar gekennzeichneten Testwerten auf der
+reservierten `.invalid`-TLD. Ein Production-Build bricht ab, solange eine
+Pflichtangabe fehlt oder noch ein Platzhalter ist. Details in
+[`docs/operator-configuration.md`](./docs/operator-configuration.md).
+
+## Marken-Assets
+
+Icons, Splash, Favicon und Play-Grafiken werden reproduzierbar aus einer
+Geometriedefinition erzeugt, ohne native Bildbibliothek:
+
+```bash
+npm run assets:build
+npm run assets:build -- --check
+```
 
 ### Lokale Datenbank
 
@@ -73,12 +110,24 @@ gegen ein Remote-Dashboard synchronisiert.
 ## Qualität prüfen
 
 ```bash
-npm test
-npm run typecheck
-npm run lint
-npm run test:db
-npx expo-doctor
+npm ci
+npm run verify        # sensitive files, release report, typecheck, tests, lint, licences, expo-doctor
+npm run test:db       # benoetigt Docker
+npm audit --omit=dev --audit-level=high
 ```
+
+`npm run verify` fasst die Repository-Gates zusammen. Zusätzlich prüfbar:
+
+```bash
+npm run assets:build -- --check
+npm run licenses:check
+node scripts/check-exported-bundle.mjs dist
+```
+
+Vor einem Produktions- oder Play-Store-Release ist zusätzlich die
+[`PLAY_STORE_SECURITY_CHECKLIST.md`](./PLAY_STORE_SECURITY_CHECKLIST.md)
+vollständig abzuarbeiten. Sie trennt automatisierte Nachweise von den noch im
+Supabase-Dashboard, bei der Domain und in Google Play zu erledigenden Gates.
 
 ## Projektstruktur
 
