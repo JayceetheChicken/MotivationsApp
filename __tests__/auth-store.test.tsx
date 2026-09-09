@@ -534,8 +534,12 @@ describe('AuthStoreProvider startup', () => {
   it('never sends the private scheme in a production build', async () => {
     const previousUrl = process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
     const previousProfile = process.env.EXPO_PUBLIC_BUILD_PROFILE;
+    // Pin both halves: a contradicting ambient EAS_BUILD_PROFILE (the APK
+    // workflow exports "preview") would make the profile unresolvable.
+    const previousEasProfile = process.env.EAS_BUILD_PROFILE;
     process.env.EXPO_PUBLIC_LEGAL_SITE_URL = 'https://lernzeit.de';
     process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EAS_BUILD_PROFILE = 'production';
     const previousAttestation = embeddedAuthBuildAttestation.value;
     embeddedAuthBuildAttestation.value = attestationFor(process.env);
 
@@ -553,6 +557,8 @@ describe('AuthStoreProvider startup', () => {
       else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = previousUrl;
       if (previousProfile === undefined) delete process.env.EXPO_PUBLIC_BUILD_PROFILE;
       else process.env.EXPO_PUBLIC_BUILD_PROFILE = previousProfile;
+      if (previousEasProfile === undefined) delete process.env.EAS_BUILD_PROFILE;
+      else process.env.EAS_BUILD_PROFILE = previousEasProfile;
       jest.resetModules();
     }
   });

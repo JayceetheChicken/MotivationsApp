@@ -46,7 +46,17 @@ function withBuild<T>(
   environment: Readonly<Record<string, string | undefined>>,
   run: (module: NavigationModule) => T,
 ): T {
-  const keys = ['EXPO_PUBLIC_BUILD_PROFILE', 'EXPO_PUBLIC_LEGAL_SITE_URL'] as const;
+  // Every variable resolveBuildProfile() reads is owned here. A key the caller
+  // leaves undefined is deleted for the duration, so an ambient value from the
+  // surrounding job (the APK workflow exports EAS_BUILD_PROFILE=preview) cannot
+  // contradict the pinned profile and make it unresolvable.
+  const keys = [
+    'EXPO_PUBLIC_BUILD_PROFILE',
+    'EAS_BUILD_PROFILE',
+    'EAS_BUILD',
+    'LERNZEIT_RELEASE_GATE',
+    'EXPO_PUBLIC_LEGAL_SITE_URL',
+  ] as const;
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) {
     const value = environment[key];
@@ -318,9 +328,11 @@ describe('recovery transport per build profile', () => {
   /** A production build with no manifest attestation must not send anything. */
   it('disables recovery in a production build whose manifest is not attested', () => {
     const previousProfile = process.env.EXPO_PUBLIC_BUILD_PROFILE;
+    const previousEasProfile = process.env.EAS_BUILD_PROFILE;
     const previousUrl = process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
     const previousAttestation = embeddedAuthBuildAttestation.value;
     process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EAS_BUILD_PROFILE = 'production';
     process.env.EXPO_PUBLIC_LEGAL_SITE_URL = 'https://lernzeit.de';
     embeddedAuthBuildAttestation.value = undefined;
 
@@ -336,6 +348,8 @@ describe('recovery transport per build profile', () => {
     } finally {
       if (previousProfile === undefined) delete process.env.EXPO_PUBLIC_BUILD_PROFILE;
       else process.env.EXPO_PUBLIC_BUILD_PROFILE = previousProfile;
+      if (previousEasProfile === undefined) delete process.env.EAS_BUILD_PROFILE;
+      else process.env.EAS_BUILD_PROFILE = previousEasProfile;
       if (previousUrl === undefined) delete process.env.EXPO_PUBLIC_LEGAL_SITE_URL;
       else process.env.EXPO_PUBLIC_LEGAL_SITE_URL = previousUrl;
       embeddedAuthBuildAttestation.value = previousAttestation;
