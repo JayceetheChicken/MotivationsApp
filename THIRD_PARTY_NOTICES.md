@@ -727,7 +727,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Expo
 
-### @expo/cli@57.0.22
+### @expo/cli@57.0.23
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/cli
@@ -868,7 +868,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/metro-file-map@57.0.2
+### @expo/metro-file-map@57.0.3
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/metro-file-map#readme
@@ -961,7 +961,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015 Joran Dirk Greef
 
-### @expo/ui@57.0.16
+### @expo/ui@57.0.17
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/ui/
@@ -972,7 +972,7 @@ der Anwendung ausgeliefert werden.
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @expo/xcpretty@4.4.4
+### @expo/xcpretty@4.4.5
 
 - Lizenz: `BSD-3-Clause`
 - Projektseite: https://github.com/expo/expo-cli
@@ -1931,7 +1931,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Nicolò Ribaudo and other contributors
 
-### babel-preset-expo@57.0.10
+### babel-preset-expo@57.0.11
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/babel-preset-expo#readme
@@ -2402,7 +2402,7 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) 2014-2017 TJ Holowaychuk <tj@vision-media.ca>
 > Copyright (c) 2018-2021 Josh Junon
 
-### decode-uri-component@0.5.0+lernzeit.cjs.1
+### decode-uri-component@0.5.0+lernzeit.cjs.2
 
 - Lizenz: `MIT`
 - Bezugsquelle: lokal versioniertes Paket `vendor/decode-uri-component`
@@ -2671,7 +2671,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### expo@57.0.20
+### expo@57.0.21
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo
@@ -2767,7 +2767,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-glass-effect@57.0.1
+### expo-glass-effect@57.0.2
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/glass-effect/
@@ -2847,7 +2847,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-core@57.0.16
+### expo-modules-core@57.0.17
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-core
@@ -2855,7 +2855,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-jsi@57.0.8
+### expo-modules-jsi@57.1.0
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-jsi
@@ -2863,7 +2863,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-router@57.0.19
+### expo-router@57.0.20
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/routing/introduction/
@@ -3694,7 +3694,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2014, 2015, 2016, 2017, 2018 Simon Lydell
 
-### js-yaml@3.15.1
+### js-yaml@3.15.2
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/nodeca/js-yaml
@@ -3702,7 +3702,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (C) 2011-2015 by Vitaly Puzrin
 
-### js-yaml@4.3.1
+### js-yaml@4.3.2
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`

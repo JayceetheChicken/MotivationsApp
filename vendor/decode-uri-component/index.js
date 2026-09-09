@@ -150,8 +150,13 @@ function customDecodeURIComponent(input) {
 	const entries = Object.keys(replaceMap);
 
 	for (const key of entries) {
-		// Replace all decoded components
-		input = input.replace(new RegExp(key, 'g'), replaceMap[key]);
+		// Replace all decoded components. Every key is a literal `%XX` run, so a
+		// literal split/join is equivalent to the upstream global regular expression
+		// while avoiding `new RegExp` on attacker-sized keys: V8 rejects patterns
+		// past its program-size limit with `SyntaxError: Invalid regular expression:
+		// too large`, which turned a long percent-encoded run into a crash inside
+		// URL parsing.
+		input = input.split(key).join(replaceMap[key]);
 	}
 
 	return input;

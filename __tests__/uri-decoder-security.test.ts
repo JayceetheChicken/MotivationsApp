@@ -5,6 +5,9 @@ import path from 'node:path';
 const root = path.resolve(__dirname, '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const requireFromQueryString = createRequire(requireFromRoot.resolve('query-string'));
+const decodeUriComponent = requireFromRoot(
+  requireFromQueryString.resolve('decode-uri-component'),
+) as (value: string) => string;
 
 describe('patched URI decoder used by Expo Router', () => {
   it('resolves query-string to the reviewed patched CommonJS distribution', () => {
@@ -25,5 +28,32 @@ describe('patched URI decoder used by Expo Router', () => {
     `], { cwd: root, timeout: 5000, encoding: 'utf8' });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
+  });
+
+  // A percent-encoded run longer than the regular-expression program-size limit
+  // must not throw: the decoder is the last line of defence for deep-link URLs.
+  it('decodes a percent-encoded run too long to compile as a pattern', () => {
+    const run = '%FF'.repeat(20000);
+    expect(() => decodeUriComponent(run)).not.toThrow();
+    expect(decodeUriComponent(`${run}%C3%A4`).endsWith('ä')).toBe(true);
+  });
+
+  // Decoded user data is used as a replacement string, so `$` sequences must be
+  // substituted literally rather than expanded into the surrounding match.
+  it.each([
+    ['%FF%24%26', '%FF$&'],
+    ['%FF%24%24', '%FF$$'],
+    ["%FF%24%27", "%FF$'"],
+    ['%FF%24%60', '%FF$`'],
+  ])('substitutes %s literally without expanding $ patterns', (input, expected) => {
+    expect(decodeUriComponent(input)).toBe(expected);
+  });
+
+  it('keeps upstream replacement-character behaviour for byte-order marks', () => {
+    expect(decodeUriComponent('%FE%FF')).toBe('��');
+    expect(decodeUriComponent('%FF%FE')).toBe('��');
+    expect(decodeUriComponent('%C2')).toBe('�');
+    expect(decodeUriComponent('%E2%82%AC')).toBe('€');
+    expect(decodeUriComponent('a%FFb')).toBe('a%FFb');
   });
 });
