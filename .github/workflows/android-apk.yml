@@ -11,7 +11,10 @@ permissions:
   contents: read
 
 env:
-  NODE_ENV: production
+  # NODE_ENV is deliberately NOT set here. `npm ci` omits devDependencies under
+  # NODE_ENV=production, which starves the install-script policy rebuild and
+  # `npm run verify` (jest, eslint, tsc, expo-doctor) of the packages they need.
+  # The bundling steps below set it themselves, where it actually applies.
   # This shareable APK is a preview, never a production release candidate.
   EXPO_PUBLIC_BUILD_PROFILE: preview
   EAS_BUILD_PROFILE: preview
@@ -79,6 +82,7 @@ jobs:
       - name: Generate Android project
         env:
           CI: '1'
+          NODE_ENV: production
         run: |
           npx expo prebuild --platform android --clean --no-install
           node scripts/verify-native-linking.mjs android/app/src/main/AndroidManifest.xml
@@ -94,6 +98,8 @@ jobs:
 
       - name: Build release APK
         working-directory: android
+        env:
+          NODE_ENV: production
         run: ./gradlew :app:assembleRelease --no-daemon
 
       - name: Verify merged preview manifest
