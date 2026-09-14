@@ -32,9 +32,13 @@ immer an Supabase; es gibt keine simulierten Freunde oder Ersatzantworten.
 ### Aktuell ausgewähltes Projekt
 
 Projekt **MotivationsApp**, Ref **owoifhueznnsmwbrazmq**, Region **eu-west-1**.
-Bei der Prüfung am 14.09.2026 meldete die Supabase-CLI `INACTIVE`; die API-Domain
-hatte keinen DNS-Eintrag. Das Projekt muss zuerst im Dashboard mit **Restore
-project** reaktiviert werden. Kein neues Projekt und keinen anderen Key raten.
+Am 14.09.2026 nach Wiederherstellung als `ACTIVE_HEALTHY` geprüft. Alle 16
+Migrationen einschließlich der fünf zuvor fehlenden Sicherheitsmigrationen
+sind angewendet, `delete-account` ist bereitgestellt. Die schreibgeschützte
+Prüfung `supabase/verify-hosted.sql` erfüllt alle dort dokumentierten Sollwerte.
+Realtime ist aktiv und auf private Kanäle beschränkt. Auth bestätigt E-Mails,
+verbietet anonyme Konten, rotiert Refresh-Tokens (Reuse 10 Sekunden) und verlangt
+jetzt mindestens zehn Passwortzeichen.
 
 ### GitHub
 
@@ -43,7 +47,7 @@ Repository → Settings → Secrets and variables → Actions → Variables:
 | Name | Wert/Stand |
 | --- | --- |
 | `EXPO_PUBLIC_SUPABASE_URL` | `https://owoifhueznnsmwbrazmq.supabase.co`; bereits gesetzt |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | vorhandener, als `anon` validierter Projekt-Key; bereits gesetzt |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | vorhandener, als öffentlich validierter Publishable Key; bereits gesetzt (Legacy-Variablenname unterstützt) |
 | `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | optional: Publishable Key desselben Projekts als Ersatz setzen, danach Anon-Variable entfernen |
 
 Der Workflow akzeptiert auch gleichnamige Actions-Secrets; diese haben Vorrang
@@ -55,7 +59,7 @@ weder EAS-Zugangsdaten noch private Supabase-Zugangsdaten erforderlich.
 
 ### Migrationen, RLS, Realtime, Storage und Edge Function
 
-Nach Reaktivierung, aus diesem Checkout mit der installierten CLI:
+Bereits ausgeführt. Für spätere Aktualisierungen aus diesem Checkout:
 
 ```sh
 npx supabase migration list --linked
@@ -86,7 +90,10 @@ vergeben. `private` gehört nicht zu den exponierten API-Schemas.
   `image/png`, `image/webp`; Upload nur im eigenen UUID-Pfad, höchstens 100
   Objekte pro Konto, Löschsperre erhalten. Bereits bekannte öffentliche
   Avatar-URLs bleiben nach Abschalten der Social-Freigabe erreichbar; das ist
-  das bestehende Produktverhalten, kein Zugriff auf private Lerndaten.
+  das bestehende Produktverhalten, kein Zugriff auf private Lerndaten. Neue
+  Uploads verwenden nur 60 Sekunden Cache-TTL. Gelöschte Bilder können bis zum
+  Ablauf des CDN-/Geräte-Caches sichtbar bleiben; bereits heruntergeladene
+  Kopien lassen sich nicht zurückrufen. Alte Uploads behalten ihre alte TTL.
 - **Edge Function**: Nur `delete-account` ist vorgesehen. Social-Funktionen
   laufen über Datenbank-RPCs, nicht über fehlende Social-Edge-Functions.
   `verify_jwt=false` aus `supabase/config.toml` beibehalten: die Function prüft
@@ -95,6 +102,13 @@ vergeben. `private` gehört nicht zu den exponierten API-Schemas.
   der Supabase-Function-Laufzeit. `ALLOWED_BROWSER_ORIGINS` leer lassen.
 
 ### Auth-Dashboard und E-Mails
+
+**Noch manuell erforderlich:** Eigenes SMTP und eine echte HTTPS-Site-URL
+konfigurieren (aktuell kein eigenes SMTP, Site URL `http://localhost:3000`,
+E-Mail-Limit 2/Stunde). Für Passwort-Recovery die nachfolgende genaue
+Preview-Redirect-URL im dafür vorgesehenen Testprojekt zulassen (aktuelle
+Allowlist leer). Diese Werte benötigen die Betreiber-Domain und Mailzugangsdaten.
+In GitHub fehlen für den APK-Build keine Pflichtvariablen mehr.
 
 - E-Mail/Passwort und neue Registrierungen aktivieren, **Confirm email an**,
   anonyme Anmeldungen aus, Secure email change an, Mindestpasswortlänge 10.
@@ -170,3 +184,20 @@ APK-Signaturprüfung und Secret-/Backend-Scan sind verbindlich. Die bisherigen
 CodeQL-, Gitleaks- und OSV-Workflows bleiben aktiv. Der Erfolg dieser Prüfungen
 ersetzt keine erfolgreich protokollierte Zwei-Handy-Abnahme des gehosteten
 Backends.
+
+Für eine ausdrückliche gehostete API-Abnahme gibt es denselben vollständigen
+Mehrnutzer-Test als `scripts/supabase-hosted-e2e.mjs`. Er legt eindeutig benannte
+temporäre Konten an, meldet sie mit dem öffentlichen APK-Key an und räumt nur
+seine eigenen Konten/Objekte wieder auf. Der lokale Runner bleibt auf localhost
+beschränkt. Beispiel mit bereits authentifizierter CLI und ignorierter
+`.env.local`, die ausschließlich die öffentlichen Expo-Werte enthält:
+
+```sh
+npx supabase projects api-keys --project-ref owoifhueznnsmwbrazmq --output json | node --env-file=.env.local scripts/supabase-hosted-e2e.mjs owoifhueznnsmwbrazmq
+```
+
+Die administrativen CLI-Testzugangsdaten fließen ausschließlich über stdin in
+den lokalen Testprozess; nicht in eine Datei umleiten oder als APK-/CI-Variable
+speichern. Diese Testkonten werden administrativ bestätigt und prüfen daher
+keine echte Registrierungs-E-Mail-Zustellung. SMTP und die Zwei-Handy-Abnahme
+müssen separat erfolgreich getestet werden.
