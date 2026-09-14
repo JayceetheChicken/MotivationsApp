@@ -82,6 +82,17 @@ jede Ergebnismenge den Sollzustand an. Zusätzlich Security Advisor prüfen.
 Keine Policies manuell öffnen und keine direkte Client-Schreibberechtigung
 vergeben. `private` gehört nicht zu den exponierten API-Schemas.
 
+Der gehostete Security Advisor meldete keine `ERROR`-Befunde. Seine 55 Hinweise
+auf für angemeldete Nutzer ausführbare `SECURITY DEFINER`-RPCs entsprechen dem
+beabsichtigten, durch pgTAP/API-Tests geprüften RPC-Zugriffsmodell; zehn
+`RLS Enabled No Policy`-Informationen betreffen gesperrte Tabellen. Policies
+deshalb nicht öffnen. Der zusätzliche Leaked-password-Schutz ist im aktuellen
+Tarif nicht verfügbar (API: HTTP 402); bei entsprechendem Tarif aktivieren.
+`db lint --linked --level warning` findet keine SQL-Fehler, aber bestehende
+Volatilitäts-Hinweise in fünf Read-Model-/Import-Helfern und einen unbenutzten
+Parameter in der gesperrten Legacy-Löschfunktion. Diese Hinweise werden nicht
+unterdrückt; die ursprünglichen RPC-Berechtigungen bleiben erhalten.
+
 - **Realtime** aktivieren. Private Broadcast-Kanäle nutzen `social:user:<eigene UID>`
   mit der migrierten `social_user_can_receive`-Policy. Kein fremder UID-Kanal,
   keine Client-INSERT-Policy, keine zusätzliche Freigabe privater Tabellen für
@@ -170,6 +181,17 @@ Domain, App-Link-Verifikation und Production-Signierung aus PR #5.
    weiterhin bestehen.
 
 ## Automatische Prüfungen
+
+Am 14.09.2026 erfolgreich ausgeführt: Typecheck, 49 Jest-Suites mit 1.010 Tests,
+Lint, Expo Doctor (20/20), Lizenzinventar, Install-Script-Policy und
+Produktions-Dependency-Audit (0 Schwachstellen). Die vollständige API-E2E-Suite
+bestand auch gegen das gehostete Projekt: getrennte Anmeldungen, private
+Realtime-Inboxen, Freundschaften, Avatare einschließlich CDN-Löschung,
+gemeinsame Lernfunktionen, fremde Zeilen/Privatdaten, Freigaben, Blockieren,
+Meldungen und Export. Zusätzlich bestanden Passwort-Login, Refresh-Rotation,
+Ablehnung falscher Löschbestätigung und echte Edge-Function-Kontolöschung.
+Anschließend waren keine temporären Testkonten und wieder genau die zwei
+ursprünglichen Profile vorhanden.
 
 Der APK-Workflow verlangt die unveränderten vollständigen pgTAP-/API-Tests
 gegen einen echten, isolierten Supabase-Stack. Zusätzlich prüft der API-Test

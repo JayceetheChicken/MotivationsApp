@@ -39,7 +39,7 @@ npm start
 
 Die App lässt sich danach mit Expo Go auf Android oder im Browser mit `npm run web` öffnen.
 
-Beim ersten Start öffnet sich Lernzeit sofort als vollständig nutzbare Gast-App. Fächer,
+Im lokalen Entwicklungsmodus öffnet sich Lernzeit als vollständig nutzbare Gast-App. Fächer,
 Lernzeiten, Noten, Ziele und Einstellungen werden ohne Konto lokal auf dem Gerät
 gespeichert. Über **Konto & Einstellungen → Konto & Synchronisierung** kann später freiwillig
 ein lokales Profil erstellt oder ein Supabase-Konto verbunden werden. Vorhandene
@@ -49,6 +49,12 @@ Bestätigung werden Fächer, Lernzeiten, persönliche Ziele und Noten idempotent
 Einwilligung in die Cloud übernommen.
 
 ## Supabase konfigurieren
+
+Die installierbare Online-APK verlangt ein echtes Supabase-Backend und eine
+Anmeldung. Build, Artefakt `Lernzeit-preview-APK`, Dashboard-Schritte und der
+Zwei-Handy-Test sind in [Android-APK mit echtem Supabase](docs/android-online-apk.md)
+beschrieben. Der dort gesetzte Online-Zwang sperrt den nachfolgend beschriebenen
+lokalen Entwicklungsmodus vollständig für die APK.
 
 Kopiere `.env.example` nach `.env.local` und trage die öffentlichen Projektwerte ein:
 
@@ -60,7 +66,7 @@ EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=dein-öffentlicher-publishable-key
 `EXPO_PUBLIC_SUPABASE_ANON_KEY` wird für bestehende Umgebungen vorübergehend als
 Fallback unterstützt. Ein Service-Role-Key gehört niemals in die App.
 
-Anschließend Expo neu starten. Ohne beide Werte bleiben nur die freiwilligen
+Anschließend Expo neu starten. Im lokalen Entwicklungsmodus bleiben ohne beide Werte nur die freiwilligen
 Cloud-Kontoaktionen deaktiviert; der Gastmodus und lokale Profile funktionieren
 vollständig weiter. Social-Funktionen sind ausschließlich mit einem Supabase-Konto verfügbar.
 
