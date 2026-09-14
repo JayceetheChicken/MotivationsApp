@@ -17,6 +17,7 @@ env:
   # The bundling steps below set it themselves, where it actually applies.
   # This shareable APK is a preview, never a production release candidate.
   EXPO_PUBLIC_BUILD_PROFILE: preview
+  EXPO_PUBLIC_REQUIRE_SUPABASE: '1'
   EAS_BUILD_PROFILE: preview
   EXPO_NO_DOTENV: '1'
   EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL || vars.EXPO_PUBLIC_SUPABASE_URL }}
@@ -24,10 +25,14 @@ env:
   EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY || vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
 
 jobs:
+  database:
+    uses: ./.github/workflows/supabase.yml
+
   build-apk:
+    needs: database
     name: Build shareable APK
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -49,6 +54,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          # The action defaults to obsolete `tools`, which is no longer
+          # available in Google's repository. Match the SDK 57 native build.
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Install Android SDK components
         shell: bash
@@ -64,20 +73,30 @@ jobs:
           npm ci --ignore-scripts
           node scripts/check-install-scripts.mjs --rebuild
 
+      - name: Require a live Supabase backend
+        run: node scripts/check-online-backend.mjs
+
       - name: Verify app and dependencies
+        env:
+          # Unit tests explicitly exercise guest/development modes too. The
+          # online build flag is pinned again for every actual bundling step.
+          EXPO_PUBLIC_REQUIRE_SUPABASE: ''
         run: |
           npm run verify
+          python scripts/test-extract-apk.py
           npm audit --omit=dev --audit-level=moderate
 
-      - name: Check optional Supabase configuration
-        shell: bash
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: 2.9.3
+
+      - name: Verify Edge Function
+        working-directory: supabase/functions
         run: |
-          if [ -z "$EXPO_PUBLIC_SUPABASE_URL" ]; then
-            echo "::warning::EXPO_PUBLIC_SUPABASE_URL is not configured in GitHub Actions. The APK will still build, but account/social features will run in local-development mode."
-          fi
-          if [ -z "$EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY" ] && [ -z "$EXPO_PUBLIC_SUPABASE_ANON_KEY" ]; then
-            echo "::warning::No public Supabase key is configured in GitHub Actions. The APK will still build, but account/social features will run in local-development mode."
-          fi
+          deno fmt --check .
+          deno lint .
+          deno check --frozen delete-account/index.ts
 
       - name: Generate Android project
         env:
@@ -109,19 +128,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK_PATH="$(find android/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
-          if [ -z "$APK_PATH" ]; then
-            echo "Release APK not found"
-            exit 1
-          fi
+          APK_PATH=android/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK_PATH"
           mkdir -p dist
           cp "$APK_PATH" dist/Lernzeit-preview.apk
           ls -lh dist/Lernzeit-preview.apk
+
+      - name: Inspect the actual signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose dist/Lernzeit-preview.apk
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging dist/Lernzeit-preview.apk
+          python scripts/extract-apk.py dist/Lernzeit-preview.apk "$RUNNER_TEMP/apk-inspection"
+          node scripts/check-apk-contents.mjs "$RUNNER_TEMP/apk-inspection"
+          sha256sum dist/Lernzeit-preview.apk > dist/Lernzeit-preview.apk.sha256
 
       - name: Upload Lernzeit APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Lernzeit-preview-APK
-          path: dist/Lernzeit-preview.apk
+          path: |
+            dist/Lernzeit-preview.apk
+            dist/Lernzeit-preview.apk.sha256
           if-no-files-found: error
           retention-days: 30

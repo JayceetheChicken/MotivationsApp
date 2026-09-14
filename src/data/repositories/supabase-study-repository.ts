@@ -891,7 +891,9 @@ export class SupabaseStudyRepository implements StudyRepository {
         }
         const path = `${input.userId}/profile/${input.objectId}.${input.fileExtension}`;
         const { error } = await this.client.storage.from('avatars').upload(path, input.body, {
-          cacheControl: '31536000',
+          // Avatars can be replaced or deleted. Bound stale public CDN/browser
+          // copies instead of advertising a one-year retention period.
+          cacheControl: '60',
           contentType: input.contentType,
           upsert: false,
         });

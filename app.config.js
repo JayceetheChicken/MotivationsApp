@@ -27,6 +27,7 @@
  */
 const releaseConfig = require('./config/release-config.cjs');
 const authBuild = require('./config/auth-build.cjs');
+const backendPolicy = require('./config/backend-policy.cjs');
 
 /**
  * Android requires a strictly increasing integer. EAS `appVersionSource:
@@ -166,6 +167,7 @@ module.exports = ({ config }) => {
       throw new Error(`\n${releaseConfig.formatReleaseBlockerReport(blockers)}\n`);
     }
   }
+  backendPolicy.assertBackendBuildConfiguration(environment);
 
   // The single derivation. The scheme, the intent filter, resetPasswordForEmail
   // and parsePasswordRecoveryUrl all read this same object, so they cannot name
@@ -183,6 +185,7 @@ module.exports = ({ config }) => {
     extra: {
       ...config.extra,
       buildProfile: auth.profile,
+      onlineBackendRequired: backendPolicy.requiresSupabase(environment),
       legalSiteHost: host,
       passwordRecoveryRedirect: auth.recoveryRedirectUrl,
       passwordRecoveryRedirectKind: auth.recoveryTransport,

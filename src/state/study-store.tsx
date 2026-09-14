@@ -15,6 +15,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/auth/supabase';
 import { createInitialData, subjectColorPalette } from '@/data/initial-data';
 import { createLocalStudyRepository } from '@/data/repositories/local-study-repository';
+import { ONLINE_BACKEND_REQUIRED } from '@/auth/backend-policy';
 import {
   asRepositoryError,
   StudyRepositoryError,
@@ -1690,6 +1691,9 @@ export function StudyStoreProvider({
         client: supabase,
         storage: localStorage,
       });
+    }
+    if (ONLINE_BACKEND_REQUIRED) {
+      throw new Error('Online-Lernspeicher benötigt eine gültige Supabase-Sitzung.');
     }
     return createLocalStudyRepository({
       externallyPersisted: true,

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -29,6 +32,38 @@ const clientOptions = {
     headers: { 'X-Client-Info': 'lernzeit-local-api-e2e' },
   },
 };
+
+async function subscribeInbox(client, userId, expectDenied = false) {
+  const { data } = await client.auth.getSession();
+  await client.realtime.setAuth(data.session.access_token);
+  const messages = [];
+  const channel = client.channel(`social:user:${userId}`, { config: { private: true } })
+    .on('broadcast', { event: 'social_invalidated' }, (message) => messages.push(message));
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Realtime subscription timed out')), 15_000);
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          clearTimeout(timer);
+          if (expectDenied) reject(new Error('Foreign private inbox was accessible'));
+          else resolve();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          clearTimeout(timer);
+          if (expectDenied && status === 'CHANNEL_ERROR') resolve();
+          else reject(new Error('Own private inbox subscription failed'));
+        }
+      });
+    });
+    return { messages, close: async () => {
+      await client.removeChannel(channel);
+      client.realtime.disconnect();
+    } };
+  } catch (error) {
+    await client.removeChannel(channel);
+    client.realtime.disconnect();
+    throw error;
+  }
+}
 
 function requireEnvironment(name) {
   const value = process.env[name]?.trim();
@@ -140,16 +175,14 @@ async function assertPublicAvatar(url, expectedBytes, expectedContentType) {
   assert.deepEqual(Buffer.from(await response.arrayBuffer()), expectedBytes);
 }
 
-async function run() {
-  const apiUrl = localApiUrl();
-  const anonKey = requireEnvironment('ANON_KEY');
-  const serviceRoleKey = requireEnvironment('SERVICE_ROLE_KEY');
+export async function runApiE2e({ apiUrl, anonKey, serviceRoleKey }) {
   assert.notEqual(anonKey, serviceRoleKey, 'anon and service-role keys must differ');
 
   const admin = createClient(apiUrl, serviceRoleKey, clientOptions);
   const createdUserIds = [];
   const avatarObjectPaths = new Set();
   const cleanupErrors = [];
+  const inboxes = [];
   let testFailure = null;
 
   const createUser = async (label, suffix) => {
@@ -192,7 +225,7 @@ async function run() {
     avatarObjectPaths.add(objectPath);
     const data = await must(
       client.storage.from(AVATAR_BUCKET).upload(objectPath, asArrayBuffer(bytes), {
-        cacheControl: '3600',
+        cacheControl: '60',
         contentType,
         upsert: false,
       }),
@@ -256,6 +289,12 @@ async function run() {
     await setSocialSharing(alice, true);
     await setSocialSharing(bob, true);
     await setSocialSharing(carol, true);
+
+    console.log('[supabase-e2e] testing real private WebSocket inboxes across accounts');
+    const bobInbox = await subscribeInbox(bob, bobUser.id);
+    inboxes.push(bobInbox);
+    const deniedInbox = await subscribeInbox(carol, bobUser.id, true);
+    await deniedInbox.close();
 
     console.log('[supabase-e2e] testing RPC-only writes and anonymous denial');
     const anonymous = createClient(apiUrl, anonKey, clientOptions);
@@ -388,10 +427,18 @@ async function run() {
       alice.storage.from(AVATAR_BUCKET).remove([aliceJpegPath]),
       'remove replaced avatar',
     );
-    const oldAvatarResponse = await fetch(aliceJpegUrl, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    assert.equal(oldAvatarResponse.ok, false, 'replaced avatar is still publicly readable');
+    // Hosted Storage sits behind a CDN. Keep the same URL and assert removal
+    // after the bounded 60-second TTL/invalidation window, without bypassing
+    // the cache or treating a cached copy as a successful deletion.
+    const invalidationDeadline = Date.now() + 90_000;
+    let oldAvatarResponse;
+    do {
+      oldAvatarResponse = await fetch(aliceJpegUrl, { signal: AbortSignal.timeout(10_000) });
+      await oldAvatarResponse.arrayBuffer();
+      if (!oldAvatarResponse.ok) break;
+      await delay(3_000);
+    } while (Date.now() < invalidationDeadline);
+    assert.ok([400, 404].includes(oldAvatarResponse.status), 'replaced avatar must become unavailable after CDN invalidation');
     const aliceObjects = await must(
       alice.storage.from(AVATAR_BUCKET).list(`${aliceUser.id}/profile`),
       'list current avatar objects',
@@ -453,6 +500,12 @@ async function run() {
       p_username: bobUser.username,
     });
     assert.equal(bobRequest.status, 'pending');
+    const notificationDeadline = Date.now() + 10_000;
+    while (!bobInbox.messages.some(message => message.payload?.kind === 'friendship') && Date.now() < notificationDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.ok(bobInbox.messages.some(message => message.payload?.kind === 'friendship'),
+      'friend request did not reach the other account over Realtime');
     assert.equal(bobRequest.user?.avatar_url, bobJpegUrl);
     const bobIncoming = await rpc(bob, 'list_friend_connections');
     const incomingFromAlice = bobIncoming.connections?.find(
@@ -858,10 +911,13 @@ async function run() {
     assert.equal(carolExport.blocks.length, 0);
     await rpc(alice, 'unblock_user', { p_user_id: bobUser.id });
 
-    console.log('[supabase-e2e] all local API assertions passed');
+    console.log('[supabase-e2e] all API assertions passed');
   } catch (error) {
     testFailure = error;
   } finally {
+    for (const inbox of inboxes) {
+      try { await inbox.close(); } catch { cleanupErrors.push(new Error('close realtime inbox')); }
+    }
     for (const userId of createdUserIds.reverse()) {
       try {
         const { data: fence, error: fenceError } = await admin.rpc(
@@ -901,6 +957,9 @@ async function run() {
 
   if (testFailure) {
     console.error(`[supabase-e2e] test failed: ${errorSummary(testFailure)}`);
+    // Labels and assertion messages are authored in this file. Do not print
+    // SDK error causes, responses or session objects (which may hold tokens).
+    console.error(testFailure.message);
   }
   for (const cleanupError of cleanupErrors) {
     console.error(`[supabase-e2e] cleanup failed: ${errorSummary(cleanupError)}`);
@@ -908,7 +967,13 @@ async function run() {
   if (testFailure || cleanupErrors.length > 0) process.exitCode = 1;
 }
 
-await run().catch((error) => {
-  console.error(`[supabase-e2e] fatal setup failure: ${errorSummary(error)}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  await runApiE2e({
+    apiUrl: localApiUrl(),
+    anonKey: requireEnvironment('ANON_KEY'),
+    serviceRoleKey: requireEnvironment('SERVICE_ROLE_KEY'),
+  }).catch((error) => {
+    console.error(`[supabase-e2e] fatal setup failure: ${errorSummary(error)}`);
+    process.exitCode = 1;
+  });
+}

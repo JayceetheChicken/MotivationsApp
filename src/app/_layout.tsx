@@ -14,6 +14,7 @@ import { AuthStoreProvider, useAuthStore } from '@/state/auth-store';
 import { StudyStoreProvider, useStudyStore } from '@/state/study-store';
 import { appTheme, type AppTheme } from '@/theme';
 import { safeDebug } from '@/lib/safe-logger';
+import { OnlineAccountBoundary } from '@/auth/online-account-boundary';
 
 export const unstable_settings = { anchor: ROOT_NAVIGATION_ANCHOR };
 
@@ -239,10 +240,12 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={navigationTheme}>
       <AuthStoreProvider>
+        <OnlineAccountBoundary>
         <ScopedStudyStore>
           <StatusBar style="dark" />
           <HydratedNavigator appTheme={appTheme} />
         </ScopedStudyStore>
+        </OnlineAccountBoundary>
       </AuthStoreProvider>
     </ThemeProvider>
   );

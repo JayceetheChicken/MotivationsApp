@@ -12,6 +12,7 @@ import {
 } from 'react';
 
 import { requestOnlineAccountDeletion } from '@/auth/account-deletion';
+import { ONLINE_BACKEND_REQUIRED } from '@/auth/backend-policy';
 import { clearAccountLocalData } from '@/auth/account-local-cleanup';
 import { authStorage } from '@/auth/storage';
 import {
@@ -443,11 +444,13 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       // Phase 1 – nur lokale Daten. Jeder Schritt settelt garantiert
       // (Timeout + Fallback), danach ist der App-Start freigegeben.
       try {
-        const storedProfile = await settleBootStep('Lokales Profil laden', readLocalProfile(), null);
+        const storedProfile = ONLINE_BACKEND_REQUIRED
+          ? null
+          : await settleBootStep('Lokales Profil laden', readLocalProfile(), null);
         if (isMounted) setLocalProfile(storedProfile);
         safeDebug('[BOOT] Lokales Profil wiederhergestellt.');
       } finally {
-        if (isMounted) {
+        if (isMounted && !ONLINE_BACKEND_REQUIRED) {
           setHydrated(true);
           setPendingAction(null);
         }
@@ -487,6 +490,10 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       const initialUrl = await settleBootStep('Start-URL lesen', Linking.getInitialURL(), null);
       if (!isMounted) return;
       await enqueueAuthUrl(initialUrl);
+      if (isMounted && ONLINE_BACKEND_REQUIRED) {
+        setHydrated(true);
+        setPendingAction(null);
+      }
     };
 
     void restore();
@@ -870,6 +877,9 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
   }, [clearPasswordRecoveryCapability, configurationFailure, session]);
 
   const saveLocalProfile = useCallback(async (input: LocalProfileInput): Promise<AuthActionResult> => {
+    if (ONLINE_BACKEND_REQUIRED) {
+      return { ok: false, message: 'Diese App-Version benötigt ein Online-Konto.' };
+    }
     const validationMessage =
       displayNameError(input.displayName) ??
       usernameError(input.username) ??

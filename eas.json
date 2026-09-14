@@ -40,7 +40,7 @@
       },
       "env": {
         "EXPO_PUBLIC_BUILD_PROFILE": "preview",
-        "LERNZEIT_SKIP_RELEASE_GATE": "1"
+        "EXPO_PUBLIC_REQUIRE_SUPABASE": "1"
       }
     },
     "production": {

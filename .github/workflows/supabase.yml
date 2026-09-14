@@ -1,6 +1,7 @@
 name: Supabase database
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches: [main]
@@ -9,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: supabase-${{ github.ref }}
+  group: supabase-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
