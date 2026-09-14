@@ -25,6 +25,10 @@ const mockResetPasswordForEmail = jest.fn();
 const mockSignUp = jest.fn();
 const mockUpdateUser = jest.fn();
 const mockCleanupStaleExports = jest.fn();
+let mockOnlineBackendRequired = false;
+jest.mock('@/auth/backend-policy', () => ({
+  get ONLINE_BACKEND_REQUIRED() { return mockOnlineBackendRequired; },
+}));
 let mockLinkHandler: ((event: { url: string }) => void) | null = null;
 let mockAuthStateHandler: ((event: string, session: typeof mockRecoverySession | null) => void) | null = null;
 
@@ -124,6 +128,7 @@ describe('AuthStoreProvider startup', () => {
   const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 
   beforeEach(() => {
+    mockOnlineBackendRequired = false;
     jest.clearAllMocks();
     mockLinkHandler = null;
     mockAuthStateHandler = null;
@@ -174,6 +179,22 @@ describe('AuthStoreProvider startup', () => {
     expect(restarted.result.current.activeMode).toBe('none');
     expect(mockCleanupStaleExports).toHaveBeenCalledTimes(2);
     await restarted.unmount();
+  });
+
+  it('online builds wait for session restoration and reject local profile creation', async () => {
+    mockOnlineBackendRequired = true;
+    let restoreSession!: (value: unknown) => void;
+    mockGetSession.mockImplementation(() => new Promise((resolve) => { restoreSession = resolve; }));
+    const hook = await renderHook(() => useAuthStore(), { wrapper });
+    expect(hook.result.current.hydrated).toBe(false);
+    expect(mockStorageGetItem).not.toHaveBeenCalledWith('lernzeit.local-profile.v1');
+    await act(async () => restoreSession({ data: { session: mockRecoverySession }, error: null }));
+    await waitFor(() => expect(hook.result.current.hydrated).toBe(true));
+    expect(hook.result.current.activeMode).toBe('supabase');
+    const result = await hook.result.current.saveLocalProfile({ displayName: 'Local', username: 'local_user' });
+    expect(result.ok).toBe(false);
+    expect(mockStorageSetItem).not.toHaveBeenCalled();
+    await hook.unmount();
   });
 
   it('continues startup when a stale export cannot be removed yet', async () => {

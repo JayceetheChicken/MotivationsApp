@@ -83,6 +83,7 @@
     "supabase:lint": "supabase db lint --local --level warning",
     "test:db": "supabase test db",
     "test:supabase:e2e": "node scripts/supabase-local-e2e.mjs",
+    "backend:check": "node scripts/check-online-backend.mjs",
     "types:db": "supabase gen types typescript --local > src/types/database.generated.ts",
     "dependencies:check": "node scripts/check-install-scripts.mjs --check-lock",
     "dependencies:rebuild": "node scripts/check-install-scripts.mjs --rebuild",

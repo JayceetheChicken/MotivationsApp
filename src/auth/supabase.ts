@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { Platform } from 'react-native';
+import { createClient, processLock, type SupabaseClient } from '@supabase/supabase-js';
+import { AppState, Platform } from 'react-native';
 
 import { authStorage } from '@/auth/storage';
 import {
@@ -40,6 +40,7 @@ if (Platform.OS === 'web') {
         // The implicit flow exposes bearer session tokens in the callback and
         // permits login-CSRF when somebody forwards their own recovery link.
         flowType: 'pkce',
+        lock: processLock,
         persistSession: true,
         storage: authStorage,
       },
@@ -56,3 +57,15 @@ if (Platform.OS === 'web') {
 
 export const supabase = client;
 export const supabaseConfiguration = Object.freeze(configuration);
+
+// Native has no browser visibility events. Refresh when returning to the app
+// so long background periods do not strand RPCs and private realtime channels.
+if (client && Platform.OS !== 'web') {
+  const auth = client.auth;
+  const refresh = (state: string) => {
+    if (state === 'active') void auth.startAutoRefresh();
+    else void auth.stopAutoRefresh();
+  };
+  refresh(AppState.currentState);
+  AppState.addEventListener('change', refresh);
+}

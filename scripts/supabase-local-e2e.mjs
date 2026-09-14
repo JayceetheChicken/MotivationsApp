@@ -30,6 +30,34 @@ const clientOptions = {
   },
 };
 
+async function subscribeInbox(client, userId, expectDenied = false) {
+  const { data } = await client.auth.getSession();
+  await client.realtime.setAuth(data.session.access_token);
+  const messages = [];
+  const channel = client.channel(`social:user:${userId}`, { config: { private: true } })
+    .on('broadcast', { event: 'social_invalidated' }, (message) => messages.push(message));
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Realtime subscription timed out')), 15_000);
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          clearTimeout(timer);
+          if (expectDenied) reject(new Error('Foreign private inbox was accessible'));
+          else resolve();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          clearTimeout(timer);
+          if (expectDenied && status === 'CHANNEL_ERROR') resolve();
+          else reject(new Error('Own private inbox subscription failed'));
+        }
+      });
+    });
+    return { messages, close: () => client.removeChannel(channel) };
+  } catch (error) {
+    await client.removeChannel(channel);
+    throw error;
+  }
+}
+
 function requireEnvironment(name) {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -150,6 +178,7 @@ async function run() {
   const createdUserIds = [];
   const avatarObjectPaths = new Set();
   const cleanupErrors = [];
+  const inboxes = [];
   let testFailure = null;
 
   const createUser = async (label, suffix) => {
@@ -256,6 +285,12 @@ async function run() {
     await setSocialSharing(alice, true);
     await setSocialSharing(bob, true);
     await setSocialSharing(carol, true);
+
+    console.log('[supabase-e2e] testing real private WebSocket inboxes across accounts');
+    const bobInbox = await subscribeInbox(bob, bobUser.id);
+    inboxes.push(bobInbox);
+    const deniedInbox = await subscribeInbox(carol, bobUser.id, true);
+    await deniedInbox.close();
 
     console.log('[supabase-e2e] testing RPC-only writes and anonymous denial');
     const anonymous = createClient(apiUrl, anonKey, clientOptions);
@@ -453,6 +488,12 @@ async function run() {
       p_username: bobUser.username,
     });
     assert.equal(bobRequest.status, 'pending');
+    const notificationDeadline = Date.now() + 10_000;
+    while (!bobInbox.messages.some(message => message.payload?.kind === 'friendship') && Date.now() < notificationDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.ok(bobInbox.messages.some(message => message.payload?.kind === 'friendship'),
+      'friend request did not reach the other account over Realtime');
     assert.equal(bobRequest.user?.avatar_url, bobJpegUrl);
     const bobIncoming = await rpc(bob, 'list_friend_connections');
     const incomingFromAlice = bobIncoming.connections?.find(
@@ -862,6 +903,9 @@ async function run() {
   } catch (error) {
     testFailure = error;
   } finally {
+    for (const inbox of inboxes) {
+      try { await inbox.close(); } catch { cleanupErrors.push(new Error('close realtime inbox')); }
+    }
     for (const userId of createdUserIds.reverse()) {
       try {
         const { data: fence, error: fenceError } = await admin.rpc(

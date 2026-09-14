@@ -18,6 +18,7 @@ import {
 } from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
 import { useAuthStore } from '@/state/auth-store';
+import { ONLINE_BACKEND_REQUIRED } from '@/auth/backend-policy';
 
 type RegisterField = 'displayName' | 'username' | 'email' | 'password' | 'confirmation' | 'rules';
 type RegisterErrors = Partial<Record<RegisterField, string>>;
@@ -174,7 +175,7 @@ export default function RegisterScreen() {
       </View>
 
       <View style={styles.secondaryActions}>
-        <AuthTextLink label="Ohne Anmeldung zurück zur App" onPress={() => router.replace('/')} />
+        {!ONLINE_BACKEND_REQUIRED && <AuthTextLink label="Ohne Anmeldung zurück zur App" onPress={() => router.replace('/')} />}
         <AuthTextLink label="Schon registriert? Anmelden" onPress={() => router.replace('./login')} />
       </View>
     </AuthScaffold>

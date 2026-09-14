@@ -31,3 +31,4 @@ package-lock.json text eol=lf
 # those texts contain trailing whitespace; normalizing it would alter a licence
 # we are required to reproduce unchanged, so exempt it from whitespace checks.
 THIRD_PARTY_NOTICES.md -whitespace
+supabase/functions/** text eol=lf
