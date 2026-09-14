@@ -15,6 +15,7 @@ function walk(dir) {
     const file = join(dir, entry.name);
     return entry.isDirectory() ? walk(file) : [file];
   });
+}
 const files = walk(root);
 for (const file of files) {
   // Include binary DEX, Hermes and ELF files: their literal string tables may

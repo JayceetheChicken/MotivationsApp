@@ -79,6 +79,7 @@ jobs:
           EXPO_PUBLIC_REQUIRE_SUPABASE: ''
         run: |
           npm run verify
+          python scripts/test-extract-apk.py
           npm audit --omit=dev --audit-level=moderate
 
       - name: Set up Deno
