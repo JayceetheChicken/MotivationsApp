@@ -38,4 +38,3 @@ export function OnlineAccountBoundary({ children }: PropsWithChildren) {
     </Stack.Protected>
   </Stack>;
 }
-
