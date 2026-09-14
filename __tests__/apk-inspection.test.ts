@@ -9,6 +9,7 @@ describe('actual APK content gate', () => {
   let directory: string;
   const env = {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('EXPO_PUBLIC_') && key !== 'EAS_BUILD_PROFILE')),
+    NODE_ENV: 'test' as const,
     EXPO_PUBLIC_BUILD_PROFILE: 'preview',
     EAS_BUILD_PROFILE: 'preview',
     EXPO_PUBLIC_REQUIRE_SUPABASE: '1',
