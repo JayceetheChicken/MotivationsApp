@@ -25,8 +25,9 @@ try {
   const settings = await auth.json();
   if (!settings.external?.email || settings.disable_signup) throw new Error('E-Mail/Passwort und Registrierung müssen aktiviert sein.');
   if (settings.mailer_autoconfirm) throw new Error('E-Mail-Bestätigung muss im echten Backend aktiviert sein.');
-  const rest = await request('/rest/v1/');
-  if (!rest.ok) throw new Error(`Supabase-Daten-API nicht verfügbar (HTTP ${rest.status}).`);
+  // The OpenAPI root requires a secret key on hosted projects with newer
+  // publishable keys. Probe the actual application RPC with the public key;
+  // never introduce a privileged credential just to inspect API metadata.
   // A real authorization failure proves the endpoint exists without reading
   // private data or granting anon access to the schema. Missing RPC => PGRST202.
   const probe = await request('/rest/v1/rpc/get_my_profile', { method: 'POST', body: '{}' });
