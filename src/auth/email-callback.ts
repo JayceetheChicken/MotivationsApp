@@ -1,3 +1,6 @@
+// Expo Router can invoke +native-intent before AuthStore/Supabase is imported.
+// React Native's partial built-in URL implementation is insufficient here.
+import 'react-native-url-polyfill/auto';
 import { AUTH_BUILD_CONFIGURATION, AUTH_BUILD_IS_CONSISTENT } from '@/auth/build-configuration';
 
 // Production retains PR #5's verified HTTPS-only native entry point. The
