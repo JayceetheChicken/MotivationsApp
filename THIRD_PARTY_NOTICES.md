@@ -727,7 +727,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Expo
 
-### @expo/cli@57.0.24
+### @expo/cli@57.0.25
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/cli
@@ -924,7 +924,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2025-present 650 Industries, Inc. (aka Expo)
 
-### @expo/router-server@57.0.9
+### @expo/router-server@57.0.10
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/routing/introduction/
@@ -1931,7 +1931,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Nicolò Ribaudo and other contributors
 
-### babel-preset-expo@57.0.11
+### babel-preset-expo@57.0.12
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/babel-preset-expo#readme
@@ -2671,7 +2671,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### expo@57.0.22
+### expo@57.0.23
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo
@@ -2687,7 +2687,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-build-properties@57.0.17
+### expo-build-properties@57.0.20
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/build-properties
@@ -2791,7 +2791,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-image-manipulator@57.0.17
+### expo-image-manipulator@57.0.18
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/imagemanipulator/
@@ -2799,7 +2799,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-image-picker@57.0.17
+### expo-image-picker@57.0.18
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/imagepicker/
@@ -2885,7 +2885,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-sharing@57.0.19
+### expo-sharing@57.0.20
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/sharing/

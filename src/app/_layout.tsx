@@ -157,6 +157,7 @@ function HydratedNavigator({ appTheme }: { appTheme: AppTheme }) {
         }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
         <Stack.Screen name="session" options={{ presentation: 'fullScreenModal', headerShown: false }} />
         <Stack.Screen
           name="manual-entry"

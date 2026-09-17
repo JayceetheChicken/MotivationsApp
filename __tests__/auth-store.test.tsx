@@ -96,7 +96,8 @@ jest.mock('@/lib/account-data-export', () => ({
 jest.mock('@/auth/supabase', () => ({
   supabase: {
     auth: {
-      exchangeCodeForSession: (code: string) => mockExchangeCodeForSession(code),
+      exchangeCodeForSession: (code: string, options?: unknown) => options
+        ? mockExchangeCodeForSession(code, options) : mockExchangeCodeForSession(code),
       getSession: () => mockGetSession(),
       onAuthStateChange: jest.fn((handler: typeof mockAuthStateHandler) => {
         mockAuthStateHandler = handler;
@@ -179,6 +180,65 @@ describe('AuthStoreProvider startup', () => {
     expect(restarted.result.current.activeMode).toBe('none');
     expect(mockCleanupStaleExports).toHaveBeenCalledTimes(2);
     await restarted.unmount();
+  });
+
+  it('sends the explicit app callback during signup', async () => {
+    const app = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(app.result.current.hydrated).toBe(true));
+    await act(async () => { await app.result.current.signUp({
+      email: 'lea@example.com', password: 'a-long-password', displayName: 'Lea',
+      username: 'lea', communityRulesAccepted: true,
+    }); });
+    expect(mockSignUp).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({ emailRedirectTo: 'lernzeit://auth/callback' }),
+    }));
+    expect(app.result.current.session).toBeNull();
+    await app.unmount();
+  });
+
+  it.each(['cold', 'warm'])('creates one session from a %s email callback and preserves PKCE flow ID', async (start) => {
+    const url = 'lernzeit://auth/callback?code=confirmation-code&sb_flow_id=abcdefgh1234';
+    mockOnlineBackendRequired = true;
+    if (start === 'cold') mockGetInitialURL.mockResolvedValue(url);
+    mockExchangeCodeForSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    const app = await renderHook(() => useAuthStore(), { wrapper });
+    if (start === 'warm') {
+      await waitFor(() => expect(app.result.current.hydrated).toBe(true));
+      await act(async () => { mockLinkHandler?.({ url }); });
+    }
+    await waitFor(() => expect(app.result.current.user?.id).toBe('account-123'));
+    await act(async () => { mockLinkHandler?.({ url }); });
+    expect(mockExchangeCodeForSession).toHaveBeenCalledTimes(1);
+    expect(mockExchangeCodeForSession).toHaveBeenCalledWith('confirmation-code', { flowId: 'abcdefgh1234' });
+    expect(mockSetSession).not.toHaveBeenCalled();
+    expect(app.result.current.passwordRecoveryPending).toBe(false);
+    expect(app.result.current.emailCallbackPending).toBe(false);
+    await app.unmount();
+  });
+
+  it('never switches an existing account from a confirmation link', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: mockRecoverySession }, error: null });
+    mockGetInitialURL.mockResolvedValue('lernzeit://auth/callback?code=another-account');
+    const app = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(app.result.current.notice).toMatch(/bereits angemeldet/));
+    expect(mockExchangeCodeForSession).not.toHaveBeenCalled();
+    expect(app.result.current.user?.id).toBe('account-123');
+    await app.unmount();
+  });
+
+  it.each([
+    'lernzeit://auth/callback#error=access_denied&error_code=otp_expired',
+    'lernzeit://auth/callback#access_token=injected&refresh_token=injected',
+    'lernzeit://auth/callback?code=expired',
+  ])('offers password login after failed/legacy confirmation without importing tokens: %s', async (url) => {
+    mockGetInitialURL.mockResolvedValue(url);
+    mockExchangeCodeForSession.mockResolvedValue({ data: { session: null }, error: { message: 'expired' } });
+    const app = await renderHook(() => useAuthStore(), { wrapper });
+    await waitFor(() => expect(app.result.current.error).toMatch(/Passwort/));
+    expect(app.result.current.session).toBeNull();
+    expect(mockSetSession).not.toHaveBeenCalled();
+    expect(app.result.current.emailCallbackPending).toBe(false);
+    await app.unmount();
   });
 
   it('online builds wait for session restoration and reject local profile creation', async () => {
