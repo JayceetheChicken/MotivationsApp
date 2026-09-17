@@ -56,7 +56,7 @@ const RECOVERY_PATH = '/update-password';
 const MAX_AUTH_PARAMETER_LENGTH = 16_384;
 
 export type PasswordRecoveryRequest =
-  Readonly<{ kind: 'pkce'; code: string }>;
+  Readonly<{ kind: 'pkce'; code: string; flowId?: string }>;
 
 export function passwordRecoveryRequestFingerprint(request: PasswordRecoveryRequest): string {
   const value = `pkce:${request.code}`;
@@ -178,10 +178,12 @@ export function parsePasswordRecoveryUrl(url: string | null): PasswordRecoveryRe
     // that initiated the reset. Bearer-token fragments are deliberately
     // rejected even if GoTrue or an old client can still create one.
     if (code === null || parsedUrl.hash) return null;
-    if (!hasOnlyUniqueParameters(query, new Set(['code', 'type']))) return null;
+    if (!hasOnlyUniqueParameters(query, new Set(['code', 'type', 'sb_flow_id']))) return null;
+    const flowId = query.get('sb_flow_id');
+    if (flowId !== null && !/^[a-zA-Z0-9_-]{8,64}$/.test(flowId)) return null;
     const type = query.get('type');
     if (type !== 'recovery' || !isSafeAuthValue(code, 4096)) return null;
-    return { kind: 'pkce', code };
+    return { kind: 'pkce', code, ...(flowId ? { flowId } : {}) };
   } catch {
     return null;
   }

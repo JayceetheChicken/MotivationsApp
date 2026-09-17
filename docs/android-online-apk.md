@@ -114,11 +114,11 @@ unterdrückt; die ursprünglichen RPC-Berechtigungen bleiben erhalten.
 
 ### Auth-Dashboard und E-Mails
 
-**Noch manuell erforderlich:** Eigenes SMTP und eine echte HTTPS-Site-URL
-konfigurieren (aktuell kein eigenes SMTP, Site URL `http://localhost:3000`,
-E-Mail-Limit 2/Stunde). Für Passwort-Recovery die nachfolgende genaue
-Preview-Redirect-URL im dafür vorgesehenen Testprojekt zulassen (aktuelle
-Allowlist leer). Diese Werte benötigen die Betreiber-Domain und Mailzugangsdaten.
+**Noch manuell erforderlich:** Eigenes SMTP für beliebige Empfänger konfigurieren.
+Die Site URL ist weiterhin `http://localhost:3000`; eine eigene HTTPS-Seite ist
+als allgemeiner Fallback sinnvoll, für die expliziten App-Redirects aber nicht nötig.
+Die Allowlist des verbundenen Projekts enthält jetzt die genauen Preview-URLs
+für Bestätigung und Recovery. Details: [E-Mail-Bestätigung](email-confirmation.md).
 In GitHub fehlen für den APK-Build keine Pflichtvariablen mehr.
 
 - E-Mail/Passwort und neue Registrierungen aktivieren, **Confirm email an**,
@@ -126,12 +126,12 @@ In GitHub fehlen für den APK-Build keine Pflichtvariablen mehr.
 - Eigenes SMTP mit verifizierter Absenderdomain konfigurieren. Zustellung an
   beide echten Test-Adressen prüfen; der Standardmailer reicht nicht für
   beliebige externe Empfänger.
-- Site URL: eigene erreichbare HTTPS-Seite für die Registrierungsbestätigung.
-  Registrierung bestätigt die E-Mail im Browser; anschließend in der APK
-  normal anmelden. Der Client behandelt Registrierungscodes ausdrücklich
-  nicht als Passwort-Recovery-Capability.
+- Signup übergibt `lernzeit://auth/callback`. Die Bestätigung öffnet die APK
+  und erzeugt auf dem registrierenden Gerät eine PKCE-Session. Auf einem anderen
+  Gerät anschließend mit Passwort anmelden. Registrierungscodes erzeugen keine
+  Passwort-Recovery-Capability.
 - Für diese Preview exakt
-  `lernzeit://auth/update-password?type=recovery` zur Redirect-Allowlist des
+  `lernzeit://auth/callback` und `lernzeit://auth/update-password?type=recovery` zur Redirect-Allowlist des
   **Testprojekts** hinzufügen, ohne Wildcards. Im Production-Projekt bleibt
   ausschließlich der verifizierte HTTPS-App-Link aus PR #5 erlaubt.
   Falls das ausgewählte Projekt bereits Produktion enthält, die Preview

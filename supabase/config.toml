@@ -34,6 +34,7 @@ enabled = true
 # stays free of environment specific hosts.
 site_url = "http://127.0.0.1:8081"
 additional_redirect_urls = [
+  "lernzeit://auth/callback",
   "lernzeit://auth/update-password?type=recovery"
 ]
 jwt_expiry = 3600
@@ -43,7 +44,7 @@ minimum_password_length = 10
 [auth.email]
 enable_signup = true
 double_confirm_changes = true
-enable_confirmations = false
+enable_confirmations = true
 
 [realtime]
 enabled = true

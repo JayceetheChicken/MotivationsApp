@@ -118,7 +118,8 @@ function recoveryIntentFilters(auth) {
 }
 
 /**
- * Replaces the recovery intent filters and keeps everything else.
+ * Replaces the recovery intent filters, registers preview email confirmation,
+ * and keeps unrelated filters. Production's HTTPS-only contract is unchanged.
  *
  * Assigning `recoveryIntentFilters(auth)` straight to `android.intentFilters`
  * would silently delete any unrelated filter app.json declares now or later. The
@@ -131,7 +132,12 @@ function mergeIntentFilters(existing, auth) {
   const kept = (Array.isArray(existing) ? existing : []).filter(
     (filter) => !isRecoveryIntentFilter(filter),
   );
-  return [...kept, ...recoveryIntentFilters(auth)];
+  const emailCallback = authBuild.registersAppScheme(auth.profile) ? [{
+    action: 'VIEW',
+    category: ['BROWSABLE', 'DEFAULT'],
+    data: [{ scheme: 'lernzeit', host: 'auth', path: '/callback' }],
+  }] : [];
+  return [...kept, ...recoveryIntentFilters(auth), ...emailCallback];
 }
 
 module.exports = ({ config }) => {
