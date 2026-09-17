@@ -126,8 +126,8 @@ konfiguriert ausschließlich den lokalen Stack.
 | Einstellung | Sollwert |
 | --- | --- |
 | Site URL | `https://<betreiber-domain>` |
-| Redirect-Allowlist | Produktion: ausschließlich `https://<betreiber-domain>/update-password?type=recovery`. Das private `lernzeit://auth/update-password?type=recovery` nur im getrennten Staging-Projekt für Development/Preview erlauben. Keine Wildcards. |
-| E-Mail-Bestätigung | **aktiviert** („Confirm email“). Lokal ist sie aus, damit Tests ohne SMTP laufen. |
+| Redirect-Allowlist | Produktion: verifizierte HTTPS-App-Links `https://<betreiber-domain>/update-password?type=recovery` und `https://<betreiber-domain>/update-password?type=signup`. Private Links `lernzeit://auth/callback` und `lernzeit://auth/update-password?type=recovery` nur im getrennten Staging-Projekt für Development/Preview erlauben. Keine Wildcards. |
+| E-Mail-Bestätigung | **aktiviert** („Confirm email“), auch lokal. Der lokale Auth-E-Mail-Test verwendet Mailpit ohne externen Versand. |
 | Secure email change | aktiviert (doppelte Bestätigung) |
 | Minimale Passwortlänge | mindestens 10, passend zu `supabase/config.toml` |
 | Leaked-password-Schutz | aktiviert |

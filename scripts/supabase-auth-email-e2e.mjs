@@ -85,6 +85,12 @@ try {
   console.log('Auth email E2E passed: real signup, Mailpit delivery, deep-link redirect, PKCE, confirmed session, replay rejection, recovery and password update.');
 } finally {
   if (userId) {
+    // Respect the same deletion fence as the existing API suite and Edge
+    // Function; direct auth.users deletion is intentionally blocked by PR #5.
+    const { data: fence, error: fenceError } = await admin.rpc('begin_account_deletion', { p_user_id: userId });
+    assert.ok(!fenceError && fence?.prepared === true && fence.trigger_managed === true
+      && fence.storage_fenced === true && fence.user_id === userId
+      && Number.isFinite(Date.parse(fence.started_at)), 'Auth test deletion fence failed');
     const cleanup = await admin.auth.admin.deleteUser(userId);
     assert.ok(!cleanup.error, 'Auth test account cleanup failed');
   }
