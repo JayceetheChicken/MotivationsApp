@@ -8,10 +8,34 @@ Artefaktname: **Lernzeit-preview-APK**. Im heruntergeladenen ZIP:
 Pfad auf dem Runner: `dist/Lernzeit-preview.apk`.
 
 Die APK ist eine signierte Preview mit eingebettetem JavaScript; sie benötigt
-weder Expo Go noch Metro. Der vorhandene Expo-Debug-Signierschlüssel wird für
-diese interne Preview verwendet. Sie ist kein Play-Store-Release. Bei einem
-späteren Schlüsselwechsel muss eine bereits installierte Version deinstalliert
-werden; dabei gehen noch nicht synchronisierte Gerätedaten verloren.
+weder Expo Go noch Metro. Sie ist kein Play-Store-Release.
+
+### Signierschlüssel
+
+Gradle signiert mit dem öffentlich bekannten Debug-Schlüssel der React-Native-
+Vorlage (SHA-256 `fac61745…3b9c`, Passwort `android`). Damit könnte jeder ein
+„Update“ bauen, das Android über die installierte App samt gespeicherter
+Anmeldung installiert. Seit 15.10.2026 signiert der Workflow jede APK deshalb
+mit `apksigner --alignment-preserved` neu, mit dem eigenen Lernzeit-Schlüssel
+(RSA 4096, PKCS12, Alias `lernzeit`, gültig bis 2054):
+
+| GitHub | Name | Inhalt |
+| --- | --- | --- |
+| Secret | `ANDROID_RELEASE_KEYSTORE_BASE64` | Keystore, Base64 |
+| Secret | `ANDROID_RELEASE_KEYSTORE_PASSWORD` | Keystore- und Schlüsselpasswort |
+| Variable | `ANDROID_RELEASE_KEY_ALIAS` | `lernzeit` |
+| Variable | `ANDROID_RELEASE_CERT_SHA256` | `78a806ef823990f18a9fd1523214f02edbd855df1d16fd75cda5b4a75e964bc8` |
+
+Fehlt ein Wert, bricht der Build ab. `scripts/check-apk-signer.mjs` verlangt
+genau einen Signer mit dem hinterlegten Fingerabdruck und lehnt den
+Debug-Schlüssel immer ab; `zipalign -c -P 16` prüft die 16-KB-Ausrichtung.
+
+**Sicherung:** Keystore und Passwort liegen außerhalb des Repositorys beim
+Betreiber. Sie gehören in einen Passwortmanager und auf ein Offline-Backup.
+GitHub-Secrets lassen sich nicht wieder auslesen. Geht der Schlüssel verloren,
+kann keine installierte APK mehr aktualisiert werden: Alle Nutzer müssen
+deinstallieren und verlieren dabei noch nicht synchronisierte Gerätedaten.
+Dasselbe gilt einmalig für eine bereits installierte, debug-signierte APK.
 
 Der Workflow setzt `EXPO_PUBLIC_REQUIRE_SUPABASE=1`, `EXPO_PUBLIC_BUILD_PROFILE=preview`
 und `EAS_BUILD_PROFILE=preview`. Das EAS-Profil `preview` setzt denselben
