@@ -12,3 +12,13 @@ reason = "image-size has no upstream fix; installed local fork 1.2.1-lernzeit.1 
 id = "GHSA-m5qc-5hw7-8vg7"
 ignoreUntil = 2026-11-09
 reason = "The fork is byte-for-byte based on upstream 1.2.1 for this previously fixed advisory; OSV orders the honest local prerelease suffix below 1.2.1. Resolution tests pin every image-size consumer to the reviewed fork. Remove together with the fork."
+
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2026-12-15
+reason = "braces has no patched release (<=3.0.3 is the latest). Reached only through micromatch in Metro/Jest file matching at build and test time with repository-controlled globs; not bundled into the app. Mirrors scripts/lib/audit-policy.cjs."
+
+[[IgnoredVulns]]
+id = "GHSA-86w9-cpqp-85rv"
+ignoreUntil = 2026-12-15
+reason = "node-forge has no patched release (<=1.4.0 is the latest). Used only by @expo/cli for EAS Update code signing, which this project does not use; not bundled into the app. Mirrors scripts/lib/audit-policy.cjs."

@@ -1,21 +1,54 @@
 # Abhängigkeits-Audit
 
-Stand: 2026-08-07, Branch `codex/release-ready-consolidation`.
+Stand: 2026-10-15, Branch `codex/supabase-email-deep-link`.
 
 ## Baseline
 
 ```bash
-npm audit --omit=dev --audit-level=moderate
+npm run audit:check   # node scripts/check-audit.mjs
 ```
 
-Ergebnis: **0 Befunde** (`info 0, low 0, moderate 0, high 0, critical 0`).
+Ergebnis: **0 ungeprüfte Befunde**; zwei befristete Ausnahmen ohne Upstream-Fix
+(siehe unten).
 
-CI (`.github/workflows/checks.yml`, Job *App quality*) scheitert ab
-`moderate`. Vorher stand die Schwelle auf `high`, während zwölf
-Moderate-Advisories offen waren – der Lauf war grün, obwohl niemand die Befunde
-gesehen hatte. Es gibt bewusst **keine** Allowlist-Datei: eine leere Baseline
-ist die einzige, die keinen Befund verstecken kann. Ein neuer Moderate-Befund
-lässt CI ab sofort fehlschlagen.
+CI (`checks.yml`, Job *App quality*, und `android-apk.yml`) scheitert an jeder
+Advisory ab `moderate`, die nicht exakt als GHSA-ID **und** Paket mit
+Ablaufdatum in `scripts/lib/audit-policy.cjs` steht. Nicht mehr benötigte
+Einträge lassen den Lauf ebenfalls fehlschlagen, abgelaufene sowieso. Bis zum
+2026-10-15 galt „keine Allowlist“. Das ließ sich nicht mehr halten, als
+Advisories ohne jede reparierte Upstream-Version erschienen: Ohne Ausnahme
+wäre kein APK-Build mehr möglich gewesen. Eine Ausnahme ist deshalb nur
+zulässig, wenn kein Fix existiert und der betroffene Code nicht im App-Bundle
+landet. `osv-scanner.toml` spiegelt dieselben Einträge mit demselben Datum.
+
+## Update vom 15. Oktober 2026
+
+Seit dem letzten grünen APK-Build (14.09.) erschienen neue Advisories, und
+Expo-Doctor verlangte neuere SDK-57-Patchversionen. Beides ließ den Build
+fehlschlagen, bevor die App gebaut wurde.
+
+- `npx expo install --fix`: 15 Expo-Pakete auf die geforderten Patchversionen.
+  Dadurch auch `source-map-js` 1.2.2 (GHSA-68fv-2mgg-jv7q, nur OSV).
+- Overrides `brace-expansion@^1.0.0 → ^1.1.21`, `brace-expansion@^5.0.0 →
+  ^5.0.12` (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p) und
+  `shell-quote → ^1.11.0` (GHSA-pqg4-j6r4-53mv, critical, über
+  `react-devtools-core`).
+- `sprintf-js` (GHSA-hp3w-g68c-fv3c) hat keinen Fix. Einziger Pfad war
+  `@istanbuljs/load-nyc-config` → `js-yaml@3` → `argparse@1`. Der Konsument ruft
+  nur `require('js-yaml').load()` für `.nycrc.yaml` auf, das es in v4 identisch
+  (sicher per Default) gibt. Ein verschachtelter Override hebt nur dieses Paket
+  auf `js-yaml@^4.3.2`; damit entfallen `argparse@1` und `sprintf-js` ganz.
+  `npm ls` markiert diese Kante als „invalid“, `npm ci` installiert sauber.
+
+Befristete Ausnahmen bis 2026-12-15, beide ohne gepatchte Version:
+
+| Advisory | Paket | Pfad | Bewertung |
+| --- | --- | --- | --- |
+| [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) | `braces@3.0.3` (= neueste) | Metro/Jest → `micromatch` | Build-/Testzeit, Muster stammen aus dem Repository, nicht im App-Bundle |
+| [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv) | `node-forge@1.4.0` (= neueste) | `@expo/cli` | nur Code-Signing für EAS Update, das dieses Projekt nicht nutzt; nicht im App-Bundle |
+
+Sobald Upstream einen Fix veröffentlicht, Paket aktualisieren und Eintrag in
+`audit-policy.cjs` und `osv-scanner.toml` entfernen.
 
 ## Behobener Befund: GHSA-w5hq-g745-h8pq (`uuid`)
 

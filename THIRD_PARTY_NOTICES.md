@@ -12,7 +12,7 @@ Open-Source-Lizenz gestellt.
 
 ## Zusammenfassung
 
-- Erfasste Pakete: **774**
+- Erfasste Pakete: **770**
 - Verschiedene Lizenzausdruecke: **16**
 - Copyleft-Lizenzen mit Verbot fuer verlinkte Artefakte: **0**
 - Lizenzen ohne Freigabe in der Allowlist: **0**
@@ -20,11 +20,11 @@ Open-Source-Lizenz gestellt.
 
 | Lizenz | Pakete |
 | --- | ---: |
-| `MIT` | 662 |
+| `MIT` | 661 |
 | `ISC` | 36 |
-| `BSD-3-Clause` | 20 |
+| `BSD-3-Clause` | 18 |
 | `Apache-2.0` | 13 |
-| `BSD-2-Clause` | 13 |
+| `BSD-2-Clause` | 12 |
 | `MPL-2.0` | 12 |
 | `BlueOak-1.0.0` | 6 |
 | `(MIT OR CC0-1.0)` | 2 |
@@ -727,7 +727,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Expo
 
-### @expo/cli@57.0.25
+### @expo/cli@57.0.31
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/cli
@@ -743,7 +743,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020-present 650 Industries, Inc. (aka Expo)
 
-### @expo/config@57.0.9
+### @expo/config@57.0.10
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/config#readme
@@ -751,7 +751,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/config-plugins@57.0.9
+### @expo/config-plugins@57.0.10
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/guides/config-plugins/
@@ -767,11 +767,14 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020-present 650 Industries, Inc. (aka Expo)
 
-### @expo/devcert@1.2.1
+### @expo/devcert@1.2.2
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/devcert#readme
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Lizenzdatei im Paket: `LICENSE`
+
+> Copyright (c) 2017 Dave Wasmer
+> Copyright (c) 2021-present 650 Industries, Inc. (aka Expo)
 
 ### @expo/devtools@57.0.1
 
@@ -805,7 +808,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/fingerprint@0.20.13
+### @expo/fingerprint@0.20.14
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/fingerprint#readme
@@ -813,7 +816,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/image-utils@0.11.5
+### @expo/image-utils@0.11.6
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/%40expo/image-utils#readme
@@ -821,7 +824,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/inline-modules@0.1.7
+### @expo/inline-modules@0.1.8
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -836,7 +839,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/local-build-cache-provider@57.0.8
+### @expo/local-build-cache-provider@57.0.9
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/local-build-cache-provider#readme
@@ -860,7 +863,7 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/metro-config@57.0.12
+### @expo/metro-config@57.0.13
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/metro-config#readme
@@ -868,7 +871,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/metro-file-map@57.0.3
+### @expo/metro-file-map@57.0.4
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/metro-file-map#readme
@@ -876,7 +879,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/metro-runtime@57.0.15
+### @expo/metro-runtime@57.0.17
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/metro-runtime
@@ -908,7 +911,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/prebuild-config@57.0.16
+### @expo/prebuild-config@57.0.19
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/prebuild-config#readme
@@ -916,7 +919,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### @expo/require-utils@57.0.5
+### @expo/require-utils@57.0.6
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/@expo/require-utils#readme
@@ -924,7 +927,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2025-present 650 Industries, Inc. (aka Expo)
 
-### @expo/router-server@57.0.10
+### @expo/router-server@57.0.13
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/routing/introduction/
@@ -961,22 +964,27 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015 Joran Dirk Greef
 
-### @expo/ui@57.0.18
+### @expo/ui@57.0.25
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/ui/
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### @expo/ws-tunnel@2.0.0
+### @expo/ws-tunnel@2.0.1
 
 - Lizenz: `MIT`
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+- Lizenzdatei im Paket: `LICENSE`
 
-### @expo/xcpretty@4.4.5
+> Copyright (c) 2025-present 650 Industries, Inc. (aka Expo)
 
-- Lizenz: `BSD-3-Clause`
-- Projektseite: https://github.com/expo/expo-cli
-- Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
+### @expo/xcpretty@4.4.7
+
+- Lizenz: `MIT`
+- Projektseite: https://github.com/expo/expo
+- Lizenzdatei im Paket: `LICENSE`
+
+> Copyright (c) 2013-2016 Marin Usalj
+> Copyright (c) 2021-present 650 Industries, Inc. (aka Expo)
 
 ### @isaacs/ttlcache@1.4.1
 
@@ -1818,13 +1826,6 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2021 Vercel, Inc.
 
-### argparse@1.0.10
-
-- Lizenz: `MIT`
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (C) 2012 by Vitaly Puzrin
-
 ### argparse@2.0.1
 
 - Lizenz: `Python-2.0`
@@ -1903,7 +1904,7 @@ der Anwendung ausgeliefert werden.
 - Lizenz: `MIT`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### babel-plugin-react-native-web@0.21.2
+### babel-plugin-react-native-web@0.21.4
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -1931,7 +1932,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2020 Nicolò Ribaudo and other contributors
 
-### babel-preset-expo@57.0.12
+### babel-preset-expo@57.0.16
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/babel-preset-expo#readme
@@ -2003,7 +2004,7 @@ der Anwendung ausgeliefert werden.
 - Projektseite: https://github.com/nearinfinity/node-bplist-parser
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### brace-expansion@1.1.18
+### brace-expansion@1.1.21
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/juliangruber/brace-expansion
@@ -2011,7 +2012,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2013 Julian Gruber <julian@juliangruber.com>
 
-### brace-expansion@5.0.9
+### brace-expansion@5.0.12
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -2626,14 +2627,6 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
-### esprima@4.0.1
-
-- Lizenz: `BSD-2-Clause`
-- Projektseite: http://esprima.org
-- Lizenzdatei im Paket: `LICENSE.BSD`
-
-> Copyright JS Foundation and other contributors, https://js.foundation/
-
 ### etag@1.8.1
 
 - Lizenz: `MIT`
@@ -2671,7 +2664,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### expo@57.0.23
+### expo@57.0.30
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo
@@ -2679,7 +2672,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-asset@57.0.17
+### expo-asset@57.0.20
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/asset/
@@ -2687,7 +2680,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-build-properties@57.0.20
+### expo-build-properties@57.0.22
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/build-properties
@@ -2695,7 +2688,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-constants@57.0.18
+### expo-constants@57.0.22
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/constants/
@@ -2703,7 +2696,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-crypto@57.0.3
+### expo-crypto@57.0.4
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/crypto/
@@ -2711,7 +2704,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-dev-client@57.0.19
+### expo-dev-client@57.0.20
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/dev-client/
@@ -2719,7 +2712,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-dev-launcher@57.0.20
+### expo-dev-launcher@57.0.21
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev
@@ -2727,7 +2720,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-dev-menu@57.0.18
+### expo-dev-menu@57.0.20
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev
@@ -2767,7 +2760,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-glass-effect@57.0.3
+### expo-glass-effect@57.0.4
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/glass-effect/
@@ -2791,7 +2784,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-image-manipulator@57.0.18
+### expo-image-manipulator@57.0.21
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/imagemanipulator/
@@ -2799,7 +2792,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-image-picker@57.0.18
+### expo-image-picker@57.0.20
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/imagepicker/
@@ -2823,7 +2816,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-linking@57.0.10
+### expo-linking@57.0.13
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/linking
@@ -2839,7 +2832,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-autolinking@57.0.13
+### expo-modules-autolinking@57.0.16
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-autolinking#readme
@@ -2847,7 +2840,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-core@57.0.18
+### expo-modules-core@57.0.23
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-core
@@ -2855,7 +2848,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-modules-jsi@57.1.0
+### expo-modules-jsi@57.1.2
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/expo/expo/tree/main/packages/expo-modules-jsi
@@ -2863,7 +2856,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-router@57.0.21
+### expo-router@57.0.28
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/routing/introduction/
@@ -2885,7 +2878,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-sharing@57.0.20
+### expo-sharing@57.0.23
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/sharing/
@@ -2893,7 +2886,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-splash-screen@57.0.9
+### expo-splash-screen@57.0.10
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/splash-screen/
@@ -2901,7 +2894,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
 
-### expo-sqlite@57.0.3
+### expo-sqlite@57.0.4
 
 - Lizenz: `MIT`
 - Projektseite: https://docs.expo.dev/versions/latest/sdk/sqlite/
@@ -3694,14 +3687,6 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2014, 2015, 2016, 2017, 2018 Simon Lydell
 
-### js-yaml@3.15.2
-
-- Lizenz: `MIT`
-- Projektseite: https://github.com/nodeca/js-yaml
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (C) 2011-2015 by Vitaly Puzrin
-
 ### js-yaml@4.3.2
 
 - Lizenz: `MIT`
@@ -4216,7 +4201,7 @@ der Anwendung ausgeliefert werden.
 > Copyright (c) Phil Pluckthun,
 > Copyright (c) 650 Industries, Inc. (aka Expo),
 
-### nanoid@3.3.18
+### nanoid@3.3.20
 
 - Lizenz: `MIT`
 - Lizenzdatei im Paket: `LICENSE`
@@ -4542,7 +4527,7 @@ der Anwendung ausgeliefert werden.
 - Lizenzdatei im Paket: `LICENSE`
 - Kein eigener Copyright-Vermerk in der Lizenzdatei gefunden.
 
-### postcss@8.5.28
+### postcss@8.5.30
 
 - Lizenz: `MIT`
 - Projektseite: https://postcss.org/
@@ -5059,7 +5044,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
-### shell-quote@1.9.0
+### shell-quote@1.12.0
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/ljharb/shell-quote
@@ -5129,7 +5114,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2009-2011, Mozilla Foundation and contributors
 
-### source-map-js@1.2.1
+### source-map-js@1.2.2
 
 - Lizenz: `BSD-3-Clause`
 - Projektseite: https://github.com/7rulnik/source-map-js
@@ -5157,13 +5142,6 @@ der Anwendung ausgeliefert werden.
 - Lizenzdatei im Paket: `license`
 
 > Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
-
-### sprintf-js@1.0.3
-
-- Lizenz: `BSD-3-Clause`
-- Lizenzdatei im Paket: `LICENSE`
-
-> Copyright (c) 2007-2014, Alexandru Marasteanu <hello [at) alexei (dot] ro>
 
 ### stack-utils@2.0.6
 
@@ -5697,7 +5675,7 @@ der Anwendung ausgeliefert werden.
 
 > Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
 
-### ws@8.21.3
+### ws@8.22.0
 
 - Lizenz: `MIT`
 - Projektseite: https://github.com/websockets/ws
