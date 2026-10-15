@@ -5,11 +5,11 @@
 Bitte veröffentliche vermutete Sicherheitslücken, Zugangsdaten oder
 personenbezogene Daten nicht in einem öffentlichen Issue.
 
-Bis eine echte Betreiberadresse eingerichtet ist, gilt als deutlich markierter
-Platzhalter: **[SECURITY-KONTAKT VOR RELEASE EINFÜGEN]**. Vor einem öffentlichen
-Release muss dieser Platzhalter durch einen überwachten vertraulichen Kanal
-ersetzt werden, zum Beispiel GitHub Private Vulnerability Reporting und eine
-dedizierte Security-E-Mail-Adresse.
+Melde Sicherheitslücken vertraulich über GitHub Private Vulnerability
+Reporting: [Sicherheitslücke melden](https://github.com/JayceetheChicken/MotivationsApp/security/advisories/new)
+(Repository → Security → Report a vulnerability). Nur die Maintainer sehen
+diese Meldungen. Vor einem Play-Store-Release kann zusätzlich eine dedizierte
+Security-E-Mail-Adresse des Betreibers ergänzt werden.
 
 Eine Meldung sollte enthalten:
 

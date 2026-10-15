@@ -27,6 +27,22 @@ schalten nicht auf ein lokales Repository um. Nicht synchronisierte Änderungen
 sind über den vorhandenen Sync-Status erkennbar. Social-Schreibzugriffe gehen
 immer an Supabase; es gibt keine simulierten Freunde oder Ersatzantworten.
 
+Lehnt der Server eine Offline-Änderung ab (meist weil dieselben Daten auf einem
+anderen Gerät geändert wurden), bleibt sie samt abhängigen Änderungen in der
+Warteschlange und Profil → Konto & Synchronisierung zeigt den Konflikt auch
+nach einem Neustart an. „Stand aus dem Online-Konto übernehmen“ verwirft nach
+Bestätigung nur die abgelehnten und davon abhängigen Änderungen und lädt die
+Lerndaten vollständig neu vom Server. „Erneut senden“ schickt sie unverändert
+noch einmal, etwa nach dem Akzeptieren der Community-Regeln. Eine abgelaufene
+Anmeldung gilt nicht als Konflikt; solche Änderungen bleiben normal ausstehend.
+
+## Projektrolle
+
+Solange nur diese APK verteilt wird und kein Play-Store-Release existiert, ist
+`owoifhueznnsmwbrazmq` das Preview-/Testprojekt im Sinne der Abschnitte unten.
+Die `lernzeit://`-Redirects sind dort deshalb korrekt. Für einen späteren
+Store-Release ein getrenntes Production-Projekt ohne private Schemes anlegen.
+
 ## Externe Konfiguration
 
 ### Aktuell ausgewähltes Projekt
@@ -120,6 +136,25 @@ als allgemeiner Fallback sinnvoll, für die expliziten App-Redirects aber nicht 
 Die Allowlist des verbundenen Projekts enthält jetzt die genauen Preview-URLs
 für Bestätigung und Recovery. Details: [E-Mail-Bestätigung](email-confirmation.md).
 In GitHub fehlen für den APK-Build keine Pflichtvariablen mehr.
+Am 15.10.2026 über `GET /auth/v1/settings` erneut geprüft: Signup an,
+`mailer_autoconfirm=false` (Bestätigung an), anonyme Konten aus.
+
+**SMTP ist der einzige verbleibende Blocker für mehrere echte Nutzer.** Der
+eingebaute Supabase-Mailer stellt nur an Mitglieder des Supabase-Teams zu und
+nur wenige Mails pro Stunde. Andere Nutzer erhalten keinen Bestätigungslink und
+können sich daher nicht anmelden. Für die APK-Phase genügt ein Anbieter ohne
+eigene Domain:
+
+1. Gmail: Google-Konto → Sicherheit → 2-Schritt-Bestätigung an →
+   App-Passwörter → neues App-Passwort erzeugen. Alternativ ein kostenloses
+   Konto bei Brevo oder Resend (dann mit verifizierter Absenderadresse).
+2. Supabase → Authentication → Emails → SMTP Settings → Enable Custom SMTP:
+   Host `smtp.gmail.com`, Port `587`, Benutzer = Gmail-Adresse, Passwort =
+   App-Passwort, Absender = dieselbe Adresse, Absendername „Lernzeit“.
+   Das Passwort nur dort eingeben, nie ins Repository oder in `EXPO_PUBLIC_*`.
+3. Authentication → Rate Limits → „Emails sent“ auf z. B. 30 pro Stunde
+   setzen (Gmail erlaubt rund 500 Mails pro Tag).
+4. Registrierung mit einer Adresse außerhalb des Supabase-Teams testen.
 
 - E-Mail/Passwort und neue Registrierungen aktivieren, **Confirm email an**,
   anonyme Anmeldungen aus, Secure email change an, Mindestpasswortlänge 10.
@@ -192,6 +227,13 @@ Meldungen und Export. Zusätzlich bestanden Passwort-Login, Refresh-Rotation,
 Ablehnung falscher Löschbestätigung und echte Edge-Function-Kontolöschung.
 Anschließend waren keine temporären Testkonten und wieder genau die zwei
 ursprünglichen Profile vorhanden.
+
+Am 15.10.2026 erneut gegen das gehostete Projekt: `verify-hosted.sql` (alle
+sieben Prüfungen einzeln über `supabase db query --linked`) erfüllt, 16/16
+Migrationen angewendet, vollständige API-E2E-Suite bestanden. Der erste Lauf
+brach einmalig beim Abonnieren der eigenen Realtime-Inbox ab; eine separate
+Diagnose und der Wiederholungslauf abonnierten fehlerfrei. Danach existierten
+nur die drei echten Konten, keine temporären Testkonten.
 
 Der APK-Workflow verlangt die unveränderten vollständigen pgTAP-/API-Tests
 gegen einen echten, isolierten Supabase-Stack. Zusätzlich prüft der API-Test
