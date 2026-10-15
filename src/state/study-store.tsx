@@ -29,6 +29,8 @@ import {
   type SharedStudySessionParticipantAction,
   type SocialInvalidationKind,
   type SubmitContentReportInput,
+  type SyncConflictResolution,
+  type SyncResult,
   type SyncStatus,
   type StudyRepository,
 } from '@/data/repositories/study-repository';
@@ -365,6 +367,7 @@ export interface StudyStoreValue extends StudyState {
   pendingMutationCount: number;
   lastSyncError: string | null;
   retrySync: () => Promise<void>;
+  resolveSyncConflicts: (resolution: SyncConflictResolution) => Promise<void>;
   socialLoading: boolean;
   socialError: string | null;
   socialRealtimeUnavailable: boolean;
@@ -1598,6 +1601,7 @@ function sharedSessionProjectionIsOlder(
 const INITIAL_SYNC_STATUS: Readonly<SyncStatus> = {
   phase: 'idle',
   pendingMutationCount: 0,
+  conflictCount: 0,
   lastSyncedAt: null,
   lastError: null,
 };
@@ -1827,13 +1831,13 @@ export function StudyStoreProvider({
     dispatch({ type: 'hydrate', payload: snapshot });
   }, []);
 
-  const retrySync = useCallback(async (): Promise<void> => {
+  const runQueuedSync = useCallback(async (operation: () => Promise<SyncResult>): Promise<void> => {
     if (repository.mode !== 'supabase' || !online) return;
     const baseline = stateRef.current;
     const generation = stateGenerationRef.current;
     const run = async () => {
       try {
-        const result = await repository.sync();
+        const result = await operation();
         if (!result.snapshot) return;
         const snapshot = generation === stateGenerationRef.current
           ? result.snapshot
@@ -1846,7 +1850,19 @@ export function StudyStoreProvider({
     const task = persistenceTailRef.current.then(run, run);
     persistenceTailRef.current = task.then(() => undefined, () => undefined);
     await task;
-  }, [applyRepositorySnapshot, online, repository]);
+  }, [applyRepositorySnapshot, online, repository.mode]);
+
+  const retrySync = useCallback(
+    () => runQueuedSync(() => repository.sync()),
+    [repository, runQueuedSync],
+  );
+
+  const resolveSyncConflicts = useCallback(
+    (resolution: SyncConflictResolution) => runQueuedSync(
+      () => repository.resolveSyncConflicts(resolution),
+    ),
+    [repository, runQueuedSync],
+  );
 
   const runSocialOperation = useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
     setSocialLoading(true);
@@ -2951,6 +2967,7 @@ export function StudyStoreProvider({
       pendingMutationCount: syncStatus.pendingMutationCount,
       lastSyncError: syncStatus.lastError?.message ?? null,
       retrySync,
+      resolveSyncConflicts,
       socialLoading,
       socialError: socialError ?? avatarMaintenanceError,
       socialRealtimeUnavailable,
@@ -3370,6 +3387,7 @@ export function StudyStoreProvider({
     refreshSocial,
     removeSharedGoalProgress,
     repository,
+    resolveSyncConflicts,
     retrySync,
     runAvatarCleanup,
     runSocialOperation,

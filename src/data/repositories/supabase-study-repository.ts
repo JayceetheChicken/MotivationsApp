@@ -43,6 +43,8 @@ import type {
   SharedStudySessionParticipantAction,
   SocialRepository,
   StudyRepository,
+  SyncConflict,
+  SyncConflictResolution,
   SyncResult,
   SyncStatus,
   UpdateAccountProfileInput,
@@ -381,6 +383,11 @@ function mapImportReport(value: unknown): LocalImportReport {
   };
 }
 
+function conflictError(conflicts: readonly SyncConflict[]): SyncStatus['lastError'] {
+  if (conflicts.length === 0) return null;
+  return { code: 'conflict', message: conflicts[0].message, retryable: false };
+}
+
 export interface SupabaseStudyRepositoryOptions {
   client: SupabaseClient<Database>;
   accountId: string;
@@ -400,6 +407,7 @@ export class SupabaseStudyRepository implements StudyRepository {
   private readonly cache: LocalStudyRepository;
   private readonly outbox: PersistentOutbox;
   private readonly cursorKey: string;
+  private readonly rebuildKey: string;
   private readonly listeners = new Set<(status: SyncStatus) => void>();
   private readonly realtimeCleanups = new Set<() => Promise<void>>();
   private readonly socialInboxSubscribers = new Map<string, SocialInboxSubscriber>();
@@ -413,6 +421,7 @@ export class SupabaseStudyRepository implements StudyRepository {
   private status: SyncStatus = {
     phase: 'idle',
     pendingMutationCount: 0,
+    conflictCount: 0,
     lastSyncedAt: null,
     lastError: null,
   };
@@ -433,6 +442,7 @@ export class SupabaseStudyRepository implements StudyRepository {
     });
     this.outbox = new PersistentOutbox(options.storage, `lernzeit.outbox.v1.${scope}`);
     this.cursorKey = `lernzeit.sync-cursor.v1.${scope}`;
+    this.rebuildKey = `lernzeit.sync-rebuild.v1.${scope}`;
     this.social = this.createSocialRepository();
     this.imports = this.createImportRepository();
   }
@@ -459,13 +469,21 @@ export class SupabaseStudyRepository implements StudyRepository {
     this.ensureAvailable();
     throwIfAborted(signal);
     const current = this.lastSnapshot ?? await this.cache.loadSnapshot(signal);
-    const cursor = await this.storage.getItem(this.cursorKey);
+    // A rebuild replaces every core entity with the server state. It waits
+    // until the outbox is empty so queued local edits stay visible.
+    const rebuild = await this.storage.getItem(this.rebuildKey) === '1'
+      && await this.outbox.count(signal) === 0;
+    const cursor = rebuild ? null : await this.storage.getItem(this.cursorKey);
     const data = await this.rpc('pull_my_study_changes', {
       p_after_sync_version: Number(cursor ?? 0),
     }, signal);
-    const mapped = mapPullStudyChanges(data, current);
+    const base = rebuild && current
+      ? { ...current, data: { ...current.data, subjects: [], sessions: [], grades: [], goals: [] } }
+      : current;
+    const mapped = mapPullStudyChanges(data, base);
     await this.cache.saveSnapshot(mapped.snapshot, signal);
     await this.storage.setItem(this.cursorKey, mapped.syncVersion);
+    if (rebuild) await this.storage.removeItem(this.rebuildKey);
     this.lastSnapshot = mapped.snapshot;
     return mapped.snapshot;
   }
@@ -487,8 +505,9 @@ export class SupabaseStudyRepository implements StudyRepository {
       this.updateStatus({
         phase: flushed.conflicts.length > 0 ? 'conflict' : 'idle',
         pendingMutationCount: flushed.pending,
+        conflictCount: flushed.conflicts.length,
         lastSyncedAt: now,
-        lastError: null,
+        lastError: conflictError(flushed.conflicts),
       });
       return {
         snapshot,
@@ -499,15 +518,34 @@ export class SupabaseStudyRepository implements StudyRepository {
       };
     } catch (error) {
       const normalized = asRepositoryError(error);
-      const pending = await this.outbox.count().catch(() => this.status.pendingMutationCount);
+      const summary = await this.outbox.summary().catch(() => null);
       this.updateStatus({
         ...this.status,
         phase: normalized.code === 'network_error' || normalized.code === 'offline' ? 'offline' : 'error',
-        pendingMutationCount: pending,
+        pendingMutationCount: summary?.pending ?? this.status.pendingMutationCount,
+        conflictCount: summary?.conflicts.length ?? this.status.conflictCount,
         lastError: { code: normalized.code, message: normalized.message, retryable: normalized.retryable },
       });
       throw normalized;
     }
+  }
+
+  async resolveSyncConflicts(
+    resolution: SyncConflictResolution,
+    signal?: AbortSignal,
+  ): Promise<SyncResult> {
+    this.ensureAvailable();
+    if (resolution === 'retry') {
+      await this.outbox.retryConflicts(signal);
+    } else {
+      // The rejected edits are still part of the device projection. Mark the
+      // projection for a rebuild before dropping them so a crash in between
+      // cannot leave orphaned local values behind.
+      await this.storage.setItem(this.rebuildKey, '1');
+      await this.outbox.discardConflicts(signal);
+    }
+    await this.updatePendingCount(signal);
+    return this.sync(signal);
   }
 
   getSyncStatus(): SyncStatus {
@@ -1295,8 +1333,23 @@ export class SupabaseStudyRepository implements StudyRepository {
   }
 
   private async updatePendingCount(signal?: AbortSignal): Promise<void> {
-    const pendingMutationCount = await this.outbox.count(signal);
-    this.updateStatus({ ...this.status, pendingMutationCount });
+    const summary = await this.outbox.summary(signal);
+    const conflictCount = summary.conflicts.length;
+    // Conflicts persisted by an earlier app run surface before the next sync.
+    const phase = conflictCount > 0 && this.status.phase === 'idle'
+      ? 'conflict'
+      : conflictCount === 0 && this.status.phase === 'conflict'
+        ? 'idle'
+        : this.status.phase;
+    this.updateStatus({
+      ...this.status,
+      phase,
+      pendingMutationCount: summary.pending,
+      conflictCount,
+      lastError: phase === 'conflict'
+        ? conflictError(summary.conflicts)
+        : this.status.phase === 'conflict' ? null : this.status.lastError,
+    });
   }
 
   private updateStatus(status: SyncStatus): void {

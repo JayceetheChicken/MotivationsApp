@@ -203,6 +203,36 @@ describe('online account profile screen', () => {
     await rendered.unmount();
   });
 
+  it('explains rejected sync changes and resolves them only after confirmation', async () => {
+    const resolveSyncConflicts = jest.fn(async () => undefined);
+    mockedUseStudyStore.mockReturnValue({
+      ...mockedUseStudyStore(),
+      pendingMutationCount: 2,
+      lastSyncError: 'Der Datensatz wurde zwischenzeitlich geändert.',
+      resolveSyncConflicts,
+      syncStatus: {
+        phase: 'conflict',
+        pendingMutationCount: 2,
+        conflictCount: 1,
+        lastSyncedAt: null,
+        lastError: { code: 'conflict', message: 'Der Datensatz wurde zwischenzeitlich geändert.', retryable: false },
+      },
+    } as unknown as ReturnType<typeof useStudyStore>);
+    const rendered = await render(<ProfileScreen />);
+
+    expect(rendered.getByText('1 Änderung wartet auf die Synchronisierung.')).toBeTruthy();
+    expect(rendered.getByText(/1 Änderung wurde vom Server abgelehnt/)).toBeTruthy();
+
+    await fireEvent.press(rendered.getByRole('button', { name: 'Erneut senden' }));
+    await waitFor(() => expect(resolveSyncConflicts).toHaveBeenCalledWith('retry'));
+
+    await fireEvent.press(rendered.getByRole('button', { name: 'Stand aus dem Online-Konto übernehmen' }));
+    expect(resolveSyncConflicts).toHaveBeenCalledTimes(1);
+    await fireEvent.press(rendered.getByRole('button', { name: 'Abgelehnte Änderungen verwerfen' }));
+    await waitFor(() => expect(resolveSyncConflicts).toHaveBeenLastCalledWith('discard_local'));
+    await rendered.unmount();
+  });
+
   it('keeps the confirmation open and shows a friendly deletion error', async () => {
     mockDeleteAccount.mockResolvedValueOnce({
       ok: false,

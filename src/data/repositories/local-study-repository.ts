@@ -5,6 +5,7 @@ import type {
   SocialUpdatesListener,
   SocialRepository,
   StudyRepository,
+  SyncConflictResolution,
   SyncResult,
   SyncStatus,
 } from '@/data/repositories/study-repository';
@@ -56,6 +57,7 @@ export class LocalStudyRepository implements StudyRepository {
   private status: SyncStatus = {
     phase: 'idle',
     pendingMutationCount: 0,
+    conflictCount: 0,
     lastSyncedAt: null,
     lastError: null,
   };
@@ -123,6 +125,11 @@ export class LocalStudyRepository implements StudyRepository {
       conflicts: [],
       syncVersion: null,
     };
+  }
+
+  resolveSyncConflicts(_resolution: SyncConflictResolution, signal?: AbortSignal): Promise<SyncResult> {
+    // A local snapshot has no outbox and therefore never holds conflicts.
+    return this.sync(signal);
   }
 
   getSyncStatus(): SyncStatus {
