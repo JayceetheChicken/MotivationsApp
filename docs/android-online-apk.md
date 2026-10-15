@@ -8,10 +8,34 @@ Artefaktname: **Lernzeit-preview-APK**. Im heruntergeladenen ZIP:
 Pfad auf dem Runner: `dist/Lernzeit-preview.apk`.
 
 Die APK ist eine signierte Preview mit eingebettetem JavaScript; sie benötigt
-weder Expo Go noch Metro. Der vorhandene Expo-Debug-Signierschlüssel wird für
-diese interne Preview verwendet. Sie ist kein Play-Store-Release. Bei einem
-späteren Schlüsselwechsel muss eine bereits installierte Version deinstalliert
-werden; dabei gehen noch nicht synchronisierte Gerätedaten verloren.
+weder Expo Go noch Metro. Sie ist kein Play-Store-Release.
+
+### Signierschlüssel
+
+Gradle signiert mit dem öffentlich bekannten Debug-Schlüssel der React-Native-
+Vorlage (SHA-256 `fac61745…3b9c`, Passwort `android`). Damit könnte jeder ein
+„Update“ bauen, das Android über die installierte App samt gespeicherter
+Anmeldung installiert. Seit 15.10.2026 signiert der Workflow jede APK deshalb
+mit `apksigner --alignment-preserved` neu, mit dem eigenen Lernzeit-Schlüssel
+(RSA 4096, PKCS12, Alias `lernzeit`, gültig bis 2054):
+
+| GitHub | Name | Inhalt |
+| --- | --- | --- |
+| Secret | `ANDROID_RELEASE_KEYSTORE_BASE64` | Keystore, Base64 |
+| Secret | `ANDROID_RELEASE_KEYSTORE_PASSWORD` | Keystore- und Schlüsselpasswort |
+| Variable | `ANDROID_RELEASE_KEY_ALIAS` | `lernzeit` |
+| Variable | `ANDROID_RELEASE_CERT_SHA256` | `78a806ef823990f18a9fd1523214f02edbd855df1d16fd75cda5b4a75e964bc8` |
+
+Fehlt ein Wert, bricht der Build ab. `scripts/check-apk-signer.mjs` verlangt
+genau einen Signer mit dem hinterlegten Fingerabdruck und lehnt den
+Debug-Schlüssel immer ab; `zipalign -c -P 16` prüft die 16-KB-Ausrichtung.
+
+**Sicherung:** Keystore und Passwort liegen außerhalb des Repositorys beim
+Betreiber. Sie gehören in einen Passwortmanager und auf ein Offline-Backup.
+GitHub-Secrets lassen sich nicht wieder auslesen. Geht der Schlüssel verloren,
+kann keine installierte APK mehr aktualisiert werden: Alle Nutzer müssen
+deinstallieren und verlieren dabei noch nicht synchronisierte Gerätedaten.
+Dasselbe gilt einmalig für eine bereits installierte, debug-signierte APK.
 
 Der Workflow setzt `EXPO_PUBLIC_REQUIRE_SUPABASE=1`, `EXPO_PUBLIC_BUILD_PROFILE=preview`
 und `EAS_BUILD_PROFILE=preview`. Das EAS-Profil `preview` setzt denselben
@@ -26,6 +50,22 @@ Speicher nur als Cache und Warteschlange für echte Supabase-Daten. Netzwerkfehl
 schalten nicht auf ein lokales Repository um. Nicht synchronisierte Änderungen
 sind über den vorhandenen Sync-Status erkennbar. Social-Schreibzugriffe gehen
 immer an Supabase; es gibt keine simulierten Freunde oder Ersatzantworten.
+
+Lehnt der Server eine Offline-Änderung ab (meist weil dieselben Daten auf einem
+anderen Gerät geändert wurden), bleibt sie samt abhängigen Änderungen in der
+Warteschlange und Profil → Konto & Synchronisierung zeigt den Konflikt auch
+nach einem Neustart an. „Stand aus dem Online-Konto übernehmen“ verwirft nach
+Bestätigung nur die abgelehnten und davon abhängigen Änderungen und lädt die
+Lerndaten vollständig neu vom Server. „Erneut senden“ schickt sie unverändert
+noch einmal, etwa nach dem Akzeptieren der Community-Regeln. Eine abgelaufene
+Anmeldung gilt nicht als Konflikt; solche Änderungen bleiben normal ausstehend.
+
+## Projektrolle
+
+Solange nur diese APK verteilt wird und kein Play-Store-Release existiert, ist
+`owoifhueznnsmwbrazmq` das Preview-/Testprojekt im Sinne der Abschnitte unten.
+Die `lernzeit://`-Redirects sind dort deshalb korrekt. Für einen späteren
+Store-Release ein getrenntes Production-Projekt ohne private Schemes anlegen.
 
 ## Externe Konfiguration
 
@@ -114,24 +154,45 @@ unterdrückt; die ursprünglichen RPC-Berechtigungen bleiben erhalten.
 
 ### Auth-Dashboard und E-Mails
 
-**Noch manuell erforderlich:** Eigenes SMTP und eine echte HTTPS-Site-URL
-konfigurieren (aktuell kein eigenes SMTP, Site URL `http://localhost:3000`,
-E-Mail-Limit 2/Stunde). Für Passwort-Recovery die nachfolgende genaue
-Preview-Redirect-URL im dafür vorgesehenen Testprojekt zulassen (aktuelle
-Allowlist leer). Diese Werte benötigen die Betreiber-Domain und Mailzugangsdaten.
+**Noch manuell erforderlich:** Eigenes SMTP für beliebige Empfänger konfigurieren.
+Die Site URL ist seit 15.10.2026 `lernzeit://auth/callback` (vorher
+`http://localhost:3000`). Abgelaufene oder ungültige Links öffnen damit die APK
+und führen zum Login statt auf eine nicht erreichbare Seite; geprüft über
+`/auth/v1/verify` mit ungültigem Token (303 auf `lernzeit://auth/callback#error=…`).
+Die Allowlist des verbundenen Projekts enthält jetzt die genauen Preview-URLs
+für Bestätigung und Recovery. Details: [E-Mail-Bestätigung](email-confirmation.md).
 In GitHub fehlen für den APK-Build keine Pflichtvariablen mehr.
+Am 15.10.2026 über `GET /auth/v1/settings` erneut geprüft: Signup an,
+`mailer_autoconfirm=false` (Bestätigung an), anonyme Konten aus.
+
+**SMTP ist der einzige verbleibende Blocker für mehrere echte Nutzer.** Der
+eingebaute Supabase-Mailer stellt nur an Mitglieder des Supabase-Teams zu und
+nur wenige Mails pro Stunde. Andere Nutzer erhalten keinen Bestätigungslink und
+können sich daher nicht anmelden. Für die APK-Phase genügt ein Anbieter ohne
+eigene Domain:
+
+1. Gmail: Google-Konto → Sicherheit → 2-Schritt-Bestätigung an →
+   App-Passwörter → neues App-Passwort erzeugen. Alternativ ein kostenloses
+   Konto bei Brevo oder Resend (dann mit verifizierter Absenderadresse).
+2. Supabase → Authentication → Emails → SMTP Settings → Enable Custom SMTP:
+   Host `smtp.gmail.com`, Port `587`, Benutzer = Gmail-Adresse, Passwort =
+   App-Passwort, Absender = dieselbe Adresse, Absendername „Lernzeit“.
+   Das Passwort nur dort eingeben, nie ins Repository oder in `EXPO_PUBLIC_*`.
+3. Authentication → Rate Limits → „Emails sent“ auf z. B. 30 pro Stunde
+   setzen (Gmail erlaubt rund 500 Mails pro Tag).
+4. Registrierung mit einer Adresse außerhalb des Supabase-Teams testen.
 
 - E-Mail/Passwort und neue Registrierungen aktivieren, **Confirm email an**,
   anonyme Anmeldungen aus, Secure email change an, Mindestpasswortlänge 10.
 - Eigenes SMTP mit verifizierter Absenderdomain konfigurieren. Zustellung an
   beide echten Test-Adressen prüfen; der Standardmailer reicht nicht für
   beliebige externe Empfänger.
-- Site URL: eigene erreichbare HTTPS-Seite für die Registrierungsbestätigung.
-  Registrierung bestätigt die E-Mail im Browser; anschließend in der APK
-  normal anmelden. Der Client behandelt Registrierungscodes ausdrücklich
-  nicht als Passwort-Recovery-Capability.
+- Signup übergibt `lernzeit://auth/callback`. Die Bestätigung öffnet die APK
+  und erzeugt auf dem registrierenden Gerät eine PKCE-Session. Auf einem anderen
+  Gerät anschließend mit Passwort anmelden. Registrierungscodes erzeugen keine
+  Passwort-Recovery-Capability.
 - Für diese Preview exakt
-  `lernzeit://auth/update-password?type=recovery` zur Redirect-Allowlist des
+  `lernzeit://auth/callback` und `lernzeit://auth/update-password?type=recovery` zur Redirect-Allowlist des
   **Testprojekts** hinzufügen, ohne Wildcards. Im Production-Projekt bleibt
   ausschließlich der verifizierte HTTPS-App-Link aus PR #5 erlaubt.
   Falls das ausgewählte Projekt bereits Produktion enthält, die Preview
@@ -192,6 +253,13 @@ Meldungen und Export. Zusätzlich bestanden Passwort-Login, Refresh-Rotation,
 Ablehnung falscher Löschbestätigung und echte Edge-Function-Kontolöschung.
 Anschließend waren keine temporären Testkonten und wieder genau die zwei
 ursprünglichen Profile vorhanden.
+
+Am 15.10.2026 erneut gegen das gehostete Projekt: `verify-hosted.sql` (alle
+sieben Prüfungen einzeln über `supabase db query --linked`) erfüllt, 16/16
+Migrationen angewendet, vollständige API-E2E-Suite bestanden. Der erste Lauf
+brach einmalig beim Abonnieren der eigenen Realtime-Inbox ab; eine separate
+Diagnose und der Wiederholungslauf abonnierten fehlerfrei. Danach existierten
+nur die drei echten Konten, keine temporären Testkonten.
 
 Der APK-Workflow verlangt die unveränderten vollständigen pgTAP-/API-Tests
 gegen einen echten, isolierten Supabase-Stack. Zusätzlich prüft der API-Test

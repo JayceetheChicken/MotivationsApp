@@ -73,14 +73,12 @@ jobs:
       - name: Run Expo Doctor
         run: npm run doctor
 
-      # The baseline is "no findings at all", which is the only baseline that
-      # cannot silently hide one. The previous `--audit-level=high` kept the job
-      # green while twelve moderate advisories stood open; the last of them
-      # (GHSA-w5hq-g745-h8pq, uuid < 11.1.1 via xcode) is resolved by the
-      # `overrides` entry in package.json - see docs/dependency-audit.md. A new
-      # moderate advisory therefore fails this job instead of accumulating.
+      # Every moderate-or-higher advisory fails unless it is an exact GHSA +
+      # package entry with an expiry date in scripts/lib/audit-policy.cjs, and
+      # unused entries fail too. Only advisories without any upstream fix whose
+      # code is not bundled into the app qualify - see docs/dependency-audit.md.
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=moderate
+        run: npm run audit:check
 
   release-gate:
     name: Production release gate rejects placeholders

@@ -36,6 +36,14 @@ const configText = readFileSync(join(root, 'assets', 'app.config'), 'utf8');
 const config = JSON.parse(configText);
 assert.equal(config.extra?.onlineBackendRequired, true, 'Das APK erlaubt lokalen Ersatzbetrieb');
 assert.equal(config.extra?.buildProfile, release.resolveBuildProfile(process.env).profile);
+if (config.extra.buildProfile === 'preview') {
+  assert.equal(config.scheme, 'lernzeit', 'APK lacks the lernzeit scheme');
+  assert.ok(config.android?.intentFilters?.some(filter => filter.action === 'VIEW'
+    && filter.category?.includes('BROWSABLE') && filter.category?.includes('DEFAULT')
+    && filter.data?.some(entry => entry.scheme === 'lernzeit' && entry.host === 'auth' && entry.path === '/callback')),
+  'APK lacks the explicit email callback');
+  assert.ok(bundle.includes('lernzeit://auth/callback'), 'APK bundle lacks the signup redirect');
+}
 const docs = [{ file: 'assets/app.config', content: configText }];
 assert.deepEqual(collectAttestationConsistencyIssues(docs), []);
 assert.equal(config.extra?.authBuildAttestation,

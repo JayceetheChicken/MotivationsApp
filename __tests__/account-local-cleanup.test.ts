@@ -15,6 +15,7 @@ describe('account-local cleanup', () => {
       'lernzeit.repository.v1.account-account-123',
       'lernzeit.outbox.v1.account-account-123',
       'lernzeit.sync-cursor.v1.account-account-123',
+      'lernzeit.sync-rebuild.v1.account-account-123',
       'lernzeit.study-import.v2.account-123',
       'lernzeit.shared-session-actions.v1.account-123',
     ]));

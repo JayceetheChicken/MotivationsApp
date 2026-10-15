@@ -9,6 +9,7 @@ import {
   usernameError,
 } from '@/auth/validation';
 import { AppButton } from '@/components/ui/app-button';
+import type { SyncConflictResolution } from '@/data/repositories/study-repository';
 import { AppCard } from '@/components/ui/app-card';
 import { Avatar } from '@/components/ui/avatar';
 import { Screen } from '@/components/ui/screen';
@@ -40,6 +41,7 @@ export default function ProfileScreen() {
     lastSyncError = null,
     pendingMutationCount = 0,
     retrySync = async () => undefined,
+    resolveSyncConflicts = async () => undefined,
     updateAccountProfile,
     replaceAccountAvatar,
     socialError = null,
@@ -54,6 +56,7 @@ export default function ProfileScreen() {
     syncStatus = {
       phase: 'idle',
       pendingMutationCount: 0,
+      conflictCount: 0,
       lastSyncedAt: null,
       lastError: null,
     },
@@ -63,6 +66,7 @@ export default function ProfileScreen() {
   const isAccount = auth.activeMode === 'supabase';
   const isLocal = auth.activeMode === 'local';
   const canEditProfile = isAccount || isLocal;
+  const conflictCount = syncStatus.conflictCount ?? 0;
   const accountProfile = isAccount
     ? (data.currentUser as AccountStudyUser | null)
     : null;
@@ -100,6 +104,8 @@ export default function ProfileScreen() {
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [discardConflictsConfirmationOpen, setDiscardConflictsConfirmationOpen] = useState(false);
+  const [resolvingConflicts, setResolvingConflicts] = useState(false);
   const [clearDeviceConfirmationOpen, setClearDeviceConfirmationOpen] = useState(false);
   const [clearDeviceConfirmation, setClearDeviceConfirmation] = useState('');
   const [accountActionError, setAccountActionError] = useState<string | null>(null);
@@ -321,6 +327,16 @@ export default function ProfileScreen() {
       active = false;
     };
   }, [pendingAvatarRecoveryMode]);
+
+  const resolveConflicts = async (resolution: SyncConflictResolution) => {
+    setResolvingConflicts(true);
+    try {
+      await resolveSyncConflicts(resolution);
+      setDiscardConflictsConfirmationOpen(false);
+    } finally {
+      setResolvingConflicts(false);
+    }
+  };
 
   const signOut = async () => {
     const result = await auth.signOut();
@@ -581,8 +597,10 @@ export default function ProfileScreen() {
                   ? `Offline – ${pendingMutationCount} ausstehende Änderung${pendingMutationCount === 1 ? '' : 'en'} bleibt auf diesem Gerät gespeichert.`
                   : syncStatus.phase === 'syncing'
                     ? 'Deine Lerndaten werden synchronisiert.'
-                    : pendingMutationCount > 0
-                      ? `${pendingMutationCount} Änderung${pendingMutationCount === 1 ? '' : 'en'} wartet auf die Synchronisierung.`
+                    : pendingMutationCount > conflictCount
+                      ? `${pendingMutationCount - conflictCount} Änderung${pendingMutationCount - conflictCount === 1 ? ' wartet' : 'en warten'} auf die Synchronisierung.`
+                      : conflictCount > 0
+                        ? 'Einige Änderungen konnten nicht synchronisiert werden.'
                       : 'Dein Online-Konto ist verbunden und aktuell.'}
               </Text>
               {lastSyncError ? (
@@ -597,6 +615,52 @@ export default function ProfileScreen() {
                   onPress={() => void retrySync()}
                   variant="outline"
                 />
+              ) : null}
+              {conflictCount > 0 && syncStatus.phase !== 'offline' ? (
+                <View style={styles.accountActions}>
+                  <Text accessibilityRole="alert" style={[theme.typography.body, { color: theme.colors.text }]}>
+                    {`${conflictCount} Änderung${conflictCount === 1 ? ' wurde' : 'en wurden'} vom Server abgelehnt, meist weil dieselben Daten inzwischen auf einem anderen Gerät geändert wurden.`}
+                  </Text>
+                  {discardConflictsConfirmationOpen ? (
+                    <>
+                      <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                        Die abgelehnten Änderungen werden auf diesem Gerät verworfen und deine Daten neu aus dem Online-Konto geladen.
+                      </Text>
+                      <AppButton
+                        disabled={resolvingConflicts}
+                        fullWidth
+                        label="Abgelehnte Änderungen verwerfen"
+                        loading={resolvingConflicts}
+                        onPress={() => void resolveConflicts('discard_local')}
+                        variant="danger"
+                      />
+                      <AppButton
+                        disabled={resolvingConflicts}
+                        fullWidth
+                        label="Abbrechen"
+                        onPress={() => setDiscardConflictsConfirmationOpen(false)}
+                        variant="ghost"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <AppButton
+                        disabled={resolvingConflicts}
+                        fullWidth
+                        label="Stand aus dem Online-Konto übernehmen"
+                        onPress={() => setDiscardConflictsConfirmationOpen(true)}
+                      />
+                      <AppButton
+                        disabled={resolvingConflicts}
+                        fullWidth
+                        label="Erneut senden"
+                        loading={resolvingConflicts}
+                        onPress={() => void resolveConflicts('retry')}
+                        variant="outline"
+                      />
+                    </>
+                  )}
+                </View>
               ) : null}
             </>
           ) : auth.configuration.isConfigured ? (

@@ -15,6 +15,7 @@ export function accountLocalStorageKeys(accountId: string): readonly string[] {
     `lernzeit.repository.v1.${scope}`,
     `lernzeit.outbox.v1.${scope}`,
     `lernzeit.sync-cursor.v1.${scope}`,
+    `lernzeit.sync-rebuild.v1.${scope}`,
     `lernzeit.study-import.v2.${cleanAccountId}`,
     `lernzeit.shared-session-actions.v1.${cleanAccountId}`,
   ];
