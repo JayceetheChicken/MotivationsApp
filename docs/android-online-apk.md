@@ -131,8 +131,10 @@ unterdrückt; die ursprünglichen RPC-Berechtigungen bleiben erhalten.
 ### Auth-Dashboard und E-Mails
 
 **Noch manuell erforderlich:** Eigenes SMTP für beliebige Empfänger konfigurieren.
-Die Site URL ist weiterhin `http://localhost:3000`; eine eigene HTTPS-Seite ist
-als allgemeiner Fallback sinnvoll, für die expliziten App-Redirects aber nicht nötig.
+Die Site URL ist seit 15.10.2026 `lernzeit://auth/callback` (vorher
+`http://localhost:3000`). Abgelaufene oder ungültige Links öffnen damit die APK
+und führen zum Login statt auf eine nicht erreichbare Seite; geprüft über
+`/auth/v1/verify` mit ungültigem Token (303 auf `lernzeit://auth/callback#error=…`).
 Die Allowlist des verbundenen Projekts enthält jetzt die genauen Preview-URLs
 für Bestätigung und Recovery. Details: [E-Mail-Bestätigung](email-confirmation.md).
 In GitHub fehlen für den APK-Build keine Pflichtvariablen mehr.

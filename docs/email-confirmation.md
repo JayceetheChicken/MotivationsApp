@@ -31,11 +31,13 @@ ergänzt. E-Mail-Bestätigung bleibt eingeschaltet. Die bestehenden Bestätigung
 und Recovery-Vorlagen verwenden `{{ .ConfirmationURL }}`. Diese Variable erhalten;
 nicht direkt auf `{{ .SiteURL }}` oder einen Token-Link zur App verweisen.
 
-Die Site URL muss für diesen expliziten, freigegebenen App-Redirect nicht geändert
-werden. Sie ist weiterhin `http://localhost:3000`; für andere Fallback-Flows sollte
-der Betreiber dort seine tatsächlich erreichbare HTTPS-Seite setzen. Keine fremde
-oder erfundene Domain eintragen. Alte E-Mails ändern sich dadurch nicht: nach
-Installation der neuen APK einen neuen Signup/Bestätigungslink verwenden.
+Die Site URL ist seit 15.10.2026 ebenfalls `lernzeit://auth/callback`. Supabase
+leitet Fehler (z. B. `otp_expired`) und Flows ohne erlaubtes `redirect_to` dorthin.
+Die App erkennt die Route, importiert wegen des Fragments keine Tokens und zeigt
+den Login. Keine Vorlage verwendet `{{ .SiteURL }}`. Für ein späteres
+Production-Projekt dort die eigene HTTPS-Seite setzen; keine fremde oder erfundene
+Domain eintragen. Alte E-Mails ändern sich dadurch nicht: nach Installation der
+neuen APK einen neuen Signup/Bestätigungslink verwenden.
 Eigenes SMTP bleibt für verlässliche Zustellung an beliebige Empfänger erforderlich.
 Für diese Änderung sind keine neuen GitHub-Secrets oder privaten Client-Schlüssel nötig.
 
