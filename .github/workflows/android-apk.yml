@@ -147,7 +147,10 @@ jobs:
           umask 077
           printf '%s' "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
           mkdir -p dist
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \n            --ks "$KEYSTORE" --ks-type PKCS12 --ks-key-alias "$ANDROID_RELEASE_KEY_ALIAS" \n            --ks-pass env:ANDROID_RELEASE_KEYSTORE_PASSWORD \n            --alignment-preserved --out dist/Lernzeit-preview.apk "$APK_PATH"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks "$KEYSTORE" --ks-type PKCS12 --ks-key-alias "$ANDROID_RELEASE_KEY_ALIAS" \
+            --ks-pass env:ANDROID_RELEASE_KEYSTORE_PASSWORD \
+            --alignment-preserved --out dist/Lernzeit-preview.apk "$APK_PATH"
           rm -f dist/Lernzeit-preview.apk.idsig
           ls -lh dist/Lernzeit-preview.apk
 
