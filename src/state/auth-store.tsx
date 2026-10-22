@@ -15,6 +15,7 @@ import { requestOnlineAccountDeletion } from '@/auth/account-deletion';
 import { ONLINE_BACKEND_REQUIRED } from '@/auth/backend-policy';
 import { clearAccountLocalData } from '@/auth/account-local-cleanup';
 import { authStorage } from '@/auth/storage';
+import { EMAIL_CONFIRMATION_REDIRECT_URL, isEmailCallbackRoute, parseEmailCallback } from '@/auth/email-callback';
 import {
   hasPasswordRecoveryMaterial,
   parsePasswordRecoveryUrl,
@@ -174,6 +175,7 @@ interface AuthStoreValue {
   user: User | null;
   localProfile: LocalProfile | null;
   passwordRecoveryPending: boolean;
+  emailCallbackPending: boolean;
   activeMode: ActiveAuthMode;
   error: string | null;
   notice: string | null;
@@ -268,6 +270,8 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const sessionRef = useRef<Session | null>(null);
   const processedRecoveryLinksRef = useRef(new Set<string>());
+  const processedEmailLinksRef = useRef(new Set<string>());
+  const [emailCallbackPending, setEmailCallbackPending] = useState(false);
   const passwordRecoveryCapabilityRef = useRef<PasswordRecoveryCapability | null>(null);
   const passwordRecoveryExpiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const passwordRecoveryStorageGenerationRef = useRef(0);
@@ -321,6 +325,39 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
 
     const handleAuthUrl = async (url: string | null) => {
       if (!url || !supabase || !isMounted) return;
+      if (isEmailCallbackRoute(url)) {
+        setEmailCallbackPending(true);
+        setError(null);
+        setNotice(null);
+        try {
+          const request = parseEmailCallback(url);
+          if (!request) throw new Error('Invalid confirmation callback');
+          const fingerprint = passwordRecoveryRequestFingerprint({ kind: 'pkce', code: request.code });
+          if (processedEmailLinksRef.current.has(fingerprint)) return;
+          const { data: current, error: currentError } = await supabase.auth.getSession();
+          if (currentError) throw currentError;
+          if (!isMounted) return;
+          if (current.session || sessionRef.current) {
+            setNotice('Du bist bereits angemeldet. Für ein anderes Konto melde dich zuerst ab.');
+            return;
+          }
+          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(
+            request.code, request.flowId ? { flowId: request.flowId } : undefined,
+          );
+          if (exchangeError || !data.session) throw exchangeError ?? new Error('Session missing');
+          if (!isMounted) return;
+          sessionRef.current = data.session;
+          setSession(data.session);
+          await clearPasswordRecoveryCapability();
+          processedEmailLinksRef.current.add(fingerprint);
+          setNotice('Deine E-Mail-Adresse ist bestätigt. Du bist angemeldet.');
+        } catch {
+          if (isMounted) setError('Der Bestätigungslink konnte nicht zur Anmeldung verwendet werden. Wenn deine E-Mail bereits bestätigt ist, melde dich mit deinem Passwort an. Öffne neue Bestätigungslinks auf dem Gerät, auf dem du dich registriert hast.');
+        } finally {
+          if (isMounted) setEmailCallbackPending(false);
+        }
+        return;
+      }
       const recovery = parsePasswordRecoveryUrl(url);
       if (!recovery) {
         if (hasPasswordRecoveryMaterial(url)) {
@@ -375,7 +412,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
         }
 
         const { data: exchangeData, error: exchangeError } = await supabase.auth
-          .exchangeCodeForSession(recovery.code);
+          .exchangeCodeForSession(recovery.code, recovery.flowId ? { flowId: recovery.flowId } : undefined);
         if (exchangeError) throw exchangeError;
         if (!exchangeData.session) throw new Error('Recovery session missing');
         if (!isMounted) {
@@ -421,6 +458,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     };
     let recoveryQueue: Promise<void> = Promise.resolve();
     const enqueueAuthUrl = (url: string | null): Promise<void> => {
+      if (isEmailCallbackRoute(url)) setEmailCallbackPending(true);
       const current = recoveryQueue.then(() => handleAuthUrl(url));
       recoveryQueue = current.catch(() => undefined);
       return current;
@@ -576,6 +614,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
         email: input.email.trim().toLowerCase(),
         password: input.password,
         options: {
+          emailRedirectTo: EMAIL_CONFIRMATION_REDIRECT_URL,
           data: {
             display_name: input.displayName.trim(),
             username: input.username.trim().toLowerCase(),
@@ -950,6 +989,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
       user: session?.user ?? null,
       localProfile,
       passwordRecoveryPending,
+      emailCallbackPending,
       activeMode,
       error,
       notice,
@@ -973,6 +1013,7 @@ export function AuthStoreProvider({ children }: PropsWithChildren) {
     notice,
     pendingAction,
     passwordRecoveryPending,
+    emailCallbackPending,
     removeLocalProfile,
     saveLocalProfile,
     sendPasswordReset,

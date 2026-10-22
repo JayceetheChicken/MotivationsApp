@@ -58,3 +58,4 @@ jobs:
           echo "::add-mask::$SERVICE_ROLE_KEY"
           export API_URL ANON_KEY SERVICE_ROLE_KEY
           npm run test:supabase:e2e
+          npm run test:auth:e2e

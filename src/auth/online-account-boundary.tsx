@@ -22,6 +22,7 @@ export function OnlineAccountBoundary({ children }: PropsWithChildren) {
   if (auth.session) return children;
   return <Stack initialRouteName="(auth)" screenOptions={{ headerShown: false }}>
     <Stack.Screen name="(auth)" />
+    <Stack.Screen name="auth/callback" />
     <Stack.Screen name="datenschutz" />
     <Stack.Screen name="nutzungsbedingungen" />
     <Stack.Screen name="community-regeln" />

@@ -171,6 +171,76 @@ describe('SupabaseStudyRepository RPC contract', () => {
     expect(rpc).toHaveBeenCalledWith('pull_my_study_changes', { p_after_sync_version: 0 });
   });
 
+  it('surfaces rejected edits and rebuilds the projection when they are discarded', async () => {
+    const { client, rpc } = fakeClient();
+    const defaultRpc = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (name: string) => (
+      name === 'upsert_subject'
+        ? { data: null, error: { code: 'P0001', message: 'revision_conflict' } }
+        : defaultRpc(name)
+    ));
+    const storage = new MemoryKeyValueStorage();
+    const repository = createSupabaseStudyRepository({ client, accountId: 'account-id', storage });
+    const baseline = (await repository.refresh())!;
+    await repository.saveSnapshot({
+      ...baseline,
+      data: {
+        ...baseline.data,
+        subjects: [{ id: 'subject-1', name: 'Mathe', color: '#000000', icon: 'book', revision: 1 }],
+      },
+    });
+
+    const rejected = await repository.sync();
+    expect(rejected.conflicts).toHaveLength(1);
+    expect(rejected.snapshot?.data.subjects).toHaveLength(1);
+    expect(repository.getSyncStatus()).toMatchObject({
+      phase: 'conflict',
+      pendingMutationCount: 1,
+      conflictCount: 1,
+      lastError: { code: 'conflict' },
+    });
+
+    rpc.mockClear();
+    const resolved = await repository.resolveSyncConflicts('discard_local');
+    expect(rpc).not.toHaveBeenCalledWith('upsert_subject', expect.anything());
+    expect(rpc).toHaveBeenCalledWith('pull_my_study_changes', { p_after_sync_version: 0 });
+    expect(resolved.snapshot?.data.subjects).toEqual([]);
+    expect(repository.getSyncStatus()).toMatchObject({
+      phase: 'idle', pendingMutationCount: 0, conflictCount: 0, lastError: null,
+    });
+    expect(storage.getItem('lernzeit.sync-rebuild.v1.account-account-id')).toBeNull();
+
+    rpc.mockClear();
+    await repository.sync();
+    expect(rpc).toHaveBeenCalledWith('pull_my_study_changes', { p_after_sync_version: 7 });
+  });
+
+  it('restores persisted conflicts into the sync status after a restart', async () => {
+    const { client, rpc } = fakeClient();
+    const defaultRpc = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (name: string) => (
+      name === 'upsert_subject'
+        ? { data: null, error: { code: 'P0001', message: 'revision_conflict' } }
+        : defaultRpc(name)
+    ));
+    const storage = new MemoryKeyValueStorage();
+    const first = createSupabaseStudyRepository({ client, accountId: 'account-id', storage });
+    const baseline = (await first.refresh())!;
+    await first.saveSnapshot({
+      ...baseline,
+      data: {
+        ...baseline.data,
+        subjects: [{ id: 'subject-1', name: 'Mathe', color: '#000000', icon: 'book', revision: 1 }],
+      },
+    });
+    await first.sync();
+    await first.dispose();
+
+    const restarted = createSupabaseStudyRepository({ client, accountId: 'account-id', storage });
+    await restarted.loadSnapshot();
+    expect(restarted.getSyncStatus()).toMatchObject({ phase: 'conflict', conflictCount: 1 });
+  });
+
   it('sends the required shared-goal period and canonical target payload', async () => {
     const { client, rpc } = fakeClient();
     const repository = createSupabaseStudyRepository({

@@ -22,9 +22,18 @@ export type StudyRepositoryMode = 'local' | 'supabase';
 
 export type SyncPhase = 'idle' | 'offline' | 'syncing' | 'conflict' | 'error';
 
+/**
+ * How quarantined outbox conflicts are resolved: `discard_local` drops the
+ * rejected edits and rebuilds the device projection from the server, `retry`
+ * sends them again unchanged (for rejections that were fixed meanwhile).
+ */
+export type SyncConflictResolution = 'discard_local' | 'retry';
+
 export interface SyncStatus {
   phase: SyncPhase;
   pendingMutationCount: number;
+  /** Quarantined mutations; included in `pendingMutationCount`. */
+  conflictCount: number;
   lastSyncedAt: string | null;
   lastError: Readonly<{
     code: string;
@@ -354,6 +363,7 @@ export interface StudyRepository {
   refresh(signal?: AbortSignal): Promise<StudyStateSnapshot | null>;
   enqueueMutation(mutation: CoreMutation, signal?: AbortSignal): Promise<void>;
   sync(signal?: AbortSignal): Promise<SyncResult>;
+  resolveSyncConflicts(resolution: SyncConflictResolution, signal?: AbortSignal): Promise<SyncResult>;
   getSyncStatus(): SyncStatus;
   subscribeSyncStatus(listener: (status: SyncStatus) => void): () => void;
   subscribeSharedGoalProgress(

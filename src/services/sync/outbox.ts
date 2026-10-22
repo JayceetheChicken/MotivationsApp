@@ -42,6 +42,14 @@ const MUTATION_NAMES = new Set([
   'soft_delete_grade',
 ]);
 const ENTITY_TYPES = new Set(['subject', 'goal', 'session', 'grade']);
+// These errors describe the session or the flush itself, not the mutation.
+// Quarantining on them would strand valid edits after a token expiry.
+const INTERRUPTION_CODES = new Set(['unauthorized', 'cancelled', 'account_required']);
+
+export interface OutboxSummary {
+  pending: number;
+  conflicts: readonly SyncConflict[];
+}
 
 export interface OutboxFlushResult {
   applied: number;
@@ -63,6 +71,16 @@ function canonicalMutation(mutation: CoreMutation): string {
     ...mutation,
     dependsOn: sortedDependencies(mutation),
   });
+}
+
+function toSyncConflict(mutation: OutboxMutation): SyncConflict {
+  return {
+    operationId: mutation.operationId,
+    entityType: mutation.entityType,
+    entityId: mutation.entityId,
+    message: mutation.lastError?.message ?? 'Nicht aufgelöster Synchronisationskonflikt.',
+    localValue: mutation.payload,
+  };
 }
 
 function parseOutbox(value: string | null): PersistedOutbox {
@@ -226,6 +244,14 @@ export class PersistentOutbox {
     return (await this.list(signal)).length;
   }
 
+  async summary(signal?: AbortSignal): Promise<OutboxSummary> {
+    const mutations = await this.list(signal);
+    return {
+      pending: mutations.length,
+      conflicts: mutations.filter((mutation) => mutation.state === 'conflict').map(toSyncConflict),
+    };
+  }
+
   async remove(operationId: string, signal?: AbortSignal): Promise<void> {
     return this.runExclusive(async () => {
       const persisted = parseOutbox(await this.storage.getItem(this.storageKey));
@@ -243,6 +269,56 @@ export class PersistentOutbox {
       mutation.lastError = null;
       mutation.updatedAt = new Date().toISOString();
       await this.write(persisted, signal);
+    });
+  }
+
+  async retryConflicts(signal?: AbortSignal): Promise<number> {
+    return this.runExclusive(async () => {
+      throwIfAborted(signal);
+      const persisted = parseOutbox(await this.storage.getItem(this.storageKey));
+      const now = new Date().toISOString();
+      let retried = 0;
+      for (const mutation of persisted.mutations) {
+        if (mutation.state !== 'conflict') continue;
+        mutation.state = 'queued';
+        mutation.lastError = null;
+        mutation.updatedAt = now;
+        retried += 1;
+      }
+      if (retried > 0) await this.write(persisted, signal);
+      return retried;
+    });
+  }
+
+  /**
+   * Drops every quarantined mutation together with the queued mutations that
+   * depend on it, directly or transitively. Those dependents could never be
+   * applied once their predecessor is gone.
+   */
+  async discardConflicts(signal?: AbortSignal): Promise<number> {
+    return this.runExclusive(async () => {
+      throwIfAborted(signal);
+      const persisted = parseOutbox(await this.storage.getItem(this.storageKey));
+      const discarded = new Set(
+        persisted.mutations
+          .filter((mutation) => mutation.state === 'conflict')
+          .map((mutation) => mutation.operationId),
+      );
+      if (discarded.size === 0) return 0;
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const mutation of persisted.mutations) {
+          if (discarded.has(mutation.operationId)) continue;
+          if ((mutation.dependsOn ?? []).some((dependency) => discarded.has(dependency))) {
+            discarded.add(mutation.operationId);
+            grew = true;
+          }
+        }
+      }
+      persisted.mutations = persisted.mutations.filter((mutation) => !discarded.has(mutation.operationId));
+      await this.write(persisted, signal);
+      return discarded.size;
     });
   }
 
@@ -270,13 +346,7 @@ export class PersistentOutbox {
     let applied = 0;
     const conflicts: SyncConflict[] = persisted.mutations
       .filter((mutation) => mutation.state === 'conflict')
-      .map((mutation) => ({
-        operationId: mutation.operationId,
-        entityType: mutation.entityType,
-        entityId: mutation.entityId,
-        message: mutation.lastError?.message ?? 'Nicht aufgelöster Synchronisationskonflikt.',
-        localValue: mutation.payload,
-      }));
+      .map(toSyncConflict);
     const completed = new Set<string>();
     const known = new Set(persisted.mutations.map((entry) => entry.operationId));
     let madeProgress = true;
@@ -319,7 +389,8 @@ export class PersistentOutbox {
           mutation.lastError = { code: repositoryError.code, message: repositoryError.message };
           mutation.updatedAt = new Date().toISOString();
 
-          if (repositoryError.code === 'conflict' || !repositoryError.retryable) {
+          const interrupted = INTERRUPTION_CODES.has(repositoryError.code);
+          if (repositoryError.code === 'conflict' || (!repositoryError.retryable && !interrupted)) {
             mutation.state = 'conflict';
             conflicts.push({
               operationId: mutation.operationId,

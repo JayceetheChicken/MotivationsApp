@@ -119,7 +119,7 @@ gegen ein Remote-Dashboard synchronisiert.
 npm ci
 npm run verify        # sensitive files, release report, typecheck, tests, lint, licences, expo-doctor
 npm run test:db       # benoetigt Docker
-npm audit --omit=dev --audit-level=high
+npm run audit:check    # Produktions-Audit; Ausnahmen siehe docs/dependency-audit.md
 ```
 
 `npm run verify` fasst die Repository-Gates zusammen. Zusätzlich prüfbar:

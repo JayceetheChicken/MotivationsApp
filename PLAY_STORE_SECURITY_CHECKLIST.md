@@ -79,8 +79,10 @@ Stand: 3. August 2026
   Verifikation per `adb shell pm get-app-links de.lernzeit.app` prüfen.
 - [ ] Supabase Redirect-Allowlist ohne Wildcards; E-Mail-Bestätigung, Auth-
   Limits, CAPTCHA, SMTP, Security Advisor, Logs, Backups/Restore und Alarme.
-- [ ] GitHub Secret Scanning, Push Protection und Private Vulnerability
-  Reporting aktivieren; echte Security-Adresse in `SECURITY.md` eintragen.
+- [x] GitHub Secret Scanning, Push Protection und Private Vulnerability
+  Reporting aktivieren; `SECURITY.md` verweist auf den vertraulichen
+  GitHub-Meldeweg (am 15.10.2026 geprüft). Optional vor Store-Release eine
+  Security-E-Mail des Betreibers ergänzen.
 - [ ] Branch Protection für `main` mit den Required Checks aus
   `docs/github-branch-protection.md`.
 - [ ] Moderate `uuid`-Advisory mit jedem Expo-SDK-Update erneut bewerten; kein

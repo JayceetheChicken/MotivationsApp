@@ -84,7 +84,7 @@ jobs:
         run: |
           npm run verify
           python scripts/test-extract-apk.py
-          npm audit --omit=dev --audit-level=moderate
+          npm run audit:check
 
       - name: Set up Deno
         uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
@@ -124,22 +124,47 @@ jobs:
       - name: Verify merged preview manifest
         run: node scripts/verify-native-linking.mjs android/app/build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml
 
-      - name: Prepare APK artifact
+      # Gradle signs with the React Native template debug key, which is
+      # public. A shared APK signed with it lets anyone publish an "update"
+      # that Android installs over the app and its stored session. Every
+      # artifact is therefore re-signed with the project's own key.
+      - name: Sign APK with the Lernzeit release key
         shell: bash
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ vars.ANDROID_RELEASE_KEY_ALIAS }}
         run: |
           set -euo pipefail
+          if [ -z "${ANDROID_RELEASE_KEYSTORE_BASE64:-}" ] || [ -z "${ANDROID_RELEASE_KEYSTORE_PASSWORD:-}" ] || [ -z "${ANDROID_RELEASE_KEY_ALIAS:-}" ]; then
+            echo '::error::Release signing key missing; see docs/android-online-apk.md' >&2
+            exit 1
+          fi
           APK_PATH=android/app/build/outputs/apk/release/app-release.apk
           test -s "$APK_PATH"
+          KEYSTORE="$RUNNER_TEMP/lernzeit-release.p12"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          umask 077
+          printf '%s' "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
           mkdir -p dist
-          cp "$APK_PATH" dist/Lernzeit-preview.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks "$KEYSTORE" --ks-type PKCS12 --ks-key-alias "$ANDROID_RELEASE_KEY_ALIAS" \
+            --ks-pass env:ANDROID_RELEASE_KEYSTORE_PASSWORD \
+            --alignment-preserved --out dist/Lernzeit-preview.apk "$APK_PATH"
+          rm -f dist/Lernzeit-preview.apk.idsig
           ls -lh dist/Lernzeit-preview.apk
 
       - name: Inspect the actual signed APK
         shell: bash
+        env:
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           set -euo pipefail
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose dist/Lernzeit-preview.apk
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 dist/Lernzeit-preview.apk
+          node scripts/check-apk-signer.mjs "$ANDROID_HOME/build-tools/36.0.0/apksigner" dist/Lernzeit-preview.apk "$ANDROID_RELEASE_CERT_SHA256"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging dist/Lernzeit-preview.apk
+          node scripts/check-apk-email-link.mjs "$ANDROID_HOME/build-tools/36.0.0/aapt" dist/Lernzeit-preview.apk
           python scripts/extract-apk.py dist/Lernzeit-preview.apk "$RUNNER_TEMP/apk-inspection"
           node scripts/check-apk-contents.mjs "$RUNNER_TEMP/apk-inspection"
           sha256sum dist/Lernzeit-preview.apk > dist/Lernzeit-preview.apk.sha256

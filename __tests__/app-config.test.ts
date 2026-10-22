@@ -163,6 +163,14 @@ describe('app.config.js in a production build', () => {
 });
 
 describe('app.config.js in non-production builds', () => {
+  it('registers the exact email callback in the actual preview Expo configuration', () => {
+    const config = resolveConfig(nonProductionEnvironment('preview'));
+    expect(config.scheme).toBe('lernzeit');
+    expect(config.android.intentFilters).toContainEqual({
+      action: 'VIEW', category: ['BROWSABLE', 'DEFAULT'],
+      data: [{ scheme: 'lernzeit', host: 'auth', path: '/callback' }],
+    });
+  });
   it.each(['development', 'preview', 'local'])(
     'rejects configured secret or privileged fallback keys in %s before Metro can inline them',
     (profile) => {
@@ -229,7 +237,7 @@ describe('unrelated intent filters', () => {
     });
     expect(config.android.intentFilters).toContainEqual(UNRELATED_FILTER);
     expect(recoveryFilters(config.android.intentFilters)).toHaveLength(1);
-    expect(config.android.intentFilters).toHaveLength(2);
+    expect(config.android.intentFilters).toHaveLength(_label === 'production' ? 2 : 3);
   });
 
   /**

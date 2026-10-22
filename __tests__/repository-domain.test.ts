@@ -211,6 +211,71 @@ describe('repository domain infrastructure', () => {
     expect(repeated.conflicts).toHaveLength(1);
   });
 
+  it('keeps mutations queued when the session expires or the flush is cancelled', async () => {
+    const outbox = new PersistentOutbox(new MemoryKeyValueStorage(), 'session-outbox');
+    await outbox.enqueue(mutation());
+
+    for (const code of ['unauthorized', 'account_required'] as const) {
+      const result = await outbox.flush(async () => {
+        throw new StudyRepositoryError(code, code);
+      });
+      expect(result.conflicts).toEqual([]);
+    }
+    expect((await outbox.list())[0]).toMatchObject({ state: 'queued' });
+    await expect(outbox.flush(async () => undefined)).resolves.toMatchObject({ applied: 1, pending: 0 });
+  });
+
+  it('discards conflicts together with their transitive dependents only', async () => {
+    const outbox = new PersistentOutbox(new MemoryKeyValueStorage(), 'discard-outbox');
+    const subject = mutation();
+    const session = mutation({
+      operationId: '22222222-2222-4222-8222-222222222222',
+      name: 'save_completed_session',
+      entityType: 'session',
+      entityId: 'session-1',
+      payload: { id: 'session-1' },
+      dependsOn: [subject.operationId],
+    });
+    const grade = mutation({
+      operationId: '33333333-3333-4333-8333-333333333333',
+      name: 'upsert_grade',
+      entityType: 'grade',
+      entityId: 'grade-1',
+      payload: { id: 'grade-1' },
+      dependsOn: [session.operationId],
+    });
+    const unrelated = mutation({
+      operationId: '44444444-4444-4444-8444-444444444444',
+      entityId: 'subject-2',
+      payload: { id: 'subject-2' },
+    });
+    for (const entry of [subject, session, grade, unrelated]) await outbox.enqueue(entry);
+
+    await outbox.flush(async (entry) => {
+      if (entry.operationId === subject.operationId) {
+        throw new StudyRepositoryError('conflict', 'revision conflict');
+      }
+      throw new StudyRepositoryError('offline', 'offline');
+    });
+    expect(await outbox.summary()).toMatchObject({ pending: 4, conflicts: [{ operationId: subject.operationId }] });
+
+    await expect(outbox.discardConflicts()).resolves.toBe(3);
+    expect((await outbox.list()).map((entry) => entry.operationId)).toEqual([unrelated.operationId]);
+  });
+
+  it('requeues conflicts for an explicit retry', async () => {
+    const outbox = new PersistentOutbox(new MemoryKeyValueStorage(), 'retry-outbox');
+    await outbox.enqueue(mutation());
+    await outbox.flush(async () => {
+      throw new StudyRepositoryError('forbidden', 'rules not accepted', { retryable: false });
+    });
+    expect((await outbox.summary()).conflicts).toHaveLength(1);
+
+    await expect(outbox.retryConflicts()).resolves.toBe(1);
+    expect((await outbox.list())[0]).toMatchObject({ state: 'queued', lastError: null });
+    await expect(outbox.flush(async () => undefined)).resolves.toMatchObject({ applied: 1, conflicts: [] });
+  });
+
   it('carries server revisions through consecutive offline mutations of one entity', async () => {
     const outbox = new PersistentOutbox(new MemoryKeyValueStorage(), 'revision-outbox');
     const first = mutation({
